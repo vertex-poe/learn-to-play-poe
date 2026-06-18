@@ -5,7 +5,7 @@
 #include <QDialog>
 
 class QCheckBox;
-class QLineEdit;
+class ListEditor;
 
 class SettingsDialog : public QDialog
 {
@@ -23,13 +23,12 @@ private:
 
     AppConfig &m_config;
 
-    QCheckBox *m_autoDetect{};
-    QLineEdit *m_installDir{};
-    QLineEdit *m_winExe{};
-    QLineEdit *m_linuxExe{};
-    QCheckBox *m_enableOverlay{};
-    QCheckBox *m_startMinimized{};
-    QCheckBox *m_minimizeToTray{};
-    QCheckBox *m_autoUpdate{};
-    QCheckBox *m_autoStartOnBoot{};
+    QCheckBox  *m_autoDetect{};
+    ListEditor *m_installDirs{};
+    ListEditor *m_exeNames{};
+    QCheckBox  *m_enableOverlay{};
+    QCheckBox  *m_startMinimized{};
+    QCheckBox  *m_minimizeToTray{};
+    QCheckBox  *m_autoUpdate{};
+    QCheckBox  *m_autoStartOnBoot{};
 };

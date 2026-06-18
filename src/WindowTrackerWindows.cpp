@@ -9,13 +9,13 @@
 namespace {
 
 struct EnumData {
-    const QString &target;
-    WindowState    result;
+    const QStringList &targets;
+    WindowState        result;
 };
 
 BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM lParam)
 {
-    if (!IsWindowVisible(hwnd) || IsIconic(hwnd))
+    if (!IsWindowVisible(hwnd))
         return TRUE;
 
     DWORD pid = 0;
@@ -32,16 +32,20 @@ BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM lParam)
     if (QueryFullProcessImageNameW(proc, 0, buf, &size)) {
         const QString fullPath = QString::fromWCharArray(buf, static_cast<int>(size));
         const QString baseName = QFileInfo(fullPath).fileName();
-        if (baseName.compare(reinterpret_cast<EnumData *>(lParam)->target,
-                             Qt::CaseInsensitive) == 0) {
-            RECT r = {};
-            GetWindowRect(hwnd, &r);
-            auto *data         = reinterpret_cast<EnumData *>(lParam);
-            data->result.found      = true;
-            data->result.rect       = QRect(r.left, r.top, r.right - r.left, r.bottom - r.top);
-            data->result.installDir = QFileInfo(fullPath).absolutePath();
-            CloseHandle(proc);
-            return FALSE; // stop enumeration
+        auto *data = reinterpret_cast<EnumData *>(lParam);
+        for (const QString &target : data->targets) {
+            if (baseName.compare(target, Qt::CaseInsensitive) == 0) {
+                data->result.found          = true;
+                data->result.executableName = baseName;
+                data->result.installDir     = QFileInfo(fullPath).absolutePath();
+                if (!IsIconic(hwnd)) {
+                    RECT r = {};
+                    GetWindowRect(hwnd, &r);
+                    data->result.rect = QRect(r.left, r.top, r.right - r.left, r.bottom - r.top);
+                }
+                CloseHandle(proc);
+                return FALSE; // stop enumeration
+            }
         }
     }
 
@@ -53,9 +57,9 @@ BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM lParam)
 
 class WindowTrackerWindows : public WindowTracker {
 public:
-    WindowState poll(const QString &executableName) override
+    WindowState poll(const QStringList &executableNames) override
     {
-        EnumData data{executableName, {}};
+        EnumData data{executableNames, {}};
         EnumWindows(enumWindowsProc, reinterpret_cast<LPARAM>(&data));
         return data.result;
     }

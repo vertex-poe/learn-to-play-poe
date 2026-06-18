@@ -52,5 +52,5 @@ private:
     bool             m_firstPoll{true};
     bool             m_gameFound{false};
     QRect            m_lastGameRect;
-    QString          m_detectedInstallDir;
+    QString          m_lastGameExeName;
 };

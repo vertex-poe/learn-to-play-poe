@@ -30,15 +30,24 @@ AppConfig AppConfig::load()
 
     try {
         auto tbl = toml::parse_file(path.toStdString());
-        cfg.windowsExecutableName = QString::fromStdString(tbl["windows_executable_name"].value_or(std::string("")));
-        cfg.linuxExecutableName   = QString::fromStdString(tbl["linux_executable_name"].value_or(std::string("")));
+        if (const auto *arr = tbl["executable_names"].as_array()) {
+            for (const auto &node : *arr) {
+                if (auto val = node.value<std::string>(); val && !val->empty())
+                    cfg.executableNames << QString::fromStdString(*val);
+            }
+        }
         cfg.useGameOverlay        = tbl["use_game_overlay"].value_or(true);
         cfg.autoUpdate            = tbl["auto_update"].value_or(true);
         cfg.autoStartOnBoot       = tbl["auto_start_on_boot"].value_or(false);
         cfg.startMinimized        = tbl["start_minimized"].value_or(false);
         cfg.minimizeToTray        = tbl["minimize_to_tray"].value_or(true);
         cfg.autoDetectInstallDir  = tbl["auto_detect_install_dir"].value_or(true);
-        cfg.installDir            = QString::fromStdString(tbl["install_dir"].value_or(std::string("")));
+        if (const auto *arr = tbl["install_dirs"].as_array()) {
+            for (const auto &node : *arr) {
+                if (auto val = node.value<std::string>(); val && !val->empty())
+                    cfg.installDirs << QString::fromStdString(*val);
+            }
+        }
     } catch (const toml::parse_error &) {
         // File exists but is invalid — use defaults silently
     }
@@ -51,15 +60,20 @@ void AppConfig::save() const
     const QString path = configPath();
 
     toml::table tbl;
-    tbl.insert("windows_executable_name", windowsExecutableName.toStdString());
-    tbl.insert("linux_executable_name",   linuxExecutableName.toStdString());
+    toml::array exeArr;
+    for (const QString &exe : executableNames)
+        exeArr.push_back(exe.toStdString());
+    tbl.insert("executable_names", std::move(exeArr));
     tbl.insert("use_game_overlay",        useGameOverlay);
     tbl.insert("auto_update",             autoUpdate);
     tbl.insert("auto_start_on_boot",      autoStartOnBoot);
     tbl.insert("start_minimized",         startMinimized);
     tbl.insert("minimize_to_tray",        minimizeToTray);
     tbl.insert("auto_detect_install_dir", autoDetectInstallDir);
-    tbl.insert("install_dir",             installDir.toStdString());
+    toml::array dirsArr;
+    for (const QString &dir : installDirs)
+        dirsArr.push_back(dir.toStdString());
+    tbl.insert("install_dirs", std::move(dirsArr));
 
     std::ofstream ofs(path.toStdString());
     ofs << tbl;

@@ -94,36 +94,32 @@ void MainWindow::showSettings()
 void MainWindow::onConfigChanged()
 {
     log("Settings saved.");
-    // Reset detected state so the tracker re-evaluates with updated exe name.
-    m_detectedInstallDir.clear();
 }
 
 void MainWindow::onPollTimer()
 {
-#ifdef Q_OS_WIN
-    const QString exeName = m_config.windowsExecutableName.isEmpty()
-        ? AppConfig::defaultWindowsExe : m_config.windowsExecutableName;
-#else
-    const QString exeName = m_config.linuxExecutableName.isEmpty()
-        ? AppConfig::defaultLinuxExe : m_config.linuxExecutableName;
-#endif
+    const QStringList exeNames = m_config.executableNames.isEmpty()
+        ? AppConfig::knownExes() : m_config.executableNames;
 
-    const WindowState state = m_tracker->poll(exeName);
+    const WindowState state = m_tracker->poll(exeNames);
+
+    if (state.found)
+        m_lastGameExeName = state.executableName;
 
     if (m_firstPoll) {
         m_firstPoll = false;
         m_gameFound = state.found;
         if (state.found)
-            log(QStringLiteral("Game is already running (%1).").arg(exeName));
+            log(QStringLiteral("Game is already running (%1).").arg(state.executableName));
     } else if (state.found != m_gameFound) {
         m_gameFound = state.found;
         if (state.found)
-            log(QStringLiteral("Game started (%1).").arg(exeName));
+            log(QStringLiteral("Game started (%1).").arg(state.executableName));
         else
-            log(QStringLiteral("Game closed (%1).").arg(exeName));
+            log(QStringLiteral("Game closed (%1).").arg(m_lastGameExeName));
     }
 
-    if (state.found) {
+    if (state.found && !state.rect.isNull()) {
         m_lastGameRect = state.rect;
     } else if (m_lastGameRect.isNull()) {
         // Default fallback rect used before the game has ever been seen.
@@ -135,9 +131,8 @@ void MainWindow::onPollTimer()
 
     if (state.found && m_config.autoDetectInstallDir
         && !state.installDir.isEmpty()
-        && state.installDir != m_detectedInstallDir) {
-        m_detectedInstallDir    = state.installDir;
-        m_config.installDir     = state.installDir;
+        && !m_config.installDirs.contains(state.installDir)) {
+        m_config.installDirs << state.installDir;
         m_config.save();
         log(QStringLiteral("Install directory auto-detected: %1").arg(state.installDir));
     }

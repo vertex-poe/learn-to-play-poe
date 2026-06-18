@@ -36,8 +36,8 @@ static unsigned long getWindowPid(Display *dpy, Window win)
 }
 
 // Walks the X11 window tree rooted at `root`, looking for a window whose
-// owning process matches `executableName`.  Fills `out` on first match.
-static bool walkTree(Display *dpy, Window root, const QString &executableName,
+// owning process matches any name in `executableNames`.  Fills `out` on first match.
+static bool walkTree(Display *dpy, Window root, const QStringList &executableNames,
                      WindowState &out)
 {
     Window       rootReturn, parentReturn;
@@ -56,28 +56,32 @@ static bool walkTree(Display *dpy, Window root, const QString &executableName,
             ssize_t len = ::readlink(exeLink.c_str(), buf, sizeof(buf) - 1);
             if (len > 0) {
                 const QString fullPath = QString::fromLocal8Bit(buf, static_cast<int>(len));
-                if (QFileInfo(fullPath).fileName().compare(executableName,
-                                                           Qt::CaseInsensitive) == 0) {
-                    XWindowAttributes attrs = {};
-                    if (XGetWindowAttributes(dpy, children[i], &attrs)
-                        && attrs.map_state == IsViewable) {
-                        // Translate origin to screen coordinates.
-                        int  sx = 0, sy = 0;
-                        Window child;
-                        XTranslateCoordinates(dpy, children[i],
-                                              XDefaultRootWindow(dpy),
-                                              0, 0, &sx, &sy, &child);
-                        out.found      = true;
-                        out.rect       = QRect(sx, sy, attrs.width, attrs.height);
-                        out.installDir = QFileInfo(fullPath).absolutePath();
-                        found          = true;
+                const QString baseName = QFileInfo(fullPath).fileName();
+                for (const QString &name : executableNames) {
+                    if (baseName.compare(name, Qt::CaseInsensitive) == 0) {
+                        XWindowAttributes attrs = {};
+                        if (XGetWindowAttributes(dpy, children[i], &attrs)
+                            && attrs.map_state == IsViewable) {
+                            // Translate origin to screen coordinates.
+                            int  sx = 0, sy = 0;
+                            Window child;
+                            XTranslateCoordinates(dpy, children[i],
+                                                  XDefaultRootWindow(dpy),
+                                                  0, 0, &sx, &sy, &child);
+                            out.found          = true;
+                            out.executableName = baseName;
+                            out.rect           = QRect(sx, sy, attrs.width, attrs.height);
+                            out.installDir     = QFileInfo(fullPath).absolutePath();
+                            found              = true;
+                        }
+                        break;
                     }
                 }
             }
         }
 
         if (!found)
-            found = walkTree(dpy, children[i], executableName, out);
+            found = walkTree(dpy, children[i], executableNames, out);
     }
 
     if (children)
@@ -89,14 +93,14 @@ static bool walkTree(Display *dpy, Window root, const QString &executableName,
 
 class WindowTrackerLinux : public WindowTracker {
 public:
-    WindowState poll(const QString &executableName) override
+    WindowState poll(const QStringList &executableNames) override
     {
         WindowState state;
         Display    *dpy = XOpenDisplay(nullptr);
         if (!dpy)
             return state;
 
-        walkTree(dpy, XDefaultRootWindow(dpy), executableName, state);
+        walkTree(dpy, XDefaultRootWindow(dpy), executableNames, state);
         XCloseDisplay(dpy);
         return state;
     }

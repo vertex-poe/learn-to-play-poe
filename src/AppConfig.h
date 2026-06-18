@@ -1,20 +1,24 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 struct AppConfig {
-    static constexpr const char *defaultWindowsExe = "PathOfExile.exe";
-    static constexpr const char *defaultLinuxExe    = "PathOfExile";
+    static QStringList knownExes()
+    {
+        return {"PathOfExile_x64Steam.exe", "PathOfExileSteam.exe",
+                "PathOfExile_x64.exe",      "PathOfExile.exe",
+                "PathOfExile_x64",          "PathOfExile"};
+    }
 
-    QString windowsExecutableName;
-    QString linuxExecutableName;
+    QStringList executableNames; // empty = use knownExes()
     bool useGameOverlay{true};
     bool autoUpdate{true};
     bool autoStartOnBoot{false};
     bool startMinimized{false};
     bool minimizeToTray{true};
     bool autoDetectInstallDir{true};
-    QString installDir;
+    QStringList installDirs;
 
     static AppConfig load();
     void save() const;
