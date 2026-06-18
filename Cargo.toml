@@ -14,6 +14,9 @@ serde_json = "1.0.138"
 toml = "1.1.2"
 tray-icon = "0.24.1"
 
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winres = "0.1.12"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.52", features = [
     "Win32_Foundation",

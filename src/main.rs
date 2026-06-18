@@ -41,12 +41,15 @@ impl MainApp {
         tray_menu.append(&settings_i).unwrap();
         tray_menu.append(&quit_i).unwrap();
 
-        let icon_rgba = vec![255; 32 * 32 * 4];
-        let icon = Icon::from_rgba(icon_rgba, 32, 32).unwrap();
+        let icon_bytes = include_bytes!("../assets/logo/vertex-icon.png");
+        let image = image::load_from_memory(icon_bytes).unwrap().into_rgba8();
+        let (width, height) = image.dimensions();
+        let icon_rgba = image.into_raw();
+        let icon = Icon::from_rgba(icon_rgba, width, height).unwrap();
 
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(tray_menu))
-            .with_tooltip("Learn to Play PoE1")
+            .with_tooltip("Learn to Play: Path of Exile 1")
             .with_icon(icon)
             .build()
             .unwrap();
@@ -270,17 +273,27 @@ impl Drop for MainApp {
 fn main() -> Result<(), eframe::Error> {
     let config = load_config();
     
+    let icon_bytes = include_bytes!("../assets/logo/vertex-icon.png");
+    let image = image::load_from_memory(icon_bytes).unwrap().into_rgba8();
+    let (width, height) = image.dimensions();
+    let icon_data = egui::IconData {
+        rgba: image.into_raw(),
+        width,
+        height,
+    };
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_visible(false)
             .with_taskbar(false) // Hide from taskbar for tray app
-            .with_title("Learn to Play PoE1"),
+            .with_title("Learn to Play: Path of Exile 1")
+            .with_icon(Arc::new(icon_data)),
         run_and_return: false,
         ..Default::default()
     };
 
     eframe::run_native(
-        "Learn to Play PoE1",
+        "Learn to Play: Path of Exile 1",
         options,
         Box::new(|cc| Ok(Box::new(MainApp::new(cc, config)))),
     )
