@@ -3,9 +3,9 @@
 use learn_to_play_poe1::config::{load_config, save_config, AppConfig};
 use learn_to_play_poe1::tracker::{create_tracker, WindowTracker};
 use tray_icon::{Icon, TrayIconBuilder, TrayIcon};
-use tray_icon::menu::{Menu, MenuItem, MenuEvent};
+use tray_icon::menu::{Menu, MenuItem};
 use eframe::egui;
-use std::process::{Command, Child, Stdio};
+use std::process::Child;
 use std::io::Write;
 use std::time::Instant;
 use std::sync::{Arc, Mutex};
@@ -33,11 +33,14 @@ struct MainApp {
 impl MainApp {
     fn new(cc: &eframe::CreationContext<'_>, config: AppConfig) -> Self {
         let tray_menu = Menu::new();
+        let open_i = MenuItem::new("Open", true, None);
+        let open_id = open_i.id().clone();
         let settings_i = MenuItem::new("Settings", true, None);
         let settings_id = settings_i.id().clone();
         let quit_i = MenuItem::new("Exit", true, None);
         let quit_id = quit_i.id().clone();
         
+        tray_menu.append(&open_i).unwrap();
         tray_menu.append(&settings_i).unwrap();
         tray_menu.append(&quit_i).unwrap();
 
@@ -49,6 +52,7 @@ impl MainApp {
 
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(tray_menu))
+            .with_menu_on_left_click(false)
             .with_tooltip("Learn to Play: Path of Exile 1")
             .with_icon(icon)
             .build()
@@ -62,8 +66,9 @@ impl MainApp {
         #[cfg(not(windows))]
         overlay_exe.push("l2p-poe1-overlay");
 
+        let start_minimized = config.start_minimized;
         let state = Arc::new(Mutex::new(AppState {
-            show_main_window: false,
+            show_main_window: !start_minimized,
             show_settings: false,
             exit_requested: false,
         }));
@@ -84,6 +89,10 @@ impl MainApp {
                         println!("Matched Quit ID!");
                         st.exit_requested = true;
                         changed = true;
+                    } else if event.id == open_id {
+                        println!("Matched Open ID!");
+                        st.show_main_window = true;
+                        changed = true;
                     } else if event.id == settings_id {
                         println!("Matched Settings ID!");
                         st.show_main_window = true;
@@ -94,10 +103,7 @@ impl MainApp {
                 while let Ok(event) = tray_channel.try_recv() {
                     if let tray_icon::TrayIconEvent::Click { button: tray_icon::MouseButton::Left, .. } = event {
                         let mut st = state_clone.lock().unwrap();
-                        st.show_main_window = !st.show_main_window;
-                        if !st.show_main_window {
-                            st.show_settings = false;
-                        }
+                        st.show_main_window = true;
                         changed = true;
                     }
                 }
@@ -106,14 +112,7 @@ impl MainApp {
                     let is_visible = st.show_main_window || st.show_settings;
                     
                     if st.exit_requested {
-                        // Wake up eframe so update() can process the exit
-                        ctx_clone.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                    } else if is_visible {
-                        ctx_clone.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(200.0, 200.0)));
-                        ctx_clone.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                        ctx_clone.send_viewport_cmd(egui::ViewportCommand::Focus);
-                    } else {
-                        ctx_clone.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                        std::process::exit(0);
                     }
                     ctx_clone.request_repaint();
                 }
@@ -125,7 +124,7 @@ impl MainApp {
             config,
             _tray_icon: Some(tray_icon),
             overlay_process: None,
-            show_main_window: false,
+            show_main_window: !start_minimized,
             show_settings: false,
             tracker: create_tracker(),
             last_tracker_check: Instant::now() - std::time::Duration::from_secs(10), // force immediate check
@@ -149,7 +148,7 @@ impl MainApp {
 
 impl eframe::App for MainApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let mut st = self.state.lock().unwrap();
+        let st = self.state.lock().unwrap();
         if st.exit_requested {
             self._tray_icon.take(); // force drop tray icon
             std::process::exit(0);
@@ -158,7 +157,36 @@ impl eframe::App for MainApp {
         self.show_settings = st.show_settings;
         drop(st);
 
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.config.minimize_to_tray {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.show_main_window = false;
+                self.show_settings = false;
+                let mut st = self.state.lock().unwrap();
+                st.show_main_window = false;
+                st.show_settings = false;
+            } else {
+                let mut st = self.state.lock().unwrap();
+                st.exit_requested = true;
+            }
+        }
+
         let is_visible = self.show_main_window || self.show_settings;
+
+        if self.was_visible != Some(is_visible) {
+            if is_visible {
+                if let Some(pos) = self.last_window_pos {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+                } else {
+                    // Default center-ish position if no previous position
+                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(200.0, 200.0)));
+                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            } else {
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(-10000.0, -10000.0)));
+            }
+            self.was_visible = Some(is_visible);
+        }
 
         if is_visible {
             if let Some(rect) = ctx.input(|i| i.viewport().outer_rect) {
@@ -203,6 +231,18 @@ impl eframe::App for MainApp {
                             config_changed = true;
                         }
                     });
+                    ui.separator();
+                    ui.add_enabled_ui(false, |ui| {
+                        if ui.checkbox(&mut self.config.auto_start_on_boot, "Automatically open when computer starts up (Coming soon)").changed() {
+                            config_changed = true;
+                        }
+                    });
+                    if ui.checkbox(&mut self.config.start_minimized, "Start minimized").changed() {
+                        config_changed = true;
+                    }
+                    if ui.checkbox(&mut self.config.minimize_to_tray, "Minimize to system tray on close").changed() {
+                        config_changed = true;
+                    }
                 });
                 
             if !self.show_settings {
@@ -284,7 +324,6 @@ fn main() -> Result<(), eframe::Error> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_visible(false)
             .with_taskbar(false) // Hide from taskbar for tray app
             .with_title("Learn to Play: Path of Exile 1")
             .with_icon(Arc::new(icon_data)),

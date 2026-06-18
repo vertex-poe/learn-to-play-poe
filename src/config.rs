@@ -8,6 +8,9 @@ pub struct AppConfig {
     pub windows_executable_name: String,
     pub linux_executable_name: String,
     pub use_game_overlay: bool,
+    pub auto_start_on_boot: bool,
+    pub start_minimized: bool,
+    pub minimize_to_tray: bool,
 }
 
 impl Default for AppConfig {
@@ -16,6 +19,9 @@ impl Default for AppConfig {
             windows_executable_name: "PathOfExile.exe".to_string(),
             linux_executable_name: "PathOfExile".to_string(),
             use_game_overlay: true,
+            auto_start_on_boot: false,
+            start_minimized: false,
+            minimize_to_tray: true,
         }
     }
 }
