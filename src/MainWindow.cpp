@@ -3,11 +3,13 @@
 #include "SettingsDialog.h"
 #include "WindowTracker.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
 #include <QIcon>
 #include <QMenu>
+#include <QMenuBar>
 #include <QPlainTextEdit>
 #include <QSystemTrayIcon>
 #include <QTimer>
@@ -15,7 +17,7 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("Learn to Play PoE1");
+    setWindowTitle("Learn to Play: Path of Exile 1");
     setWindowIcon(QIcon(":/icons/vertex-icon.png"));
     resize(720, 480);
 
@@ -25,6 +27,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_config = AppConfig::load();
 
+    setupMenuBar();
     setupTray();
     log(QStringLiteral("Application started. Config: %1").arg(AppConfig::configPath()));
 
@@ -41,6 +44,14 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     delete m_tracker;
+}
+
+void MainWindow::setupMenuBar()
+{
+    QMenu *fileMenu = menuBar()->addMenu("&File");
+    fileMenu->addAction("&Settings", this, &MainWindow::showSettings);
+    fileMenu->addSeparator();
+    fileMenu->addAction("E&xit", qApp, &QApplication::quit);
 }
 
 void MainWindow::setupTray()
@@ -90,19 +101,26 @@ void MainWindow::onConfigChanged()
 void MainWindow::onPollTimer()
 {
 #ifdef Q_OS_WIN
-    const QString &exeName = m_config.windowsExecutableName;
+    const QString exeName = m_config.windowsExecutableName.isEmpty()
+        ? AppConfig::defaultWindowsExe : m_config.windowsExecutableName;
 #else
-    const QString &exeName = m_config.linuxExecutableName;
+    const QString exeName = m_config.linuxExecutableName.isEmpty()
+        ? AppConfig::defaultLinuxExe : m_config.linuxExecutableName;
 #endif
 
     const WindowState state = m_tracker->poll(exeName);
 
-    if (state.found != m_gameFound) {
+    if (m_firstPoll) {
+        m_firstPoll = false;
         m_gameFound = state.found;
         if (state.found)
-            log(QStringLiteral("Game window detected (%1).").arg(exeName));
+            log(QStringLiteral("Game is already running (%1).").arg(exeName));
+    } else if (state.found != m_gameFound) {
+        m_gameFound = state.found;
+        if (state.found)
+            log(QStringLiteral("Game started (%1).").arg(exeName));
         else
-            log(QStringLiteral("Game window lost (%1).").arg(exeName));
+            log(QStringLiteral("Game closed (%1).").arg(exeName));
     }
 
     if (state.found) {
@@ -143,6 +161,6 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::log(const QString &message)
 {
-    const QString ts = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
+    const QString ts = QDateTime::currentDateTime().toString("HH:mm");
     m_log->appendPlainText(QStringLiteral("[%1] %2").arg(ts, message));
 }

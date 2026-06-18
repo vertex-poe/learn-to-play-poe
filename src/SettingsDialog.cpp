@@ -27,10 +27,16 @@ SettingsDialog::SettingsDialog(AppConfig &config, QWidget *parent)
     form->addRow("Install directory:", m_installDir);
 
     m_winExe = new QLineEdit(config.windowsExecutableName, this);
+    m_winExe->setPlaceholderText(AppConfig::defaultWindowsExe);
     form->addRow("Windows executable:", m_winExe);
 
     m_linuxExe = new QLineEdit(config.linuxExecutableName, this);
+    m_linuxExe->setPlaceholderText(AppConfig::defaultLinuxExe);
     form->addRow("Linux executable:", m_linuxExe);
+
+    m_enableOverlay = new QCheckBox(this);
+    m_enableOverlay->setChecked(config.useGameOverlay);
+    form->addRow("Enable overlay:", m_enableOverlay);
 
     m_startMinimized = new QCheckBox(this);
     m_startMinimized->setChecked(config.startMinimized);
@@ -39,6 +45,11 @@ SettingsDialog::SettingsDialog(AppConfig &config, QWidget *parent)
     m_minimizeToTray = new QCheckBox(this);
     m_minimizeToTray->setChecked(config.minimizeToTray);
     form->addRow("Minimize to tray on close:", m_minimizeToTray);
+
+    m_autoUpdate = new QCheckBox("(coming soon)", this);
+    m_autoUpdate->setChecked(config.autoUpdate);
+    m_autoUpdate->setEnabled(false);
+    form->addRow("Auto-update application:", m_autoUpdate);
 
     m_autoStartOnBoot = new QCheckBox("(coming soon)", this);
     m_autoStartOnBoot->setChecked(config.autoStartOnBoot);
@@ -51,6 +62,7 @@ SettingsDialog::SettingsDialog(AppConfig &config, QWidget *parent)
     connect(m_winExe, &QLineEdit::editingFinished, this, &SettingsDialog::saveAndEmit);
     connect(m_linuxExe, &QLineEdit::editingFinished, this, &SettingsDialog::saveAndEmit);
     connect(m_startMinimized, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_enableOverlay, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
     connect(m_minimizeToTray, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
 }
 
@@ -65,6 +77,7 @@ void SettingsDialog::saveAndEmit()
     m_config.installDir            = m_installDir->text();
     m_config.windowsExecutableName = m_winExe->text();
     m_config.linuxExecutableName   = m_linuxExe->text();
+    m_config.useGameOverlay        = m_enableOverlay->isChecked();
     m_config.startMinimized        = m_startMinimized->isChecked();
     m_config.minimizeToTray        = m_minimizeToTray->isChecked();
     m_config.save();

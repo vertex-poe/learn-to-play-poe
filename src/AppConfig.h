@@ -3,9 +3,13 @@
 #include <QString>
 
 struct AppConfig {
-    QString windowsExecutableName{"PathOfExile.exe"};
-    QString linuxExecutableName{"PathOfExile"};
+    static constexpr const char *defaultWindowsExe = "PathOfExile.exe";
+    static constexpr const char *defaultLinuxExe    = "PathOfExile";
+
+    QString windowsExecutableName;
+    QString linuxExecutableName;
     bool useGameOverlay{true};
+    bool autoUpdate{true};
     bool autoStartOnBoot{false};
     bool startMinimized{false};
     bool minimizeToTray{true};

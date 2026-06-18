@@ -30,9 +30,10 @@ AppConfig AppConfig::load()
 
     try {
         auto tbl = toml::parse_file(path.toStdString());
-        cfg.windowsExecutableName = QString::fromStdString(tbl["windows_executable_name"].value_or(std::string("PathOfExile.exe")));
-        cfg.linuxExecutableName   = QString::fromStdString(tbl["linux_executable_name"].value_or(std::string("PathOfExile")));
+        cfg.windowsExecutableName = QString::fromStdString(tbl["windows_executable_name"].value_or(std::string("")));
+        cfg.linuxExecutableName   = QString::fromStdString(tbl["linux_executable_name"].value_or(std::string("")));
         cfg.useGameOverlay        = tbl["use_game_overlay"].value_or(true);
+        cfg.autoUpdate            = tbl["auto_update"].value_or(true);
         cfg.autoStartOnBoot       = tbl["auto_start_on_boot"].value_or(false);
         cfg.startMinimized        = tbl["start_minimized"].value_or(false);
         cfg.minimizeToTray        = tbl["minimize_to_tray"].value_or(true);
@@ -53,6 +54,7 @@ void AppConfig::save() const
     tbl.insert("windows_executable_name", windowsExecutableName.toStdString());
     tbl.insert("linux_executable_name",   linuxExecutableName.toStdString());
     tbl.insert("use_game_overlay",        useGameOverlay);
+    tbl.insert("auto_update",             autoUpdate);
     tbl.insert("auto_start_on_boot",      autoStartOnBoot);
     tbl.insert("start_minimized",         startMinimized);
     tbl.insert("minimize_to_tray",        minimizeToTray);

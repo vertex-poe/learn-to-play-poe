@@ -37,6 +37,7 @@ private slots:
 private:
     void showWindow();
     void setupTray();
+    void setupMenuBar();
 
     AppConfig m_config;
 
@@ -48,6 +49,7 @@ private:
     WindowTracker   *m_tracker{};
     QTimer          *m_pollTimer{};
     GameOverlay     *m_overlay{};
+    bool             m_firstPoll{true};
     bool             m_gameFound{false};
     QRect            m_lastGameRect;
     QString          m_detectedInstallDir;

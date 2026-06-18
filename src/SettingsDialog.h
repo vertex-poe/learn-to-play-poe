@@ -27,7 +27,9 @@ private:
     QLineEdit *m_installDir{};
     QLineEdit *m_winExe{};
     QLineEdit *m_linuxExe{};
+    QCheckBox *m_enableOverlay{};
     QCheckBox *m_startMinimized{};
     QCheckBox *m_minimizeToTray{};
+    QCheckBox *m_autoUpdate{};
     QCheckBox *m_autoStartOnBoot{};
 };
