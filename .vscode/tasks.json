@@ -2,46 +2,57 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "build-server",
+      "label": "CMake: Configure (debug)",
       "type": "shell",
-      "command": "cargo",
-      "args": ["build", "--release"],
-      "options": {
-        "cwd": "${workspaceFolder}/scryer-asset-server"
-      },
-      "problemMatcher": [],
-      "presentation": { "reveal": "silent" }
+      "command": "cmake",
+      "args": ["--preset", "debug"],
+      "problemMatcher": ["$gcc", "$msCompile"],
+      "presentation": { "reveal": "always", "panel": "shared" }
     },
     {
-      "label": "build",
+      "label": "CMake: Build (debug)",
       "type": "shell",
-      "command": "node",
-      "args": ["esbuild.mjs"],
-      "dependsOn": ["build-server"],
+      "command": "cmake",
+      "args": ["--build", "--preset", "debug"],
+      "dependsOn": "CMake: Configure (debug)",
       "group": { "kind": "build", "isDefault": true },
-      "presentation": { "reveal": "silent" },
-      "problemMatcher": []
+      "problemMatcher": ["$gcc", "$msCompile"],
+      "presentation": { "reveal": "always", "panel": "shared" }
     },
     {
-      "label": "watch",
+      "label": "CTest: Run (debug)",
       "type": "shell",
-      "command": "node",
-      "args": ["esbuild.mjs", "--watch"],
-      "isBackground": true,
-      "group": "build",
-      "presentation": { "reveal": "never" },
-      "problemMatcher": {
-        "owner": "esbuild",
-        "pattern": {
-          "regexp": "^ERROR (.+)$",
-          "message": 1
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": "^> node esbuild\\.mjs",
-          "endsPattern": "^Watching"
-        }
-      }
+      "command": "ctest",
+      "args": ["--preset", "debug", "--output-on-failure"],
+      "dependsOn": "CMake: Build (debug)",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "CMake: Configure (windows-mingw)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--preset", "windows-mingw"],
+      "problemMatcher": ["$gcc"],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "CMake: Build (windows-mingw)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "windows-mingw"],
+      "dependsOn": "CMake: Configure (windows-mingw)",
+      "problemMatcher": ["$gcc"],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "CMake: Clean",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["-E", "rm", "-rf", "build", "dist"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
     }
   ]
 }

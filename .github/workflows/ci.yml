@@ -12,30 +12,37 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    env:
-      FORCE_COLOR: true
+    runs-on: windows-latest
+
     steps:
       - name: Checkout
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@v4
 
-      - name: Install Tools & Dependencies
-        uses: ./.github/actions/install
-
-      - name: Type check & format check
-        run: pnpm check
-
-      - name: Build extension
-        run: pnpm build
-
-      - name: Run unit tests
-        run: pnpm test
-
-      - name: Upload Playwright snapshots on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
         with:
-          name: playwright-snapshots
-          path: |
-            test-results/
-            test/webview/visual.spec.ts-snapshots/
+          version: "6.7.*"
+          arch: win64_msvc2019_64
+          cache: true
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: "vcpkg.json"
+
+      - name: Configure
+        run: cmake --preset ci
+
+      - name: Build
+        run: cmake --build --preset ci
+
+      - name: Test
+        run: ctest --preset ci --output-on-failure
