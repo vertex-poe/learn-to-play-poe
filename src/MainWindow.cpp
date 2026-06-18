@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "SettingsDialog.h"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -19,8 +20,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_log->setReadOnly(true);
     setCentralWidget(m_log);
 
+    m_config = AppConfig::load();
+
     setupTray();
-    log("Application started.");
+    log(QStringLiteral("Application started. Config: %1").arg(AppConfig::configPath()));
 }
 
 void MainWindow::setupTray()
@@ -29,8 +32,7 @@ void MainWindow::setupTray()
 
     m_trayMenu = new QMenu(this);
     m_trayMenu->addAction("Open", this, &MainWindow::showWindow);
-    auto *settings = m_trayMenu->addAction("Settings");
-    settings->setEnabled(false);
+    m_trayMenu->addAction("Settings", this, &MainWindow::showSettings);
     m_trayMenu->addSeparator();
     m_trayMenu->addAction("Exit", qApp, &QApplication::quit);
 
@@ -49,6 +51,23 @@ void MainWindow::showWindow()
     activateWindow();
 }
 
+void MainWindow::showSettings()
+{
+    if (!m_settingsDialog) {
+        m_settingsDialog = new SettingsDialog(m_config, this);
+        connect(m_settingsDialog, &SettingsDialog::configChanged,
+                this, &MainWindow::onConfigChanged);
+    }
+    m_settingsDialog->show();
+    m_settingsDialog->raise();
+    m_settingsDialog->activateWindow();
+}
+
+void MainWindow::onConfigChanged()
+{
+    log("Settings saved.");
+}
+
 void MainWindow::onTrayActivated(QSystemTrayIcon::ActivationReason reason)
 {
     if (reason == QSystemTrayIcon::Trigger)
@@ -57,9 +76,11 @@ void MainWindow::onTrayActivated(QSystemTrayIcon::ActivationReason reason)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    if (m_tray->isVisible()) {
+    if (m_config.minimizeToTray && m_tray->isVisible()) {
         hide();
         event->ignore();
+    } else {
+        qApp->quit();
     }
 }
 

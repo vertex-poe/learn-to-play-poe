@@ -3,27 +3,29 @@
 
 set windows-shell := ["pwsh", "-NoLogo", "-Command"]
 
+default_preset := if os() == "windows" { "windows-mingw" } else { "debug" }
+
 default:
     @just --list
 
-# Configure cmake (default: debug preset)
-configure preset="debug":
+# Configure cmake
+configure preset=default_preset:
     cmake --preset {{preset}}
 
 # Build (configures first if needed)
-build preset="debug":
+build preset=default_preset:
     cmake --preset {{preset}}
     cmake --build --preset {{preset}}
 
 # Run tests (builds first)
-test preset="debug": (build preset)
+test preset=default_preset: (build preset)
     ctest --preset {{preset}} --output-on-failure
 
 # Configure + build + test in one shot
-all preset="debug": (test preset)
+all preset=default_preset: (test preset)
 
 # Build and run the app
-run preset="debug": (build preset)
+run preset=default_preset: (build preset)
     build/{{preset}}/src/l2p-poe1.exe
 
 # Remove all build and dist artifacts

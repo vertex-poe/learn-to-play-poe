@@ -1,11 +1,13 @@
 #pragma once
 
+#include "AppConfig.h"
+
 #include <QMainWindow>
 #include <QSystemTrayIcon>
 
 class QPlainTextEdit;
-class QAction;
 class QMenu;
+class SettingsDialog;
 
 class MainWindow : public QMainWindow
 {
@@ -14,6 +16,8 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
 
+    bool startMinimized() const { return m_config.startMinimized; }
+
     void log(const QString &message);
 
 protected:
@@ -21,12 +25,17 @@ protected:
 
 private slots:
     void onTrayActivated(QSystemTrayIcon::ActivationReason reason);
+    void showSettings();
+    void onConfigChanged();
 
 private:
     void showWindow();
     void setupTray();
 
-    QPlainTextEdit *m_log{};
+    AppConfig m_config;
+
+    QPlainTextEdit  *m_log{};
     QSystemTrayIcon *m_tray{};
-    QMenu *m_trayMenu{};
+    QMenu           *m_trayMenu{};
+    SettingsDialog  *m_settingsDialog{};
 };

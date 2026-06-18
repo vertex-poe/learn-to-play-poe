@@ -9,7 +9,8 @@ int main(int argc, char *argv[])
     app.setQuitOnLastWindowClosed(false);
 
     MainWindow window;
-    window.show();
+    if (!window.startMinimized())
+        window.show();
 
     return app.exec();
 }

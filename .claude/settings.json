@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cmake:*)"
+      "Bash(cmake:*)",
+      "Bash(just configure *)",
+      "PowerShell(echo:*)",
+      "Bash(just build *)"
     ]
   }
 }

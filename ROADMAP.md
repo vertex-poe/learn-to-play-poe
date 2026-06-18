@@ -32,7 +32,7 @@
 - [x] Tray context menu: Open, Settings (disabled), Exit
 - [x] Left-click tray icon → show/raise main window
 - [x] Hide to tray on window close (override `closeEvent`)
-- [ ] Start minimized setting (launch hidden, tray visible) *(Phase 2 — needs config)*
+- [x] Start minimized setting (launch hidden, tray visible) *(Phase 2 — needs config)*
 - [x] Restore window to foreground from tray
 
 ### Activity Log
@@ -42,19 +42,19 @@
 
 ---
 
-## Phase 2 — Config Persistence
+## Phase 2 — Config Persistence *(complete)*
 
-- [ ] Load/save config from TOML file via `tomlplusplus` (port `config.rs`)
-- [ ] Settings dialog / panel with live save on change
-  - [ ] Toggle: Auto-detect game install directory
-  - [ ] Text field: Install directory (disabled when auto-detect is on)
-  - [ ] Text field: Windows executable name (`PathOfExile.exe`)
-  - [ ] Text field: Linux executable name (`PathOfExile`)
-  - [ ] Toggle: Start minimized
-  - [ ] Toggle: Minimize to tray on close
-  - [ ] Toggle: Auto start on boot *(stub — coming soon)*
-- [ ] Fall back to CWD for dev (`cmake --build` workflow)
-- [ ] Write default config on first launch if absent
+- [x] Load/save config from TOML file via `tomlplusplus` (port `config.rs`)
+- [x] Settings dialog / panel with live save on change
+  - [x] Toggle: Auto-detect game install directory
+  - [x] Text field: Install directory (disabled when auto-detect is on)
+  - [x] Text field: Windows executable name (`PathOfExile.exe`)
+  - [x] Text field: Linux executable name (`PathOfExile`)
+  - [x] Toggle: Start minimized
+  - [x] Toggle: Minimize to tray on close
+  - [x] Toggle: Auto start on boot *(stub — disabled in UI, coming soon)*
+- [x] Fall back to CWD for dev (`cmake --build` workflow)
+- [x] Write default config on first launch if absent
 
 ---
 

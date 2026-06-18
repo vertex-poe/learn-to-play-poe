@@ -1,7 +1,13 @@
+find_package(tomlplusplus CONFIG REQUIRED)
+
 qt_add_executable(l2p-poe1
     main.cpp
+    AppConfig.cpp
+    AppConfig.h
     MainWindow.cpp
     MainWindow.h
+    SettingsDialog.cpp
+    SettingsDialog.h
 )
 
 qt_add_resources(l2p-poe1 "resources"
@@ -14,4 +20,5 @@ qt_add_resources(l2p-poe1 "resources"
 target_link_libraries(l2p-poe1 PRIVATE
     Qt6::Core
     Qt6::Widgets
+    tomlplusplus::tomlplusplus
 )
