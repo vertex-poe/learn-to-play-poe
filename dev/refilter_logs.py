@@ -38,6 +38,27 @@ CATEGORIES = [
     ("enumerated",     ["Enumerated"]),
 ]
 
+# Lines silently dropped from the remainder (refiltered_client.txt) — we don't care about these
+IGNORE_PREFIXES = [
+    "Rebuilding UI::",
+    'Changing to device "',
+    "Async connecting to ",
+    "Connected to ",
+    "Got Instance Details ",
+    "Precalc",
+    "Connecting to instance server ",
+    "Connect time to instance server ",
+    "Tile hash: ",
+    "Doodad hash: ",
+    ": Your Stash Tab with the Unique Affinity does not have enough space for this item.",
+    ": Not enough room for item.",
+    " monsters remain.",
+    "Re-ordering tabs to match stash data",
+    "Steam stats stored",
+    ": Item on cursor destroyed.",
+    ": Failed to apply item: Item has no space for more Mods.",
+]
+
 # Lines that go into filtered_sql/ — ingested into the database
 CATEGORIES_SQL = [
     ("area_generating",    ["Generating level"]),
@@ -46,6 +67,15 @@ CATEGORIES_SQL = [
     ("chat_channel_joined", ["You have joined global chat channel"]),
     ("char_level_up",       ["is now level"]),
     ("session_afk",         ["AFK mode is now"]),
+    ("quest_monsters_cleared",   [": 0 monsters remain."]),
+    ("passive_skill_allocated",   ["Successfully allocated passive skill",
+                                   "Successfully unallocated passive skill",
+                                   "Successfully allocated mastery effect",
+                                   "Successfully unallocated mastery effect"]),
+    ("passive_respec_received",   ["Passive Respec Points"]),
+    ("passive_skill_point",       ["You have received a Passive Skill Point.",
+                                   "Passive Skill Points."]),
+    ("whispers",                  ["@From ", "@To "]),
 ]
 
 
@@ -158,8 +188,9 @@ print(f"  extraction: {t1 - t0:.2f}s")
 
 # Phase 2: single inverse pass combining all patterns → remainder
 all_c = [f"/c:{p}" for _, patterns in (*CATEGORIES, *CATEGORIES_SQL) for p in patterns]
+ignore_c = [f"/c:{p}" for p in IGNORE_PREFIXES]
 with open(OUT, "wb") as f:
-    subprocess.run(["findstr", "/v"] + all_c + [str(client_txt)],
+    subprocess.run(["findstr", "/v"] + all_c + ignore_c + [str(client_txt)],
                    stdout=f, stderr=subprocess.DEVNULL)
 
 t2 = time.perf_counter()

@@ -90,6 +90,18 @@ void LogIngestWorker::start()
     static const QRegularExpression afkRe(
         R"(AFK mode is now (ON|OFF))"
     );
+    // [INFO] @From YaYtOtEmZ: hey  /  @To YaYtOtEmZ: hello
+    static const QRegularExpression whisperRe(
+        R"(@(From|To) ([^:]+): (.*))"
+    );
+    // [INFO] Successfully (allocated|unallocated) passive skill id: accuracy581, name: Projectile Damage and Attack Speed
+    static const QRegularExpression passiveAllocRe(
+        R"(Successfully (allocated|unallocated) passive skill id: ([^,]+), name: (.+))"
+    );
+    // [INFO] Successfully (allocated|unallocated) mastery effect id: 48385, mastery: mastery_elemental99, name: Elemental Mastery
+    static const QRegularExpression masteryAllocRe(
+        R"(Successfully (allocated|unallocated) mastery effect id: ([^,]+), mastery: [^,]+, name: (.+))"
+    );
 
     // ── prepared statements ──────────────────────────────────────────────────
 
@@ -113,7 +125,12 @@ void LogIngestWorker::start()
     sqlite3_stmt *spanSelectStmt      = nullptr;
     sqlite3_stmt *spanCloseStmt       = nullptr;
     sqlite3_stmt *spanUpdateCharStmt  = nullptr;
-    sqlite3_stmt *sourceStmt          = nullptr;
+    sqlite3_stmt *questEventStmt       = nullptr;
+    sqlite3_stmt *passiveUpsertStmt    = nullptr;
+    sqlite3_stmt *passiveSelectStmt    = nullptr;
+    sqlite3_stmt *passiveAllocStmt     = nullptr;
+    sqlite3_stmt *whisperStmt          = nullptr;
+    sqlite3_stmt *sourceStmt           = nullptr;
 
     sqlite3_prepare_v2(db,
         "INSERT INTO areas(code, level, display_name) VALUES(?,?,?) "
@@ -188,6 +205,22 @@ void LogIngestWorker::start()
     sqlite3_prepare_v2(db,
         "UPDATE area_time_spans SET char_id=? WHERE id=?;",
         -1, &spanUpdateCharStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO quest_events(session_id, area_id, event_type, occurred_at) VALUES(?,?,?,?);",
+        -1, &questEventStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT INTO passive_skills(code, name, is_mastery) VALUES(?,?,?) "
+        "ON CONFLICT(code) DO UPDATE SET name=excluded.name;",
+        -1, &passiveUpsertStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "SELECT id FROM passive_skills WHERE code=?;",
+        -1, &passiveSelectStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO passive_skill_allocations(session_id, char_id, passive_skill_id, action, allocated_at) VALUES(?,?,?,?,?);",
+        -1, &passiveAllocStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO whispers(session_id, direction, player_name, message, occurred_at) VALUES(?,?,?,?,?);",
+        -1, &whisperStmt, nullptr);
     sqlite3_prepare_v2(db,
         "UPDATE installs SET "
         "file_created_at=?, file_modified_at=?, file_size=?, last_byte_offset=? "
@@ -493,6 +526,126 @@ void LogIngestWorker::start()
                 }
             }
 
+            // Quest events
+            if (sessionId >= 0 && message.contains(QLatin1String("0 monsters remain."))) {
+                sqlite3_bind_int64(questEventStmt, 1, sessionId);
+                if (sessionAreaId < 0) sqlite3_bind_null (questEventStmt, 2);
+                else                   sqlite3_bind_int64(questEventStmt, 2, sessionAreaId);
+                sqlite3_bind_text (questEventStmt, 3, "monsters_cleared", -1, SQLITE_STATIC);
+                sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+                sqlite3_step(questEventStmt);
+                sqlite3_reset(questEventStmt);
+            }
+
+            if (sessionId >= 0 && message.contains(QLatin1String("You have received a Passive Skill Point."))) {
+                sqlite3_bind_int64(questEventStmt, 1, sessionId);
+                if (sessionAreaId < 0) sqlite3_bind_null (questEventStmt, 2);
+                else                   sqlite3_bind_int64(questEventStmt, 2, sessionAreaId);
+                sqlite3_bind_text (questEventStmt, 3, "passive_skill_point_received", -1, SQLITE_STATIC);
+                sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+                sqlite3_step(questEventStmt);
+                sqlite3_reset(questEventStmt);
+            }
+
+            if (sessionId >= 0 && message.contains(QLatin1String("Passive Skill Points."))) {
+                sqlite3_bind_int64(questEventStmt, 1, sessionId);
+                if (sessionAreaId < 0) sqlite3_bind_null (questEventStmt, 2);
+                else                   sqlite3_bind_int64(questEventStmt, 2, sessionAreaId);
+                sqlite3_bind_text (questEventStmt, 3, "passive_skill_points_received", -1, SQLITE_STATIC);
+                sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+                sqlite3_step(questEventStmt);
+                sqlite3_reset(questEventStmt);
+            }
+
+            if (sessionId >= 0 && message.contains(QLatin1String("Passive Respec Points"))) {
+                sqlite3_bind_int64(questEventStmt, 1, sessionId);
+                if (sessionAreaId < 0) sqlite3_bind_null (questEventStmt, 2);
+                else                   sqlite3_bind_int64(questEventStmt, 2, sessionAreaId);
+                sqlite3_bind_text (questEventStmt, 3, "passive_respec_received", -1, SQLITE_STATIC);
+                sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+                sqlite3_step(questEventStmt);
+                sqlite3_reset(questEventStmt);
+            }
+
+            // Passive skill allocation / unallocation
+            const auto passiveM = passiveAllocRe.match(message);
+            if (passiveM.hasMatch() && sessionId >= 0) {
+                const QByteArray actionBytes = passiveM.captured(1).toLower().toUtf8();
+                const QByteArray codeBytes   = passiveM.captured(2).toUtf8();
+                const QByteArray nameBytes   = passiveM.captured(3).toUtf8();
+
+                sqlite3_bind_text(passiveUpsertStmt, 1, codeBytes.constData(), codeBytes.size(), SQLITE_STATIC);
+                sqlite3_bind_text(passiveUpsertStmt, 2, nameBytes.constData(),  nameBytes.size(),  SQLITE_STATIC);
+                sqlite3_bind_int (passiveUpsertStmt, 3, 0);
+                sqlite3_step(passiveUpsertStmt);
+                sqlite3_reset(passiveUpsertStmt);
+
+                sqlite3_bind_text(passiveSelectStmt, 1, codeBytes.constData(), codeBytes.size(), SQLITE_STATIC);
+                qint64 passiveId = -1;
+                if (sqlite3_step(passiveSelectStmt) == SQLITE_ROW)
+                    passiveId = sqlite3_column_int64(passiveSelectStmt, 0);
+                sqlite3_reset(passiveSelectStmt);
+
+                if (passiveId >= 0) {
+                    sqlite3_bind_int64(passiveAllocStmt, 1, sessionId);
+                    if (sessionCharId < 0) sqlite3_bind_null (passiveAllocStmt, 2);
+                    else                   sqlite3_bind_int64(passiveAllocStmt, 2, sessionCharId);
+                    sqlite3_bind_int64(passiveAllocStmt, 3, passiveId);
+                    sqlite3_bind_text (passiveAllocStmt, 4, actionBytes.constData(), actionBytes.size(), SQLITE_STATIC);
+                    sqlite3_bind_text (passiveAllocStmt, 5, tsBytes.constData(),     tsBytes.size(),     SQLITE_STATIC);
+                    sqlite3_step(passiveAllocStmt);
+                    sqlite3_reset(passiveAllocStmt);
+                }
+            }
+
+            // Mastery allocation / unallocation
+            const auto masteryM = masteryAllocRe.match(message);
+            if (masteryM.hasMatch() && sessionId >= 0) {
+                const QByteArray actionBytes = masteryM.captured(1).toLower().toUtf8();
+                const QByteArray codeBytes   = masteryM.captured(2).toUtf8();
+                const QByteArray nameBytes   = masteryM.captured(3).toUtf8();
+
+                sqlite3_bind_text(passiveUpsertStmt, 1, codeBytes.constData(), codeBytes.size(), SQLITE_STATIC);
+                sqlite3_bind_text(passiveUpsertStmt, 2, nameBytes.constData(),  nameBytes.size(),  SQLITE_STATIC);
+                sqlite3_bind_int (passiveUpsertStmt, 3, 1);
+                sqlite3_step(passiveUpsertStmt);
+                sqlite3_reset(passiveUpsertStmt);
+
+                sqlite3_bind_text(passiveSelectStmt, 1, codeBytes.constData(), codeBytes.size(), SQLITE_STATIC);
+                qint64 passiveId = -1;
+                if (sqlite3_step(passiveSelectStmt) == SQLITE_ROW)
+                    passiveId = sqlite3_column_int64(passiveSelectStmt, 0);
+                sqlite3_reset(passiveSelectStmt);
+
+                if (passiveId >= 0) {
+                    sqlite3_bind_int64(passiveAllocStmt, 1, sessionId);
+                    if (sessionCharId < 0) sqlite3_bind_null (passiveAllocStmt, 2);
+                    else                   sqlite3_bind_int64(passiveAllocStmt, 2, sessionCharId);
+                    sqlite3_bind_int64(passiveAllocStmt, 3, passiveId);
+                    sqlite3_bind_text (passiveAllocStmt, 4, actionBytes.constData(), actionBytes.size(), SQLITE_STATIC);
+                    sqlite3_bind_text (passiveAllocStmt, 5, tsBytes.constData(),     tsBytes.size(),     SQLITE_STATIC);
+                    sqlite3_step(passiveAllocStmt);
+                    sqlite3_reset(passiveAllocStmt);
+                }
+            }
+
+            // Whispers
+            const auto whisperM = whisperRe.match(message);
+            if (whisperM.hasMatch() && sessionId >= 0) {
+                const QByteArray dirBytes  = (whisperM.captured(1) == QLatin1String("From")
+                                              ? QByteArrayLiteral("from")
+                                              : QByteArrayLiteral("to"));
+                const QByteArray nameBytes = whisperM.captured(2).toUtf8();
+                const QByteArray msgBytes  = whisperM.captured(3).toUtf8();
+                sqlite3_bind_int64(whisperStmt, 1, sessionId);
+                sqlite3_bind_text (whisperStmt, 2, dirBytes.constData(),  dirBytes.size(),  SQLITE_STATIC);
+                sqlite3_bind_text (whisperStmt, 3, nameBytes.constData(), nameBytes.size(), SQLITE_STATIC);
+                sqlite3_bind_text (whisperStmt, 4, msgBytes.constData(),  msgBytes.size(),  SQLITE_STATIC);
+                sqlite3_bind_text (whisperStmt, 5, tsBytes.constData(),   tsBytes.size(),   SQLITE_STATIC);
+                sqlite3_step(whisperStmt);
+                sqlite3_reset(whisperStmt);
+            }
+
             // Area entered (correlated with pending Generating line)
             if (!pendingCode.isEmpty()) {
                 const auto entM = enteredRe.match(message);
@@ -567,6 +720,11 @@ void LogIngestWorker::start()
     sqlite3_finalize(spanSelectStmt);
     sqlite3_finalize(spanCloseStmt);
     sqlite3_finalize(spanUpdateCharStmt);
+    sqlite3_finalize(questEventStmt);
+    sqlite3_finalize(passiveUpsertStmt);
+    sqlite3_finalize(passiveSelectStmt);
+    sqlite3_finalize(passiveAllocStmt);
+    sqlite3_finalize(whisperStmt);
     sqlite3_finalize(sourceStmt);
     sqlite3_close(db);
 

@@ -3,7 +3,7 @@
 #include <sqlite3.h>
 #include <cstdio>
 
-static constexpr int kDbVersion = 1;
+static constexpr int kDbVersion = 5;
 
 static void execSql(sqlite3 *db, const char *sql)
 {
@@ -193,6 +193,50 @@ void Database::initSchema()
         );
     )");
 
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS passive_skills (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            code       TEXT    NOT NULL UNIQUE,
+            name       TEXT    NOT NULL,
+            is_mastery INTEGER NOT NULL DEFAULT 0
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS passive_skill_allocations (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id       INTEGER NOT NULL REFERENCES sessions(id),
+            char_id          INTEGER REFERENCES characters(id),
+            passive_skill_id INTEGER NOT NULL REFERENCES passive_skills(id),
+            action           TEXT    NOT NULL DEFAULT 'allocated',
+            allocated_at     TEXT    NOT NULL,
+            UNIQUE(session_id, passive_skill_id, action, allocated_at)
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS whispers (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id  INTEGER NOT NULL REFERENCES sessions(id),
+            direction   TEXT    NOT NULL CHECK(direction IN ('from', 'to')),
+            player_name TEXT    NOT NULL,
+            message     TEXT    NOT NULL,
+            occurred_at TEXT    NOT NULL,
+            UNIQUE(session_id, occurred_at, direction, player_name)
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS quest_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id  INTEGER NOT NULL REFERENCES sessions(id),
+            area_id     INTEGER REFERENCES areas(id),
+            event_type  TEXT    NOT NULL,
+            occurred_at TEXT    NOT NULL,
+            UNIQUE(session_id, occurred_at, event_type)
+        );
+    )");
+
     const int version = readUserVersion(m_db);
     if (version == 0)
         setUserVersion(m_db, kDbVersion);
@@ -202,8 +246,12 @@ void Database::initSchema()
 
 void Database::migrate(int fromVersion)
 {
-    // if (fromVersion < 2) { ... }
-    (void)fromVersion;
+    // v1→v2: quest_events; v2→v3: passive_skills + passive_skill_allocations;
+    // v3→v4: whispers; v4→v5: passive_skills.is_mastery, passive_skill_allocations.action.
+    if (fromVersion < 5) {
+        execSql(m_db, "ALTER TABLE passive_skills ADD COLUMN is_mastery INTEGER NOT NULL DEFAULT 0;");
+        execSql(m_db, "ALTER TABLE passive_skill_allocations ADD COLUMN action TEXT NOT NULL DEFAULT 'allocated';");
+    }
     setUserVersion(m_db, kDbVersion);
 }
 
