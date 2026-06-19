@@ -122,6 +122,49 @@ See Decision section.
 
 ---
 
+## C++ + Qt6 vs Go + Fyne — detailed comparison
+
+Go was a credible candidate worth addressing directly. Go compiles to a single static binary by default, has fast compile times, a stable language (slow intentional churn), excellent AI training data, and trivial cross-compilation (`GOOS=linux GOARCH=amd64 go build`). For a companion app that only consumes web APIs, it would be a strong choice. The comparison below is specific to this app's actual requirements.
+
+### The overlay is the deciding factor
+
+The hardest requirement — a transparent, always-on-top window with **per-region hit-testing** (background passes through to game, UI elements interactive) — is the axis on which the two stacks diverge completely.
+
+**Qt6**: `QWidget::setMask(QRegion)`, `Qt::WA_TranslucentBackground`, `Qt::FramelessWindowHint`, and `Qt::WindowStaysOnTopHint` are all first-class built-ins. The overlay is ~10 lines of setup with no platform-specific code and no external dependencies beyond Qt itself.
+
+**Fyne**: Fyne abstracts the OS window at a level that does not expose layered windows, per-monitor-DPI topmost windows, or region-based hit-testing. A transparent always-on-top overlay with selective passthrough is **not achievable in pure Fyne**. Achieving it requires dropping to CGo and calling Win32 (`SetLayeredWindowAttributes`, `SetWindowRgn`, `WM_NCHITTEST`) and X11 (`XChangeProperty`, shape extension) directly.
+
+Once CGo is involved the primary advantages of Go for distribution collapse:
+- Static binary is no longer possible (CGo requires the C runtime)
+- A C toolchain (MSVC or MinGW on Windows, GCC on Linux) becomes required to build
+- Cross-compilation becomes significantly harder (CGo does not cross-compile easily)
+- The overlay code is now essentially raw Win32/X11 with no framework help — the same wheel being reinvented that Qt solves
+
+At that point the project has the complexity of C++ without the Qt API surface that makes that complexity worthwhile.
+
+### Pros and cons table
+
+| | **C++ + Qt6** | **Go + Fyne** |
+|---|---|---|
+| Overlay (transparent + per-region hit-test) | First-class (`setMask`, `WA_TranslucentBackground`) | Requires CGo + raw Win32/X11 |
+| System tray | `QSystemTrayIcon` — integrated, main-thread, no hacks | `fyne.io/systray` — works but separate from Fyne's event loop, similar threading quirks to what `tray-icon` caused in Rust |
+| Window lifecycle (hide/show/close) | `closeEvent`, `hide()`, `show()`, `raise()` — retained, one call each | Fyne's `Window` interface exposes `Hide()`/`Show()` but lifecycle hooks are limited; no `closeEvent` equivalent |
+| Steam Deck / KDE native feel | Qt IS KDE — apps look at home on SteamOS desktop | Fyne uses its own OpenGL renderer with a Material-inspired theme; looks foreign on KDE |
+| Cross-monitor DPI | Qt platform plugin sets `PER_MONITOR_AWARE_V2` correctly | Fyne has had DPI issues on multi-monitor Windows setups |
+| Compile times | Slow (C++ / Qt MOC headers) | Fast |
+| Distribution (no overlay) | DLLs + installer | Single static binary — simpler |
+| Distribution (with CGo overlay) | DLLs + installer | Requires C runtime, no static binary, cross-compile breaks |
+| Language for vibe coding | C++ (more ceremony, but AI handles Qt patterns well) | Go (simpler syntax, faster iteration) |
+| AI training data for GUI | Large (Qt C++ is extremely well documented) | Moderate (Fyne is smaller ecosystem) |
+| Long-term API stability | Qt6 core API stable for years; KDAB commercial backing | Fyne API has had breaking changes between minor versions |
+| Companion-only mode (no overlay) | Qt still appropriate; just don't show the overlay window | Go + Fyne would be a good fit here |
+
+### When Go + Fyne would be the right choice instead
+
+If the overlay requirement were dropped — i.e. the app ran in companion-only mode consuming PoE web APIs with no game window integration — Go + Fyne would be genuinely competitive. The static binary, fast iteration, and Go's excellent HTTP/JSON stdlib would be real advantages with no CGo penalty. It is worth revisiting if the product direction shifts to companion-first.
+
+---
+
 ## Decision: C++ + Qt
 
 ### Why this fits the specific constraints
