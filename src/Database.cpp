@@ -370,7 +370,7 @@ void Database::migrate(int fromVersion)
             CREATE TABLE IF NOT EXISTS character_played_events (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id  INTEGER NOT NULL REFERENCES sessions(id),
-                char_id     INTEGER REFERENCES characters(id),
+                span_id     INTEGER REFERENCES area_time_spans(id),
                 played_secs INTEGER NOT NULL,
                 occurred_at TEXT    NOT NULL,
                 UNIQUE(session_id, occurred_at)
