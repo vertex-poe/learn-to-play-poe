@@ -3,7 +3,7 @@
 #include <sqlite3.h>
 #include <cstdio>
 
-static constexpr int kDbVersion = 10;
+static constexpr int kDbVersion = 15;
 
 static void execSql(sqlite3 *db, const char *sql)
 {
@@ -319,6 +319,52 @@ void Database::initSchema()
         );
     )");
 
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS hideouts (
+            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT    NOT NULL UNIQUE
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS hideout_discovered_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id  INTEGER NOT NULL REFERENCES sessions(id),
+            hideout_id  INTEGER NOT NULL REFERENCES hideouts(id),
+            area_id     INTEGER REFERENCES areas(id),
+            occurred_at TEXT    NOT NULL,
+            UNIQUE(session_id, hideout_id, occurred_at)
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS pvp_matches (
+            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT    NOT NULL UNIQUE
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS pvp_queue_events (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id   INTEGER NOT NULL REFERENCES sessions(id),
+            match_id     INTEGER NOT NULL REFERENCES pvp_matches(id),
+            player_count INTEGER NOT NULL DEFAULT 0,
+            occurred_at  TEXT    NOT NULL,
+            cancelled_at TEXT,
+            UNIQUE(session_id, occurred_at)
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS guild_members (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_name TEXT    NOT NULL,
+            account_id INTEGER NOT NULL REFERENCES accounts(id),
+            UNIQUE(guild_name, account_id)
+        );
+    )");
+
     // channel stores the raw prefix character: '#' global, '$' trade, '%' party, '&' guild.
     execSql(m_db, R"(
         CREATE TABLE IF NOT EXISTS chats (
@@ -326,6 +372,7 @@ void Database::initSchema()
             session_id     INTEGER NOT NULL REFERENCES sessions(id),
             public_char_id INTEGER NOT NULL REFERENCES public_chars(id),
             channel        TEXT    NOT NULL,
+            guild_tag      TEXT,
             message        TEXT    NOT NULL,
             occurred_at    TEXT    NOT NULL,
             UNIQUE(session_id, occurred_at, public_char_id, channel)
@@ -345,7 +392,12 @@ void Database::migrate(int fromVersion)
     // v3→v4: whispers; v4→v5: passive_skills.is_mastery, passive_skill_allocations.action;
     // v5→v6: character_deaths; v6→v7: public_chars + chats; v7→v8: achievements + achievement_events;
     // v8→v9: character_played_events + characters.played_secs;
-    // v9→v10: passive_point_snapshots + passive_quest_sources + passive_snapshot_quests.
+    // v9→v10: passive_point_snapshots + passive_quest_sources + passive_snapshot_quests;
+    // v10→v11: hideouts + hideout_discovered_events;
+    // v11→v12: pvp_matches + pvp_queue_events;
+    // v12→v13: pvp_queue_events.cancelled_at;
+    // v13→v14: chats.guild_tag;
+    // v14→v15: guild_members.
     if (fromVersion < 5) {
         execSql(m_db, "ALTER TABLE passive_skills ADD COLUMN is_mastery INTEGER NOT NULL DEFAULT 0;");
         execSql(m_db, "ALTER TABLE passive_skill_allocations ADD COLUMN action TEXT NOT NULL DEFAULT 'allocated';");
@@ -441,6 +493,58 @@ void Database::migrate(int fromVersion)
                 quest_id    INTEGER NOT NULL REFERENCES passive_quest_sources(id),
                 points      INTEGER NOT NULL DEFAULT 1,
                 UNIQUE(snapshot_id, quest_id)
+            );
+        )");
+    }
+    if (fromVersion < 11) {
+        execSql(m_db, R"(
+            CREATE TABLE IF NOT EXISTS hideouts (
+                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT    NOT NULL UNIQUE
+            );
+        )");
+        execSql(m_db, R"(
+            CREATE TABLE IF NOT EXISTS hideout_discovered_events (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id  INTEGER NOT NULL REFERENCES sessions(id),
+                hideout_id  INTEGER NOT NULL REFERENCES hideouts(id),
+                area_id     INTEGER REFERENCES areas(id),
+                occurred_at TEXT    NOT NULL,
+                UNIQUE(session_id, hideout_id, occurred_at)
+            );
+        )");
+    }
+    if (fromVersion < 12) {
+        execSql(m_db, R"(
+            CREATE TABLE IF NOT EXISTS pvp_matches (
+                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT    NOT NULL UNIQUE
+            );
+        )");
+        execSql(m_db, R"(
+            CREATE TABLE IF NOT EXISTS pvp_queue_events (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id   INTEGER NOT NULL REFERENCES sessions(id),
+                match_id     INTEGER NOT NULL REFERENCES pvp_matches(id),
+                player_count INTEGER NOT NULL DEFAULT 0,
+                occurred_at  TEXT    NOT NULL,
+                UNIQUE(session_id, occurred_at)
+            );
+        )");
+    }
+    if (fromVersion < 13) {
+        execSql(m_db, "ALTER TABLE pvp_queue_events ADD COLUMN cancelled_at TEXT;");
+    }
+    if (fromVersion < 14) {
+        execSql(m_db, "ALTER TABLE chats ADD COLUMN guild_tag TEXT;");
+    }
+    if (fromVersion < 15) {
+        execSql(m_db, R"(
+            CREATE TABLE IF NOT EXISTS guild_members (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_name TEXT    NOT NULL,
+                account_id INTEGER NOT NULL REFERENCES accounts(id),
+                UNIQUE(guild_name, account_id)
             );
         )");
     }

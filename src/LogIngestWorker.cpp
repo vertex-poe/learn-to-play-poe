@@ -78,6 +78,10 @@ void LogIngestWorker::start()
     static const QRegularExpression guildRe(
         R"(Joined guild named (.+?) with \d+ members)"
     );
+    // [INFO] Guild member updated KayKay83
+    static const QRegularExpression guildMemberRe(
+        R"(Guild member updated (\S+))"
+    );
     // [INFO] : You have joined global chat channel 1,137 English.
     static const QRegularExpression chatChannelRe(
         R"(You have joined global chat channel ([\d,]+) (\w+))"
@@ -107,9 +111,11 @@ void LogIngestWorker::start()
         R"((\S+) has been slain\.)"
     );
     // [INFO] #DDIsBrokenAF: someone can kill my black sycle boss pls
+    // [INFO] #<¾:aLkO> Stary_Dziadu_Scythe: LF UBER SHAPER CARRY
     // channel prefix: '#' global, '$' trade, '%' party, '&' guild
+    // guild tag is optional, enclosed in <>, and may contain ':'
     static const QRegularExpression chatRe(
-        R"(([#$%&])(\S+): (.*))"
+        R"(([#$%&])(?:<([^>]*)> )?(\S+): (.*))"
     );
     // [INFO] : You have played for 15 hours, 41 minutes, and 32 seconds.
     static const QRegularExpression playedRe(
@@ -121,6 +127,14 @@ void LogIngestWorker::start()
     // [INFO] Achivement stored: AllOptionalDialogue  (note: typo in log is intentional)
     static const QRegularExpression achievementRe(
         R"(Achivement stored: (\S+))"
+    );
+    // [INFO] Spawning discoverable Hideout Tidal Island Hideout
+    static const QRegularExpression hideoutRe(
+        R"(Spawning discoverable Hideout (.+))"
+    );
+    // [INFO] Queueing for PVP match "US-ASTHC CTF Open" with 0 other players
+    static const QRegularExpression pvpQueueRe(
+        R"(Queueing for PVP match "([^"]+)" with (\d+) other players)"
     );
     // /passives command — multi-line block:
     // : 95 total Passive Skill Points (91 allocated)
@@ -155,6 +169,8 @@ void LogIngestWorker::start()
     sqlite3_stmt *areaSelectStmt      = nullptr;
     sqlite3_stmt *moveInsertStmt      = nullptr;
     sqlite3_stmt *accountUpsertStmt   = nullptr;
+    sqlite3_stmt *guildMemberStmt     = nullptr;
+    sqlite3_stmt *guildMemberInsertStmt = nullptr;
     sqlite3_stmt *channelUpsertStmt   = nullptr;
     sqlite3_stmt *channelSelectStmt   = nullptr;
     sqlite3_stmt *channelJoinStmt     = nullptr;
@@ -183,6 +199,13 @@ void LogIngestWorker::start()
     sqlite3_stmt *achievUpsertStmt     = nullptr;
     sqlite3_stmt *achievSelectStmt     = nullptr;
     sqlite3_stmt *achievEventStmt      = nullptr;
+    sqlite3_stmt *hideoutUpsertStmt    = nullptr;
+    sqlite3_stmt *hideoutSelectStmt    = nullptr;
+    sqlite3_stmt *hideoutEventStmt     = nullptr;
+    sqlite3_stmt *pvpMatchUpsertStmt   = nullptr;
+    sqlite3_stmt *pvpMatchSelectStmt   = nullptr;
+    sqlite3_stmt *pvpQueueEventStmt    = nullptr;
+    sqlite3_stmt *pvpQueueCancelStmt   = nullptr;
     sqlite3_stmt *playedEventStmt        = nullptr;
     sqlite3_stmt *charPlayedStmt         = nullptr;
     sqlite3_stmt *charPlayedFromSpanStmt = nullptr;
@@ -207,6 +230,13 @@ void LogIngestWorker::start()
         "INSERT INTO accounts(name, guild_name) VALUES('unknown', ?) "
         "ON CONFLICT(name) DO UPDATE SET guild_name=excluded.guild_name;",
         -1, &accountUpsertStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO accounts(name) VALUES(?);",
+        -1, &guildMemberStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO guild_members(guild_name, account_id) "
+        "SELECT ?, id FROM accounts WHERE name=?;",
+        -1, &guildMemberInsertStmt, nullptr);
     sqlite3_prepare_v2(db,
         "INSERT INTO chat_channels(number, lang, name) VALUES(?,?,?) "
         "ON CONFLICT(number) DO UPDATE SET lang=excluded.lang, "
@@ -292,7 +322,7 @@ void LogIngestWorker::start()
         "SELECT id FROM public_chars WHERE name=?;",
         -1, &pubCharSelectStmt, nullptr);
     sqlite3_prepare_v2(db,
-        "INSERT OR IGNORE INTO chats(session_id, public_char_id, channel, message, occurred_at) VALUES(?,?,?,?,?);",
+        "INSERT OR IGNORE INTO chats(session_id, public_char_id, channel, guild_tag, message, occurred_at) VALUES(?,?,?,?,?,?);",
         -1, &chatStmt, nullptr);
     sqlite3_prepare_v2(db,
         "INSERT OR IGNORE INTO character_played_events(session_id, span_id, played_secs, occurred_at) VALUES(?,?,?,?);",
@@ -335,6 +365,27 @@ void LogIngestWorker::start()
         "INSERT OR IGNORE INTO achievement_events(session_id, achievement_id, occurred_at) VALUES(?,?,?);",
         -1, &achievEventStmt, nullptr);
     sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO hideouts(name) VALUES(?);",
+        -1, &hideoutUpsertStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "SELECT id FROM hideouts WHERE name=?;",
+        -1, &hideoutSelectStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO hideout_discovered_events(session_id, hideout_id, area_id, occurred_at) VALUES(?,?,?,?);",
+        -1, &hideoutEventStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO pvp_matches(name) VALUES(?);",
+        -1, &pvpMatchUpsertStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "SELECT id FROM pvp_matches WHERE name=?;",
+        -1, &pvpMatchSelectStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO pvp_queue_events(session_id, match_id, player_count, occurred_at) VALUES(?,?,?,?);",
+        -1, &pvpQueueEventStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "UPDATE pvp_queue_events SET cancelled_at=? WHERE id=?;",
+        -1, &pvpQueueCancelStmt, nullptr);
+    sqlite3_prepare_v2(db,
         "UPDATE installs SET "
         "file_created_at=?, file_modified_at=?, file_size=?, last_byte_offset=? "
         "WHERE id=?;",
@@ -368,6 +419,7 @@ void LogIngestWorker::start()
 
     qint64  currentSpanId     = -1;
     qint64  currentSpanAfkSecs = 0;
+    qint64  lastPvpQueueEventId = -1;
 
     QString lastTs;
 
@@ -460,8 +512,9 @@ void LogIngestWorker::start()
         sessionId      = -1;
         sessionStartTs.clear();
         sessionAfkSecs = 0;
-        sessionCharId  = -1;
-        sessionAreaId  = -1;
+        sessionCharId       = -1;
+        sessionAreaId       = -1;
+        lastPvpQueueEventId = -1;
     };
 
     // ── /passives block state ────────────────────────────────────────────────
@@ -532,6 +585,7 @@ void LogIngestWorker::start()
 
     // ── main loop ────────────────────────────────────────────────────────────
 
+    QString currentGuild;
     QString pendingCode;
     int     pendingLevel           = 0;
     bool    skipTriggerFollowup    = false;
@@ -645,10 +699,28 @@ void LogIngestWorker::start()
             // Guild
             const auto guildM = guildRe.match(message);
             if (guildM.hasMatch()) {
-                const QByteArray guildBytes = guildM.captured(1).toUtf8();
+                currentGuild = guildM.captured(1);
+                const QByteArray guildBytes = currentGuild.toUtf8();
                 sqlite3_bind_text(accountUpsertStmt, 1, guildBytes.constData(), guildBytes.size(), SQLITE_STATIC);
                 sqlite3_step(accountUpsertStmt);
                 sqlite3_reset(accountUpsertStmt);
+            }
+
+            // Guild member updated — record the account name and add to guild_members
+            const auto guildMemberM = guildMemberRe.match(message);
+            if (guildMemberM.hasMatch()) {
+                const QByteArray nameBytes = guildMemberM.captured(1).toUtf8();
+                sqlite3_bind_text(guildMemberStmt, 1, nameBytes.constData(), nameBytes.size(), SQLITE_STATIC);
+                sqlite3_step(guildMemberStmt);
+                sqlite3_reset(guildMemberStmt);
+
+                if (!currentGuild.isEmpty()) {
+                    const QByteArray guildBytes = currentGuild.toUtf8();
+                    sqlite3_bind_text(guildMemberInsertStmt, 1, guildBytes.constData(), guildBytes.size(), SQLITE_STATIC);
+                    sqlite3_bind_text(guildMemberInsertStmt, 2, nameBytes.constData(),  nameBytes.size(),  SQLITE_STATIC);
+                    sqlite3_step(guildMemberInsertStmt);
+                    sqlite3_reset(guildMemberInsertStmt);
+                }
             }
 
             // Chat channel join
@@ -871,6 +943,69 @@ void LogIngestWorker::start()
                 }
             }
 
+            // Hideout discovered
+            const auto hideoutM = hideoutRe.match(message);
+            if (hideoutM.hasMatch() && sessionId >= 0) {
+                const QByteArray nameBytes = hideoutM.captured(1).trimmed().toUtf8();
+
+                sqlite3_bind_text(hideoutUpsertStmt, 1, nameBytes.constData(), nameBytes.size(), SQLITE_STATIC);
+                sqlite3_step(hideoutUpsertStmt);
+                sqlite3_reset(hideoutUpsertStmt);
+
+                sqlite3_bind_text(hideoutSelectStmt, 1, nameBytes.constData(), nameBytes.size(), SQLITE_STATIC);
+                qint64 hideoutId = -1;
+                if (sqlite3_step(hideoutSelectStmt) == SQLITE_ROW)
+                    hideoutId = sqlite3_column_int64(hideoutSelectStmt, 0);
+                sqlite3_reset(hideoutSelectStmt);
+
+                if (hideoutId >= 0) {
+                    sqlite3_bind_int64(hideoutEventStmt, 1, sessionId);
+                    sqlite3_bind_int64(hideoutEventStmt, 2, hideoutId);
+                    if (sessionAreaId < 0) sqlite3_bind_null (hideoutEventStmt, 3);
+                    else                   sqlite3_bind_int64(hideoutEventStmt, 3, sessionAreaId);
+                    sqlite3_bind_text (hideoutEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+                    sqlite3_step(hideoutEventStmt);
+                    sqlite3_reset(hideoutEventStmt);
+                }
+            }
+
+            // PVP queue
+            const auto pvpM = pvpQueueRe.match(message);
+            if (pvpM.hasMatch() && sessionId >= 0) {
+                const QByteArray nameBytes = pvpM.captured(1).toUtf8();
+                const int playerCount = pvpM.captured(2).toInt();
+
+                sqlite3_bind_text(pvpMatchUpsertStmt, 1, nameBytes.constData(), nameBytes.size(), SQLITE_STATIC);
+                sqlite3_step(pvpMatchUpsertStmt);
+                sqlite3_reset(pvpMatchUpsertStmt);
+
+                sqlite3_bind_text(pvpMatchSelectStmt, 1, nameBytes.constData(), nameBytes.size(), SQLITE_STATIC);
+                qint64 matchId = -1;
+                if (sqlite3_step(pvpMatchSelectStmt) == SQLITE_ROW)
+                    matchId = sqlite3_column_int64(pvpMatchSelectStmt, 0);
+                sqlite3_reset(pvpMatchSelectStmt);
+
+                if (matchId >= 0) {
+                    sqlite3_bind_int64(pvpQueueEventStmt, 1, sessionId);
+                    sqlite3_bind_int64(pvpQueueEventStmt, 2, matchId);
+                    sqlite3_bind_int  (pvpQueueEventStmt, 3, playerCount);
+                    sqlite3_bind_text (pvpQueueEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+                    sqlite3_step(pvpQueueEventStmt);
+                    sqlite3_reset(pvpQueueEventStmt);
+                    if (sqlite3_changes(db) > 0)
+                        lastPvpQueueEventId = sqlite3_last_insert_rowid(db);
+                }
+            }
+
+            // PVP queue cancelled
+            if (message.contains(QLatin1String("Cancelled PVP queue")) && lastPvpQueueEventId >= 0) {
+                sqlite3_bind_text (pvpQueueCancelStmt, 1, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+                sqlite3_bind_int64(pvpQueueCancelStmt, 2, lastPvpQueueEventId);
+                sqlite3_step(pvpQueueCancelStmt);
+                sqlite3_reset(pvpQueueCancelStmt);
+                lastPvpQueueEventId = -1;
+            }
+
             // Passive skill allocation / unallocation
             const auto passiveM = passiveAllocRe.match(message);
             if (passiveM.hasMatch() && sessionId >= 0) {
@@ -980,8 +1115,9 @@ void LogIngestWorker::start()
             const auto chatM = chatRe.match(message);
             if (chatM.hasMatch() && sessionId >= 0) {
                 const QByteArray channelBytes  = chatM.captured(1).toUtf8();
-                const QByteArray speakerBytes  = chatM.captured(2).toUtf8();
-                const QByteArray messageBytes  = chatM.captured(3).toUtf8();
+                const QString    guildTag      = chatM.captured(2);
+                const QByteArray speakerBytes  = chatM.captured(3).toUtf8();
+                const QByteArray messageBytes  = chatM.captured(4).toUtf8();
 
                 sqlite3_bind_text(pubCharUpsertStmt, 1, speakerBytes.constData(), speakerBytes.size(), SQLITE_STATIC);
                 sqlite3_step(pubCharUpsertStmt);
@@ -994,11 +1130,16 @@ void LogIngestWorker::start()
                 sqlite3_reset(pubCharSelectStmt);
 
                 if (pubCharId >= 0) {
+                    const QByteArray guildBytes = guildTag.toUtf8();
                     sqlite3_bind_int64(chatStmt, 1, sessionId);
                     sqlite3_bind_int64(chatStmt, 2, pubCharId);
-                    sqlite3_bind_text (chatStmt, 3, channelBytes.constData(),  channelBytes.size(),  SQLITE_STATIC);
-                    sqlite3_bind_text (chatStmt, 4, messageBytes.constData(),  messageBytes.size(),  SQLITE_STATIC);
-                    sqlite3_bind_text (chatStmt, 5, tsBytes.constData(),       tsBytes.size(),       SQLITE_STATIC);
+                    sqlite3_bind_text (chatStmt, 3, channelBytes.constData(), channelBytes.size(), SQLITE_STATIC);
+                    if (guildTag.isEmpty())
+                        sqlite3_bind_null(chatStmt, 4);
+                    else
+                        sqlite3_bind_text(chatStmt, 4, guildBytes.constData(), guildBytes.size(), SQLITE_STATIC);
+                    sqlite3_bind_text (chatStmt, 5, messageBytes.constData(), messageBytes.size(), SQLITE_STATIC);
+                    sqlite3_bind_text (chatStmt, 6, tsBytes.constData(),      tsBytes.size(),      SQLITE_STATIC);
                     sqlite3_step(chatStmt);
                     sqlite3_reset(chatStmt);
                 }
@@ -1063,6 +1204,8 @@ void LogIngestWorker::start()
     sqlite3_finalize(areaSelectStmt);
     sqlite3_finalize(moveInsertStmt);
     sqlite3_finalize(accountUpsertStmt);
+    sqlite3_finalize(guildMemberStmt);
+    sqlite3_finalize(guildMemberInsertStmt);
     sqlite3_finalize(channelUpsertStmt);
     sqlite3_finalize(channelSelectStmt);
     sqlite3_finalize(channelJoinStmt);
@@ -1091,6 +1234,13 @@ void LogIngestWorker::start()
     sqlite3_finalize(achievUpsertStmt);
     sqlite3_finalize(achievSelectStmt);
     sqlite3_finalize(achievEventStmt);
+    sqlite3_finalize(hideoutUpsertStmt);
+    sqlite3_finalize(hideoutSelectStmt);
+    sqlite3_finalize(hideoutEventStmt);
+    sqlite3_finalize(pvpMatchUpsertStmt);
+    sqlite3_finalize(pvpMatchSelectStmt);
+    sqlite3_finalize(pvpQueueEventStmt);
+    sqlite3_finalize(pvpQueueCancelStmt);
     sqlite3_finalize(playedEventStmt);
     sqlite3_finalize(charPlayedStmt);
     sqlite3_finalize(charPlayedFromSpanStmt);

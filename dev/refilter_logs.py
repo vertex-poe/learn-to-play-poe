@@ -37,6 +37,7 @@ CATEGORIES = [
     ("bundle2",        ["[BUNDLE2]"]),
     ("enumerated",     ["Enumerated"]),
     ("item_filter",    ["[Item Filter]"]),
+    ("blueprint_ui",   ["[Blueprint UI]"]),
 ]
 
 # Lines silently dropped from the remainder (refiltered_client.txt) — we don't care about these
@@ -55,9 +56,21 @@ IGNORE_PREFIXES = [
     ": Not enough room for item.",
     " monsters remain.",
     "Re-ordering tabs to match stash data",
+    "Re-ordering sub tabs to match stash data",
+    "FindClosestObject found no nearby object",
+    "Matching object found for InstanceClientActionUpdate, but no matching action was found on object to update.",
+    "InstanceClientFinishChannellingAction id did not match current channelled action",
+    "packet for a container this skill doesn't have - packet is for wrong skill",
+    "Invalid for Metadata/",
+    "GEAL Triggered action with animation event - could not find specified event",
+    "SetOrientation failed as the orientation value wasn't a location or float",
+    "Received an update for a blight portal that we didn't know about",
+    "Could not find row for ",
     "Steam stats stored",
     ": Item on cursor destroyed.",
     ": Failed to apply item: Item has no space for more Mods.",
+    "Client couldn't execute",
+    "Instant/Triggered action",
 ]
 
 # Lines that go into filtered_sql/ — ingested into the database
@@ -65,6 +78,7 @@ CATEGORIES_SQL = [
     ("area_generating",    ["Generating level"]),
     ("area_entered",       ["You have entered"]),
     ("guild_joined",       ["Joined guild named"]),
+    ("guild_member_updated", ["Guild member updated "]),
     ("chat_channel_joined", ["You have joined global chat channel"]),
     ("char_level_up",       ["is now level"]),
     ("session_afk",         ["AFK mode is now"]),
@@ -76,6 +90,7 @@ CATEGORIES_SQL = [
     ("passive_respec_received",   ["Passive Respec Points"]),
     ("passive_skill_point",       ["You have received a Passive Skill Point.",
                                    "Passive Skill Points."]),
+    ("chats",                     ["] #", "] $", "] %", "] &"]),
     ("whispers",                  ["@From ", "@To "]),
     ("kitava_resistance_penalty", ["Kitava's merciless affliction"]),
     ("achievements",              ["Achivement stored:"]),
@@ -84,6 +99,8 @@ CATEGORIES_SQL = [
                                    "total Ascendancy Skill Points",
                                    "Passive Skill Points from",
                                    ") from "]),
+    ("hideout_discovered",        ["Spawning discoverable Hideout"]),
+    ("pvp_queue",                 ["Queueing for PVP match", "Cancelled PVP queue"]),
 ]
 
 
@@ -213,9 +230,12 @@ if OUT.exists() and OUT.stat().st_size > 0:
     raw_lines = OUT.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
     dialog, keep = [], []
     for raw in raw_lines:
-        body = STRIP_RE.sub("", raw.rstrip("\r\n"))
+        stripped = raw.rstrip("\r\n")
+        body = STRIP_RE.sub("", stripped)
         if DIALOG_RE.match(body):
             dialog.append(raw)
+        elif not STRIP_RE.match(stripped):
+            pass  # non-timestamped continuation line — drop
         else:
             keep.append(raw)
     dialog_out.write_text("".join(dialog), encoding="utf-8")
