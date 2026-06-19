@@ -1,6 +1,8 @@
 #include "MainWindow.h"
 #include "GameOverlay.h"
 #include "SettingsDialog.h"
+#include "TaskManager.h"
+#include "TaskPanel.h"
 #include "WindowTracker.h"
 
 #include <QAction>
@@ -11,6 +13,8 @@
 #include <QMenuBar>
 #include <QSystemTrayIcon>
 #include <QTimer>
+#include <QVBoxLayout>
+#include <QWidget>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -19,8 +23,18 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowIcon(QIcon(":/icons/vertex-icon.png"));
     resize(720, 480);
 
+    m_taskManager = new TaskManager(this);
+
     m_log = new NotificationsPanel(this);
-    setCentralWidget(m_log);
+    m_taskPanel = new TaskPanel(m_taskManager, this);
+
+    auto *container = new QWidget(this);
+    auto *vbox = new QVBoxLayout(container);
+    vbox->setContentsMargins(0, 0, 0, 0);
+    vbox->setSpacing(0);
+    vbox->addWidget(m_log, 1);
+    vbox->addWidget(m_taskPanel, 0);
+    setCentralWidget(container);
 
     m_config = AppConfig::load();
 

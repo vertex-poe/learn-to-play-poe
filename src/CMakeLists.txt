@@ -1,4 +1,5 @@
 find_package(tomlplusplus CONFIG REQUIRED)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
 
 qt_add_executable(l2p-poe1
     main.cpp
@@ -6,6 +7,7 @@ qt_add_executable(l2p-poe1
     AppConfig.h
     AppStyle.cpp
     AppStyle.h
+    BackgroundWorker.h
     GameOverlay.cpp
     GameOverlay.h
     ListEditor.cpp
@@ -18,6 +20,10 @@ qt_add_executable(l2p-poe1
     NotificationsPanel.h
     SettingsDialog.cpp
     SettingsDialog.h
+    TaskManager.cpp
+    TaskManager.h
+    TaskPanel.cpp
+    TaskPanel.h
     Theme.cpp
     Theme.h
     WindowTracker.h
@@ -47,6 +53,7 @@ target_link_libraries(l2p-poe1 PRIVATE
     Qt6::Core
     Qt6::Widgets
     tomlplusplus::tomlplusplus
+    unofficial::sqlite3::sqlite3
 )
 
 # --- Install / deploy ---

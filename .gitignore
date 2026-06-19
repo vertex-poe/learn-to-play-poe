@@ -1,6 +1,7 @@
 # .gitignore (Git — Ignore List)
 
 /build
+/vcpkg_installed
 
 # Ignore configuration file
 l2p-poe1.toml

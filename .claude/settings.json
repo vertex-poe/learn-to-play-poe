@@ -7,7 +7,8 @@
       "Bash(just build *)",
       "Bash(git -C * log *)",
       "Skill(run)",
-      "Skill(run:*)"
+      "Skill(run:*)",
+      "WebSearch"
     ]
   }
 }

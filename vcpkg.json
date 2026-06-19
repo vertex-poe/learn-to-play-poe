@@ -3,6 +3,7 @@
   "name": "l2p-poe1",
   "version": "0.1.0",
   "dependencies": [
-    "tomlplusplus"
+    "tomlplusplus",
+    "sqlite3"
   ]
 }

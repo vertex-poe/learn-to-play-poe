@@ -11,6 +11,8 @@ class QMenu;
 class QTimer;
 class GameOverlay;
 class SettingsDialog;
+class TaskManager;
+class TaskPanel;
 class WindowTracker;
 
 class MainWindow : public QMainWindow
@@ -44,9 +46,11 @@ private:
     AppConfig m_config;
 
     NotificationsPanel *m_log{};
-    QSystemTrayIcon *m_tray{};
-    QMenu           *m_trayMenu{};
-    SettingsDialog  *m_settingsDialog{};
+    TaskManager        *m_taskManager{};
+    TaskPanel          *m_taskPanel{};
+    QSystemTrayIcon    *m_tray{};
+    QMenu              *m_trayMenu{};
+    SettingsDialog     *m_settingsDialog{};
 
     WindowTracker   *m_tracker{};
     QTimer          *m_pollTimer{};
