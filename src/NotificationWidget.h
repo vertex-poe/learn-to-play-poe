@@ -22,4 +22,10 @@ public:
                                 const QString &message, const QString &timestamp,
                                 const NotificationStyle &style = {},
                                 QWidget *parent = nullptr);
+
+protected:
+    void paintEvent(QPaintEvent *) override;
+
+private:
+    NotificationStyle m_style;
 };

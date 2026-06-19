@@ -2,8 +2,6 @@
 
 #include <QWidget>
 
-class QLabel;
-
 class GameOverlay : public QWidget
 {
     Q_OBJECT
@@ -24,5 +22,5 @@ private:
     void repositionPanels();
     void updateMask();
 
-    QLabel *m_infoPanel{};
+    QWidget *m_infoPanel{};
 };

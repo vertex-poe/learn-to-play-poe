@@ -10,7 +10,7 @@ NotificationsPanel::NotificationsPanel(QWidget *parent)
 {
     setWidgetResizable(true);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    setStyleSheet("QScrollArea { border: none; }");
+    setFrameShape(QFrame::NoFrame);
 
     m_container = new QWidget;
     m_layout = new QVBoxLayout(m_container);

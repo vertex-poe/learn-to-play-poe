@@ -9,6 +9,50 @@
 
 namespace {
 
+// Draws its text inside a rounded badge outline using QPainter.
+// The border is a semi-transparent white, matching the "monospace key" look.
+class BadgeLabel : public QWidget
+{
+public:
+    explicit BadgeLabel(const QString &text, const QColor &textColor, int fontPt,
+                        QWidget *parent = nullptr)
+        : QWidget(parent), m_text(text), m_textColor(textColor)
+    {
+        QFont f = font();
+        f.setPointSize(fontPt);
+        f.setFamily("monospace");
+        setFont(f);
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        setContentsMargins(4, 1, 4, 1);
+    }
+
+    QSize sizeHint() const override
+    {
+        const QFontMetrics fm(font());
+        const QRect br = fm.boundingRect(m_text);
+        const QMargins m = contentsMargins();
+        return {br.width() + m.left() + m.right(),
+                br.height() + m.top() + m.bottom()};
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(QColor(255, 255, 255, 77), 1));  // rgba(255,255,255,0.3)
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 4, 4);
+        p.setPen(m_textColor);
+        p.setFont(font());
+        p.drawText(contentsRect(), Qt::AlignCenter, m_text);
+    }
+
+private:
+    QString m_text;
+    QColor  m_textColor;
+};
+
 // Draws its text inside a pill (fully-rounded rectangle) using QPainter so
 // the shape is always correct regardless of Qt's stylesheet border-radius quirks.
 class TagLabel : public QLabel
@@ -53,15 +97,14 @@ QWidget *buildSegmentedRow(const QString &text, const QColor &color, int fontPt,
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(4);
 
-    const QString plainStyle = QStringLiteral(
-        "QLabel { border: none; background: transparent; color: %1; font-size: %2pt; }")
-        .arg(color.name()).arg(fontPt);
-    const QString badgeStyle = QStringLiteral(
-        "QLabel { background: transparent; color: %1;"
-        " border: 1px solid rgba(255,255,255,0.3);"
-        " border-radius: 4px; padding: 1px 0;"
-        " font-size: %2pt; font-family: monospace; }")
-        .arg(color.name()).arg(fontPt - 2);
+    auto applyLabelStyle = [&](QLabel *lbl) {
+        QPalette pal = lbl->palette();
+        pal.setColor(QPalette::WindowText, color);
+        lbl->setPalette(pal);
+        QFont f = lbl->font();
+        f.setPointSize(fontPt);
+        lbl->setFont(f);
+    };
 
     static const QRegularExpression re("\\{([^}]*)\\}");
     int lastEnd = 0;
@@ -70,17 +113,16 @@ QWidget *buildSegmentedRow(const QString &text, const QColor &color, int fontPt,
         const auto match = it.next();
         if (match.capturedStart() > lastEnd) {
             auto *lbl = new QLabel(text.mid(lastEnd, match.capturedStart() - lastEnd), row);
-            lbl->setStyleSheet(plainStyle);
+            applyLabelStyle(lbl);
             layout->addWidget(lbl);
         }
-        auto *badge = new QLabel(match.captured(1), row);
-        badge->setStyleSheet(badgeStyle);
+        auto *badge = new BadgeLabel(match.captured(1), color, fontPt - 2, row);
         layout->addWidget(badge);
         lastEnd = match.capturedEnd();
     }
     if (lastEnd < text.length()) {
         auto *lbl = new QLabel(text.mid(lastEnd), row);
-        lbl->setStyleSheet(plainStyle);
+        applyLabelStyle(lbl);
         layout->addWidget(lbl);
     }
     layout->addStretch();
@@ -89,26 +131,33 @@ QWidget *buildSegmentedRow(const QString &text, const QColor &color, int fontPt,
 
 } // namespace
 
+void NotificationWidget::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(m_style.border, m_style.borderWidth));
+    p.setBrush(m_style.background);
+    p.drawRoundedRect(rect().adjusted(0, 0, -1, -1),
+                      m_style.borderRadius, m_style.borderRadius);
+}
+
 NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
                                        const QString &message, const QString &timestamp,
                                        const NotificationStyle &style, QWidget *parent)
     : QFrame(parent)
+    , m_style(style)
 {
-    setStyleSheet(QStringLiteral(
-        "NotificationWidget {"
-        "  background-color: %1;"
-        "  border: %2px solid %3;"
-        "  border-radius: %4px;"
-        "}"
-    ).arg(style.background.name())
-     .arg(style.borderWidth)
-     .arg(style.border.name())
-     .arg(style.borderRadius));
+    setFrameShape(QFrame::NoFrame);
 
     auto *tsLabel = new QLabel(timestamp, this);
-    tsLabel->setStyleSheet(QStringLiteral(
-        "QLabel { border: none; background: transparent; color: %1; font-size: 11pt; }")
-        .arg(style.timestampColor.name()));
+    {
+        QPalette pal = tsLabel->palette();
+        pal.setColor(QPalette::WindowText, style.timestampColor);
+        tsLabel->setPalette(pal);
+        QFont f = tsLabel->font();
+        f.setPointSize(11);
+        tsLabel->setFont(f);
+    }
     tsLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     tsLabel->setAlignment(Qt::AlignRight | Qt::AlignTop);
 
@@ -126,17 +175,23 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
         leftLayout->setSpacing(6);
 
         auto *titleLabel = new QLabel(title, left);
-        titleLabel->setStyleSheet(QStringLiteral(
-            "QLabel { border: none; background: transparent; color: %1;"
-            " font-weight: bold; font-size: 15pt; }")
-            .arg(style.accentColor.name()));
+        {
+            QPalette pal = titleLabel->palette();
+            pal.setColor(QPalette::WindowText, style.accentColor);
+            titleLabel->setPalette(pal);
+            QFont f = titleLabel->font();
+            f.setPointSize(15);
+            f.setBold(true);
+            titleLabel->setFont(f);
+        }
         titleLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
         leftLayout->addWidget(titleLabel, 0, Qt::AlignTop);
 
         if (!tag.isEmpty()) {
             auto *tagLabel = new TagLabel(tag, style.accentColor, left);
-            tagLabel->setStyleSheet(QStringLiteral(
-                "QLabel { font-size: 8pt; }"));
+            QFont tagFont = tagLabel->font();
+            tagFont.setPointSize(8);
+            tagLabel->setFont(tagFont);
             leftLayout->addWidget(tagLabel, 0, Qt::AlignTop);
         }
 
