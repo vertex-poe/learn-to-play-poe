@@ -80,6 +80,10 @@ CATEGORIES_SQL = [
     ("kitava_resistance_penalty", ["Kitava's merciless affliction"]),
     ("achievements",              ["Achivement stored:"]),
     ("played",                    ["You have played for"]),
+    ("passives_command",          ["total Passive Skill Points",
+                                   "total Ascendancy Skill Points",
+                                   "Passive Skill Points from",
+                                   ") from "]),
 ]
 
 

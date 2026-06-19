@@ -122,6 +122,27 @@ void LogIngestWorker::start()
     static const QRegularExpression achievementRe(
         R"(Achivement stored: (\S+))"
     );
+    // /passives command — multi-line block:
+    // : 95 total Passive Skill Points (91 allocated)
+    static const QRegularExpression passivesTotalRe(
+        R"((\d+) total Passive Skill Points \((\d+) allocated\))"
+    );
+    // : 6 total Ascendancy Skill Points (6 allocated)
+    static const QRegularExpression passivesAscRe(
+        R"((\d+) total Ascendancy Skill Points \((\d+) allocated\))"
+    );
+    // : 71 Passive Skill Points from character level
+    static const QRegularExpression passivesLevelRe(
+        R"((\d+) Passive Skill Points from character level)"
+    );
+    // : 24 Passive Skill Points from quests:
+    static const QRegularExpression passivesQuestTotalRe(
+        R"((\d+) Passive Skill Points from quests:)"
+    );
+    // : (1 from The Dweller of the Deep)
+    static const QRegularExpression passivesQuestEntryRe(
+        R"(\((\d+) from (.+)\))"
+    );
     // Noise: "Client couldn't execute a triggered action from the server." and
     // "Instant/Triggered action..." each emit 1–5 followup key=N / key: N lines.
     static const QRegularExpression triggerFollowupRe(
@@ -165,6 +186,11 @@ void LogIngestWorker::start()
     sqlite3_stmt *playedEventStmt        = nullptr;
     sqlite3_stmt *charPlayedStmt         = nullptr;
     sqlite3_stmt *charPlayedFromSpanStmt = nullptr;
+    sqlite3_stmt *passSnapInsertStmt     = nullptr;
+    sqlite3_stmt *passSnapSelectStmt     = nullptr;
+    sqlite3_stmt *passQuestUpsertStmt    = nullptr;
+    sqlite3_stmt *passQuestSelectStmt    = nullptr;
+    sqlite3_stmt *passSnapQuestStmt      = nullptr;
     sqlite3_stmt *sourceStmt           = nullptr;
 
     sqlite3_prepare_v2(db,
@@ -281,6 +307,24 @@ void LogIngestWorker::start()
         "UPDATE characters SET played_secs=MAX(played_secs,"
         "COALESCE((SELECT MAX(played_secs) FROM character_played_events WHERE span_id=?),0)) WHERE id=?;",
         -1, &charPlayedFromSpanStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO passive_point_snapshots"
+        "(session_id, char_id, occurred_at, total_points, allocated_points,"
+        " ascendancy_total, ascendancy_allocated, level_points, quest_points)"
+        " VALUES(?,?,?,?,?,?,?,?,?);",
+        -1, &passSnapInsertStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "SELECT id FROM passive_point_snapshots WHERE session_id=? AND occurred_at=?;",
+        -1, &passSnapSelectStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO passive_quest_sources(name) VALUES(?);",
+        -1, &passQuestUpsertStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "SELECT id FROM passive_quest_sources WHERE name=?;",
+        -1, &passQuestSelectStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO passive_snapshot_quests(snapshot_id, quest_id, points) VALUES(?,?,?);",
+        -1, &passSnapQuestStmt, nullptr);
     sqlite3_prepare_v2(db,
         "INSERT OR IGNORE INTO achievements(code) VALUES(?);",
         -1, &achievUpsertStmt, nullptr);
@@ -420,6 +464,72 @@ void LogIngestWorker::start()
         sessionAreaId  = -1;
     };
 
+    // ── /passives block state ────────────────────────────────────────────────
+
+    struct PassivesBlock {
+        QString ts;
+        int totalPoints = 0, allocatedPoints = 0;
+        int ascTotal = 0, ascAllocated = 0;
+        int levelPoints = 0, questPoints = 0;
+        QVector<QPair<QString,int>> quests;
+        bool active = false;
+    };
+    PassivesBlock pendingPassives;
+
+    auto flushPassives = [&]() {
+        if (!pendingPassives.active || sessionId < 0) {
+            pendingPassives = PassivesBlock{};
+            return;
+        }
+        const QByteArray tsBytes = pendingPassives.ts.toUtf8();
+
+        sqlite3_bind_int64(passSnapInsertStmt, 1, sessionId);
+        if (sessionCharId < 0) sqlite3_bind_null (passSnapInsertStmt, 2);
+        else                   sqlite3_bind_int64(passSnapInsertStmt, 2, sessionCharId);
+        sqlite3_bind_text(passSnapInsertStmt, 3, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+        sqlite3_bind_int (passSnapInsertStmt, 4, pendingPassives.totalPoints);
+        sqlite3_bind_int (passSnapInsertStmt, 5, pendingPassives.allocatedPoints);
+        sqlite3_bind_int (passSnapInsertStmt, 6, pendingPassives.ascTotal);
+        sqlite3_bind_int (passSnapInsertStmt, 7, pendingPassives.ascAllocated);
+        sqlite3_bind_int (passSnapInsertStmt, 8, pendingPassives.levelPoints);
+        sqlite3_bind_int (passSnapInsertStmt, 9, pendingPassives.questPoints);
+        sqlite3_step(passSnapInsertStmt);
+        sqlite3_reset(passSnapInsertStmt);
+
+        sqlite3_bind_int64(passSnapSelectStmt, 1, sessionId);
+        sqlite3_bind_text (passSnapSelectStmt, 2, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+        qint64 snapId = -1;
+        if (sqlite3_step(passSnapSelectStmt) == SQLITE_ROW)
+            snapId = sqlite3_column_int64(passSnapSelectStmt, 0);
+        sqlite3_reset(passSnapSelectStmt);
+
+        if (snapId >= 0) {
+            for (const auto &entry : pendingPassives.quests) {
+                const QByteArray questBytes = entry.first.toUtf8();
+
+                sqlite3_bind_text(passQuestUpsertStmt, 1, questBytes.constData(), questBytes.size(), SQLITE_STATIC);
+                sqlite3_step(passQuestUpsertStmt);
+                sqlite3_reset(passQuestUpsertStmt);
+
+                sqlite3_bind_text(passQuestSelectStmt, 1, questBytes.constData(), questBytes.size(), SQLITE_STATIC);
+                qint64 questId = -1;
+                if (sqlite3_step(passQuestSelectStmt) == SQLITE_ROW)
+                    questId = sqlite3_column_int64(passQuestSelectStmt, 0);
+                sqlite3_reset(passQuestSelectStmt);
+
+                if (questId >= 0) {
+                    sqlite3_bind_int64(passSnapQuestStmt, 1, snapId);
+                    sqlite3_bind_int64(passSnapQuestStmt, 2, questId);
+                    sqlite3_bind_int  (passSnapQuestStmt, 3, entry.second);
+                    sqlite3_step(passSnapQuestStmt);
+                    sqlite3_reset(passSnapQuestStmt);
+                }
+            }
+        }
+
+        pendingPassives = PassivesBlock{};
+    };
+
     // ── main loop ────────────────────────────────────────────────────────────
 
     QString pendingCode;
@@ -463,6 +573,7 @@ void LogIngestWorker::start()
 
         // ── session boundary ─────────────────────────────────────────────────
         if (message.contains(QLatin1String("LOG FILE OPENING"))) {
+            flushPassives();
             closeSession(prevTs);
 
             sqlite3_bind_int64(sessionInsertStmt, 1, m_installId);
@@ -494,6 +605,42 @@ void LogIngestWorker::start()
             }
 
         } else if (level == QLatin1String("INFO")) {
+
+            // /passives multi-line state machine — must run before all other INFO checks
+            if (pendingPassives.active) {
+                const auto ascM = passivesAscRe.match(message);
+                if (ascM.hasMatch()) {
+                    pendingPassives.ascTotal     = ascM.captured(1).toInt();
+                    pendingPassives.ascAllocated = ascM.captured(2).toInt();
+                    continue;
+                }
+                const auto lvlM = passivesLevelRe.match(message);
+                if (lvlM.hasMatch()) {
+                    pendingPassives.levelPoints = lvlM.captured(1).toInt();
+                    continue;
+                }
+                const auto qtM = passivesQuestTotalRe.match(message);
+                if (qtM.hasMatch()) {
+                    pendingPassives.questPoints = qtM.captured(1).toInt();
+                    continue;
+                }
+                const auto qeM = passivesQuestEntryRe.match(message);
+                if (qeM.hasMatch()) {
+                    pendingPassives.quests.append({qeM.captured(2).trimmed(), qeM.captured(1).toInt()});
+                    continue;
+                }
+                // No passives line matched — block is complete; flush and fall through
+                flushPassives();
+            }
+            const auto passivesTotalM = passivesTotalRe.match(message);
+            if (passivesTotalM.hasMatch() && sessionId >= 0) {
+                flushPassives(); // safety: clear any stale state
+                pendingPassives.active          = true;
+                pendingPassives.ts              = ts;
+                pendingPassives.totalPoints     = passivesTotalM.captured(1).toInt();
+                pendingPassives.allocatedPoints = passivesTotalM.captured(2).toInt();
+                continue;
+            }
 
             // Guild
             const auto guildM = guildRe.match(message);
@@ -907,6 +1054,7 @@ void LogIngestWorker::start()
         }
     }
 
+    flushPassives();
     closeSession(lastTs);
     flushSource(file.pos());
     execSql(db, "COMMIT;");
@@ -946,6 +1094,11 @@ void LogIngestWorker::start()
     sqlite3_finalize(playedEventStmt);
     sqlite3_finalize(charPlayedStmt);
     sqlite3_finalize(charPlayedFromSpanStmt);
+    sqlite3_finalize(passSnapInsertStmt);
+    sqlite3_finalize(passSnapSelectStmt);
+    sqlite3_finalize(passQuestUpsertStmt);
+    sqlite3_finalize(passQuestSelectStmt);
+    sqlite3_finalize(passSnapQuestStmt);
     sqlite3_finalize(sourceStmt);
     sqlite3_close(db);
 

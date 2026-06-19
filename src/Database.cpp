@@ -3,7 +3,7 @@
 #include <sqlite3.h>
 #include <cstdio>
 
-static constexpr int kDbVersion = 9;
+static constexpr int kDbVersion = 10;
 
 static void execSql(sqlite3 *db, const char *sql)
 {
@@ -285,6 +285,40 @@ void Database::initSchema()
         );
     )");
 
+    // Snapshot of /passives output: totals + per-quest breakdown at a point in time.
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS passive_point_snapshots (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id           INTEGER NOT NULL REFERENCES sessions(id),
+            char_id              INTEGER REFERENCES characters(id),
+            occurred_at          TEXT    NOT NULL,
+            total_points         INTEGER NOT NULL DEFAULT 0,
+            allocated_points     INTEGER NOT NULL DEFAULT 0,
+            ascendancy_total     INTEGER NOT NULL DEFAULT 0,
+            ascendancy_allocated INTEGER NOT NULL DEFAULT 0,
+            level_points         INTEGER NOT NULL DEFAULT 0,
+            quest_points         INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(session_id, occurred_at)
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS passive_quest_sources (
+            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT    NOT NULL UNIQUE
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS passive_snapshot_quests (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_id INTEGER NOT NULL REFERENCES passive_point_snapshots(id),
+            quest_id    INTEGER NOT NULL REFERENCES passive_quest_sources(id),
+            points      INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(snapshot_id, quest_id)
+        );
+    )");
+
     // channel stores the raw prefix character: '#' global, '$' trade, '%' party, '&' guild.
     execSql(m_db, R"(
         CREATE TABLE IF NOT EXISTS chats (
@@ -310,7 +344,8 @@ void Database::migrate(int fromVersion)
     // v1→v2: quest_events; v2→v3: passive_skills + passive_skill_allocations;
     // v3→v4: whispers; v4→v5: passive_skills.is_mastery, passive_skill_allocations.action;
     // v5→v6: character_deaths; v6→v7: public_chars + chats; v7→v8: achievements + achievement_events;
-    // v8→v9: character_played_events + characters.played_secs.
+    // v8→v9: character_played_events + characters.played_secs;
+    // v9→v10: passive_point_snapshots + passive_quest_sources + passive_snapshot_quests.
     if (fromVersion < 5) {
         execSql(m_db, "ALTER TABLE passive_skills ADD COLUMN is_mastery INTEGER NOT NULL DEFAULT 0;");
         execSql(m_db, "ALTER TABLE passive_skill_allocations ADD COLUMN action TEXT NOT NULL DEFAULT 'allocated';");
@@ -374,6 +409,38 @@ void Database::migrate(int fromVersion)
                 played_secs INTEGER NOT NULL,
                 occurred_at TEXT    NOT NULL,
                 UNIQUE(session_id, occurred_at)
+            );
+        )");
+    }
+    if (fromVersion < 10) {
+        execSql(m_db, R"(
+            CREATE TABLE IF NOT EXISTS passive_point_snapshots (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id           INTEGER NOT NULL REFERENCES sessions(id),
+                char_id              INTEGER REFERENCES characters(id),
+                occurred_at          TEXT    NOT NULL,
+                total_points         INTEGER NOT NULL DEFAULT 0,
+                allocated_points     INTEGER NOT NULL DEFAULT 0,
+                ascendancy_total     INTEGER NOT NULL DEFAULT 0,
+                ascendancy_allocated INTEGER NOT NULL DEFAULT 0,
+                level_points         INTEGER NOT NULL DEFAULT 0,
+                quest_points         INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(session_id, occurred_at)
+            );
+        )");
+        execSql(m_db, R"(
+            CREATE TABLE IF NOT EXISTS passive_quest_sources (
+                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT    NOT NULL UNIQUE
+            );
+        )");
+        execSql(m_db, R"(
+            CREATE TABLE IF NOT EXISTS passive_snapshot_quests (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_id INTEGER NOT NULL REFERENCES passive_point_snapshots(id),
+                quest_id    INTEGER NOT NULL REFERENCES passive_quest_sources(id),
+                points      INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(snapshot_id, quest_id)
             );
         )");
     }
