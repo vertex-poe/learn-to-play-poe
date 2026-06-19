@@ -8,10 +8,14 @@ qt_add_executable(l2p-poe1
     AppStyle.cpp
     AppStyle.h
     BackgroundWorker.h
+    Database.cpp
+    Database.h
     GameOverlay.cpp
     GameOverlay.h
     ListEditor.cpp
     ListEditor.h
+    LogIngestWorker.cpp
+    LogIngestWorker.h
     MainWindow.cpp
     MainWindow.h
     NotificationWidget.cpp

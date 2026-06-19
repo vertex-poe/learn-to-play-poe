@@ -1,5 +1,7 @@
 #include "MainWindow.h"
+#include "Database.h"
 #include "GameOverlay.h"
+#include "LogIngestWorker.h"
 #include "SettingsDialog.h"
 #include "TaskManager.h"
 #include "TaskPanel.h"
@@ -8,6 +10,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QFileInfo>
 #include <QIcon>
 #include <QMenu>
 #include <QMenuBar>
@@ -43,6 +46,15 @@ MainWindow::MainWindow(QWidget *parent)
     log("Application Started", "app",
         QStringLiteral("Config at {%1}").arg(AppConfig::configPath()));
 
+    QString dbPath = AppConfig::configPath();
+    dbPath.chop(5); // strip ".toml"
+    dbPath += ".db";
+    m_db = new Database(dbPath);
+    if (m_db->isOpen())
+        scheduleLogIngestion();
+    else
+        log("Database error", "db", m_db->lastError());
+
     m_tracker = WindowTracker::create();
 
     m_overlay = new GameOverlay(this);
@@ -56,6 +68,7 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     delete m_tracker;
+    delete m_db;
 }
 
 void MainWindow::setupMenuBar()
@@ -150,6 +163,8 @@ void MainWindow::onPollTimer()
         && !m_config.installDirs.contains(state.installDir)) {
         m_config.installDirs << state.installDir;
         m_config.save();
+        if (m_db && m_db->isOpen())
+            maybeIngestClientLog(state.installDir);
         log(QStringLiteral("Install directory auto-detected: %1").arg(state.installDir));
     }
 }
@@ -179,4 +194,47 @@ void MainWindow::log(const QString &title, const QString &tag,
                      const QString &message, const NotificationStyle &style)
 {
     m_log->addNotification(title, tag, message, style);
+}
+
+void MainWindow::scheduleLogIngestion()
+{
+    for (const QString &dir : m_config.installDirs)
+        maybeIngestClientLog(dir);
+}
+
+void MainWindow::maybeIngestClientLog(const QString &installDir)
+{
+    const QString logPath = installDir + "/logs/Client.txt";
+    if (!QFileInfo::exists(logPath))
+        return;
+
+    // Guard against submitting a duplicate task for a still-active ingest.
+    // mtime+size covers the across-restart case; this covers the same-session
+    // window before the first chunk commits and log_sources is written.
+    const QString taskName = QStringLiteral("Ingest %1").arg(logPath);
+    for (const TaskRecord &t : m_taskManager->tasks()) {
+        if (t.name == taskName
+            && (t.status == TaskStatus::Pending || t.status == TaskStatus::Running))
+            return;
+    }
+
+    const Database::InstallState inst = m_db->upsertInstall(installDir);
+    if (inst.id < 0)
+        return;
+
+    const QFileInfo fi(logPath);
+    const bool alreadyIngested = inst.fileModifiedAt > 0
+        && inst.fileModifiedAt == fi.lastModified().toSecsSinceEpoch()
+        && inst.fileSize       == fi.size();
+    if (alreadyIngested)
+        return;
+
+    const qint64 resumeOffset = inst.lastByteOffset;
+
+    log("Parsing game logs", "import",
+        QStringLiteral("at {%1}").arg(logPath));
+
+    auto *worker = new LogIngestWorker(
+        m_db->path(), inst.id, logPath, resumeOffset);
+    m_taskManager->submit(taskName, TaskKind::DbWrite, worker);
 }

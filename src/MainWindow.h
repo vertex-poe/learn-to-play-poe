@@ -9,6 +9,7 @@
 
 class QMenu;
 class QTimer;
+class Database;
 class GameOverlay;
 class SettingsDialog;
 class TaskManager;
@@ -42,8 +43,11 @@ private:
     void showWindow();
     void setupTray();
     void setupMenuBar();
+    void scheduleLogIngestion();
+    void maybeIngestClientLog(const QString &installDir);
 
-    AppConfig m_config;
+    AppConfig  m_config;
+    Database  *m_db{};
 
     NotificationsPanel *m_log{};
     TaskManager        *m_taskManager{};
