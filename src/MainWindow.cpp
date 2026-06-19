@@ -12,9 +12,12 @@
 #include <QCloseEvent>
 #include <QFileInfo>
 #include <QIcon>
+#include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
+#include <QStatusBar>
 #include <QSystemTrayIcon>
+#include <QTime>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -43,8 +46,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     setupMenuBar();
     setupTray();
-    log("Application Started", "app",
-        QStringLiteral("Config at {%1}").arg(AppConfig::configPath()));
+
+    m_statusLabel = new QLabel(this);
+    statusBar()->addPermanentWidget(m_statusLabel);
+
+    connect(m_taskManager, &TaskManager::taskAdded,   this, &MainWindow::onTaskUpdated);
+    connect(m_taskManager, &TaskManager::taskUpdated, this, &MainWindow::onTaskUpdated);
 
     QString dbPath = AppConfig::configPath();
     dbPath.chop(5); // strip ".toml"
@@ -77,6 +84,12 @@ void MainWindow::setupMenuBar()
     fileMenu->addAction("&Settings", this, &MainWindow::showSettings);
     fileMenu->addSeparator();
     fileMenu->addAction("E&xit", qApp, &QApplication::quit);
+
+    QMenu *viewMenu = menuBar()->addMenu("&View");
+    m_viewTaskPanelAction = viewMenu->addAction("&Task Panel");
+    m_viewTaskPanelAction->setCheckable(true);
+    m_viewTaskPanelAction->setChecked(false);
+    connect(m_viewTaskPanelAction, &QAction::toggled, m_taskPanel, &TaskPanel::setForcedVisible);
 }
 
 void MainWindow::setupTray()
@@ -128,12 +141,15 @@ void MainWindow::onPollTimer()
 
     const WindowState state = m_tracker->poll(exeNames);
 
-    if (state.found)
+    if (state.found) {
         m_lastGameExeName = state.executableName;
+        m_lastGamePid     = state.pid;
+    }
 
     if (m_firstPoll) {
         m_firstPoll = false;
         m_gameFound = state.found;
+        refreshStatusBar();
         if (state.found)
             log("Game is running", "game",
                 QStringLiteral("{%1} with PID {%2} at {%3}")
@@ -142,10 +158,11 @@ void MainWindow::onPollTimer()
                     .arg(state.installDir));
     } else if (state.found != m_gameFound) {
         m_gameFound = state.found;
+        refreshStatusBar();
         if (state.found)
             log(QStringLiteral("Game started (%1).").arg(state.executableName));
         else
-            log(QStringLiteral("Game closed (%1).").arg(m_lastGameExeName));
+            log(QStringLiteral("Game closed (%1).").arg(m_lastGamePid));
     }
 
     if (state.found && !state.rect.isNull()) {
@@ -202,6 +219,67 @@ void MainWindow::scheduleLogIngestion()
         maybeIngestClientLog(dir);
 }
 
+void MainWindow::onTaskUpdated(int id)
+{
+    const QList<TaskRecord> &all = m_taskManager->tasks();
+
+    int active = 0, totalPct = 0, running = 0;
+    QString activeLabel;
+    for (const auto &r : all) {
+        if (r.status != TaskStatus::Pending && r.status != TaskStatus::Running)
+            continue;
+        ++active;
+        if (r.status == TaskStatus::Running) {
+            totalPct += r.percent;
+            ++running;
+            if (activeLabel.isEmpty())
+                activeLabel = r.name.startsWith("Ingest ") ? "parsing logs" : r.name;
+        }
+    }
+
+    if (active > 0) {
+        const int pct = running > 0 ? totalPct / running : 0;
+        const QString content = active == 1
+            ? QStringLiteral("%1% · %2").arg(pct).arg(activeLabel)
+            : QStringLiteral("%1 tasks · %2% · %3").arg(active).arg(pct).arg(activeLabel);
+        setStatusContent(content);
+        return;
+    }
+
+    // All tasks done — show completion for the one that just finished.
+    for (const auto &r : all) {
+        if (r.id != id) continue;
+        const QString t = QTime::currentTime().toString("HH:mm");
+        if (r.status == TaskStatus::Finished) {
+            const QString label = r.name.startsWith("Ingest ") ? "Logs parsed" : r.name;
+            setStatusContent(QStringLiteral("%1 · %2").arg(t, label));
+        } else if (r.status == TaskStatus::Failed) {
+            setStatusContent(QStringLiteral("%1 · Failed").arg(t));
+        } else if (r.status == TaskStatus::Cancelled) {
+            setStatusContent(QStringLiteral("%1 · Cancelled").arg(t));
+        }
+        break;
+    }
+}
+
+void MainWindow::setStatusContent(const QString &content)
+{
+    m_lastStatusContent = content;
+    refreshStatusBar();
+}
+
+void MainWindow::refreshStatusBar()
+{
+    if (!m_gameFound) {
+        const QString prefix = "Waiting for game window";
+        m_statusLabel->setText(m_lastStatusContent.isEmpty()
+            ? prefix
+            : prefix + " · " + m_lastStatusContent);
+    } else {
+        m_statusLabel->setText(m_lastStatusContent);
+    }
+}
+
 void MainWindow::maybeIngestClientLog(const QString &installDir)
 {
     const QString logPath = installDir + "/logs/Client.txt";
@@ -231,10 +309,7 @@ void MainWindow::maybeIngestClientLog(const QString &installDir)
 
     const qint64 resumeOffset = inst.lastByteOffset;
 
-    log("Parsing game logs", "import",
-        QStringLiteral("at {%1}").arg(logPath));
-
     auto *worker = new LogIngestWorker(
-        m_db->path(), inst.id, logPath, resumeOffset);
+        m_db->path(), inst.id, logPath, resumeOffset, m_config.channelNames);
     m_taskManager->submit(taskName, TaskKind::DbWrite, worker);
 }

@@ -7,6 +7,9 @@
 #include <QRect>
 #include <QSystemTrayIcon>
 
+class QAction;
+class QLabel;
+
 class QMenu;
 class QTimer;
 class Database;
@@ -38,6 +41,7 @@ private slots:
     void showSettings();
     void onConfigChanged();
     void onPollTimer();
+    void onTaskUpdated(int id);
 
 private:
     void showWindow();
@@ -45,6 +49,8 @@ private:
     void setupMenuBar();
     void scheduleLogIngestion();
     void maybeIngestClientLog(const QString &installDir);
+    void setStatusContent(const QString &content);
+    void refreshStatusBar();
 
     AppConfig  m_config;
     Database  *m_db{};
@@ -55,6 +61,9 @@ private:
     QSystemTrayIcon    *m_tray{};
     QMenu              *m_trayMenu{};
     SettingsDialog     *m_settingsDialog{};
+    QAction            *m_viewTaskPanelAction{};
+    QLabel             *m_statusLabel{};
+    QString             m_lastStatusContent;
 
     WindowTracker   *m_tracker{};
     QTimer          *m_pollTimer{};
@@ -63,4 +72,5 @@ private:
     bool             m_gameFound{false};
     QRect            m_lastGameRect;
     QString          m_lastGameExeName;
+    quint32          m_lastGamePid{};
 };

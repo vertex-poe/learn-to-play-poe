@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QString>
 #include <QStringList>
 
@@ -19,6 +20,7 @@ struct AppConfig {
     bool minimizeToTray{true};
     bool autoDetectInstallDir{true};
     QStringList installDirs;
+    QHash<int, QString> channelNames; // channel number → user-defined label
 
     static AppConfig load();
     void save() const;

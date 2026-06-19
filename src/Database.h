@@ -27,6 +27,7 @@ public:
 private:
     void applyPragmas();
     void initSchema();
+    void migrate(int fromVersion);
 
     sqlite3 *m_db{nullptr};
     QString  m_path;

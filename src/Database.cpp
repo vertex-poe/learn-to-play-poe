@@ -1,12 +1,33 @@
 #include "Database.h"
 
 #include <sqlite3.h>
+#include <cstdio>
+
+static constexpr int kDbVersion = 1;
 
 static void execSql(sqlite3 *db, const char *sql)
 {
     char *err = nullptr;
     sqlite3_exec(db, sql, nullptr, nullptr, &err);
     if (err) sqlite3_free(err);
+}
+
+static int readUserVersion(sqlite3 *db)
+{
+    sqlite3_stmt *stmt = nullptr;
+    sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nullptr);
+    int v = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+        v = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    return v;
+}
+
+static void setUserVersion(sqlite3 *db, int version)
+{
+    char sql[48];
+    std::snprintf(sql, sizeof(sql), "PRAGMA user_version = %d;", version);
+    execSql(db, sql);
 }
 
 Database::Database(const QString &path)
@@ -51,20 +72,95 @@ void Database::initSchema()
     )");
 
     execSql(m_db, R"(
-        CREATE TABLE IF NOT EXISTS logs (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            install_id INTEGER NOT NULL REFERENCES installs(id),
-            logged_at  TEXT    NOT NULL,
-            line       TEXT    NOT NULL,
-            line_hash  INTEGER NOT NULL,
-            UNIQUE (install_id, logged_at, line_hash)
+        CREATE TABLE IF NOT EXISTS areas (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            code         TEXT    NOT NULL UNIQUE,
+            level        INTEGER,
+            display_name TEXT
         );
     )");
 
     execSql(m_db, R"(
-        CREATE INDEX IF NOT EXISTS idx_logs_install_time
-        ON logs(install_id, logged_at);
+        CREATE TABLE IF NOT EXISTS area_moves (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            install_id INTEGER NOT NULL REFERENCES installs(id),
+            area_id    INTEGER NOT NULL REFERENCES areas(id),
+            entered_at TEXT    NOT NULL,
+            UNIQUE (install_id, entered_at)
+        );
     )");
+
+    execSql(m_db, R"(
+        CREATE INDEX IF NOT EXISTS idx_area_moves_install_time
+        ON area_moves(install_id, entered_at);
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS accounts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT    NOT NULL UNIQUE,
+            guild_name TEXT
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS chat_channels (
+            id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            number INTEGER NOT NULL UNIQUE,
+            lang   TEXT,
+            name   TEXT
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS classes (
+            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT    NOT NULL UNIQUE
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS characters (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            name     TEXT    NOT NULL UNIQUE,
+            class_id INTEGER NOT NULL REFERENCES classes(id),
+            level    INTEGER
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS character_level_events (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            install_id INTEGER NOT NULL REFERENCES installs(id),
+            char_id    INTEGER NOT NULL REFERENCES characters(id),
+            level      INTEGER NOT NULL,
+            occurred_at TEXT   NOT NULL,
+            UNIQUE (install_id, char_id, level)
+        );
+    )");
+
+    execSql(m_db, R"(
+        CREATE TABLE IF NOT EXISTS chat_channel_joins (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            install_id INTEGER NOT NULL REFERENCES installs(id),
+            channel_id INTEGER NOT NULL REFERENCES chat_channels(id),
+            joined_at  TEXT    NOT NULL,
+            UNIQUE (install_id, joined_at)
+        );
+    )");
+
+    const int version = readUserVersion(m_db);
+    if (version == 0)
+        setUserVersion(m_db, kDbVersion);
+    else if (version < kDbVersion)
+        migrate(version);
+}
+
+void Database::migrate(int fromVersion)
+{
+    // if (fromVersion < 2) { ... }
+    (void)fromVersion;
+    setUserVersion(m_db, kDbVersion);
 }
 
 Database::InstallState Database::upsertInstall(const QString &installPath)

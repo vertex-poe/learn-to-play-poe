@@ -16,6 +16,9 @@ class TaskPanel : public QFrame
 public:
     explicit TaskPanel(TaskManager *manager, QWidget *parent = nullptr);
 
+public slots:
+    void setForcedVisible(bool forced);
+
 private:
     void onTaskAdded(int id);
     void onTaskUpdated(int id);
@@ -36,4 +39,5 @@ private:
     TaskManager       *m_manager;
     QVBoxLayout       *m_layout;
     QMap<int, Row>     m_rows;
+    bool               m_forcedVisible{false};
 };

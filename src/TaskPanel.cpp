@@ -152,7 +152,13 @@ void TaskPanel::removeRow(int id)
     refreshVisibility();
 }
 
+void TaskPanel::setForcedVisible(bool forced)
+{
+    m_forcedVisible = forced;
+    refreshVisibility();
+}
+
 void TaskPanel::refreshVisibility()
 {
-    setVisible(!m_rows.isEmpty());
+    setVisible(!m_rows.isEmpty() || m_forcedVisible);
 }

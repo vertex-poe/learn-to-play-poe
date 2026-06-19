@@ -48,6 +48,16 @@ AppConfig AppConfig::load()
                     cfg.installDirs << QString::fromStdString(*val);
             }
         }
+        if (const auto *names = tbl["chat_channel_names"].as_table()) {
+            for (const auto &[key, val] : *names) {
+                bool ok;
+                const int num = QString::fromUtf8(key.data(), (int)key.size()).toInt(&ok);
+                if (ok) {
+                    if (auto v = val.value<std::string>())
+                        cfg.channelNames[num] = QString::fromStdString(*v);
+                }
+            }
+        }
     } catch (const toml::parse_error &) {
         // File exists but is invalid — use defaults silently
     }
@@ -74,6 +84,11 @@ void AppConfig::save() const
     for (const QString &dir : installDirs)
         dirsArr.push_back(dir.toStdString());
     tbl.insert("install_dirs", std::move(dirsArr));
+
+    toml::table namesTable;
+    for (auto it = channelNames.constBegin(); it != channelNames.constEnd(); ++it)
+        namesTable.insert(std::to_string(it.key()), it.value().toStdString());
+    tbl.insert("chat_channel_names", std::move(namesTable));
 
     std::ofstream ofs(path.toStdString());
     ofs << tbl;

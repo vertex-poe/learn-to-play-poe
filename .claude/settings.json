@@ -9,7 +9,8 @@
       "Skill(run)",
       "Skill(run:*)",
       "WebSearch",
-      "Bash(xargs *)"
+      "Bash(xargs *)",
+      "PowerShell(cmake *)"
     ]
   }
 }

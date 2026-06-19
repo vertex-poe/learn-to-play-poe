@@ -1,9 +1,15 @@
 #include "SettingsDialog.h"
+#include "AppConfig.h"
 #include "ListEditor.h"
 
 #include <QCheckBox>
+#include <QClipboard>
 #include <QFormLayout>
+#include <QGuiApplication>
+#include <QHBoxLayout>
 #include <QIcon>
+#include <QLabel>
+#include <QPushButton>
 #include <QVBoxLayout>
 
 SettingsDialog::SettingsDialog(AppConfig &config, QWidget *parent)
@@ -54,6 +60,24 @@ SettingsDialog::SettingsDialog(AppConfig &config, QWidget *parent)
     m_autoStartOnBoot->setChecked(config.autoStartOnBoot);
     m_autoStartOnBoot->setEnabled(false);
     form->addRow("Auto start on boot:", m_autoStartOnBoot);
+
+    const QString configPath = AppConfig::configPath();
+    auto *pathLabel = new QLabel(configPath, this);
+    pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto *copyBtn = new QPushButton(QIcon::fromTheme("edit-copy", QIcon(":/icons/copy.png")), "", this);
+    copyBtn->setToolTip("Copy path to clipboard");
+    copyBtn->setFlat(true);
+    copyBtn->setFixedSize(22, 22);
+    copyBtn->setCursor(Qt::PointingHandCursor);
+    connect(copyBtn, &QPushButton::clicked, this, [configPath] {
+        QGuiApplication::clipboard()->setText(configPath);
+    });
+    auto *pathRow = new QHBoxLayout;
+    pathRow->setContentsMargins(0, 0, 0, 0);
+    pathRow->setSpacing(4);
+    pathRow->addWidget(pathLabel, 1);
+    pathRow->addWidget(copyBtn);
+    form->addRow("Config file:", pathRow);
 
     connect(m_autoDetect,  &QCheckBox::toggled,    this, [this](bool) { saveAndEmit(); });
     connect(m_installDirs, &ListEditor::itemsChanged, this, &SettingsDialog::saveAndEmit);
