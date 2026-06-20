@@ -174,6 +174,10 @@ void LogIngestWorker::start()
     static const QRegularExpression rulesetFailedRe(
         R"(Failed to create ruleset \d+ \(([^)]+)\))"
     );
+    // [INFO] [InGameAudioManager] TalkingPetAudioEvent 'PlayerRevivedGreaterOrEqual200Times' triggered
+    static const QRegularExpression talkingPetRe(
+        R"(TalkingPetAudioEvent '([^']+)')"
+    );
 
     // ── prepared statements ──────────────────────────────────────────────────
 
@@ -975,6 +979,20 @@ void LogIngestWorker::start()
                     sqlite3_bind_text (rulesetFailedStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                     sqlite3_step(rulesetFailedStmt);
                     sqlite3_reset(rulesetFailedStmt);
+                }
+            }
+
+            if (sessionId >= 0) {
+                const auto petM = talkingPetRe.match(message);
+                if (petM.hasMatch()) {
+                    const QByteArray nameBytes = petM.captured(1).toUtf8();
+                    sqlite3_bind_int64(questEventStmt, 1, sessionId);
+                    if (sessionAreaId < 0) sqlite3_bind_null (questEventStmt, 2);
+                    else                   sqlite3_bind_int64(questEventStmt, 2, sessionAreaId);
+                    sqlite3_bind_text (questEventStmt, 3, nameBytes.constData(), nameBytes.size(), SQLITE_STATIC);
+                    sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+                    sqlite3_step(questEventStmt);
+                    sqlite3_reset(questEventStmt);
                 }
             }
 

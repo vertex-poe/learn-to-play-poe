@@ -141,6 +141,7 @@ CATEGORIES_SQL = [
     ("hideout_discovered",        ["Spawning discoverable Hideout"]),
     ("pvp_queue",                 ["Queueing for PVP match", "Cancelled PVP queue"]),
     ("ruleset_failed",            ["Failed to create ruleset "]),
+    ("talking_pet_audio",         ["TalkingPetAudioEvent '"]),
     ("labyrinth_craft_options",   ["InstanceClientLabyrinthCraftResultOptionsList recieved"]),
     ("steam_not_logged_in",       ["Not logged in to steam. Achievements will not work"]),
     ("patch_required",            ["There has been a patch that you need to update to."]),
