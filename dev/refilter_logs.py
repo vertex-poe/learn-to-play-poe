@@ -26,7 +26,6 @@ WORKERS    = os.cpu_count() or 4
 
 # Lines that go into filtered_client/ — noise / engine chatter
 CATEGORIES = [
-    ("log_file",       ["LOG FILE"]),
     ("render",         ["[RENDER"]),
     ("shader",         ["[SHADER"]),
     ("engine",         ["[ENGINE"]),
@@ -43,7 +42,6 @@ CATEGORIES = [
     ("storage",        ["[STORAGE]"]),
     ("streamline",     ["[STREAMLINE]"]),
     ("gamepad",        ["[GAMEPAD]"]),
-    ("ingame_audio",   ["[InGameAudioManager]"]),
     ("vulkan",         ["[VULKAN]"]),
     ("gpu_trail",      ["[GPU TRAIL]"]),
     ("dxc",            ["[DXC]"]),
@@ -112,6 +110,7 @@ IGNORE_PREFIXES = [
 
 # Lines that go into filtered_sql/ — ingested into the database
 CATEGORIES_SQL = [
+    ("log_file",           ["LOG FILE"]),
     ("area_generating",    ["Generating level"]),
     ("area_entered",       ["You have entered"]),
     ("scene_set_source",   ["[SCENE] Set Source ["]),
@@ -141,6 +140,7 @@ CATEGORIES_SQL = [
     ("hideout_discovered",        ["Spawning discoverable Hideout"]),
     ("pvp_queue",                 ["Queueing for PVP match", "Cancelled PVP queue"]),
     ("ruleset_failed",            ["Failed to create ruleset "]),
+    ("ingame_audio",               ["[InGameAudioManager]"]),
     ("talking_pet_audio",         ["TalkingPetAudioEvent '"]),
     ("labyrinth_craft_options",   ["InstanceClientLabyrinthCraftResultOptionsList recieved"]),
     ("steam_not_logged_in",       ["Not logged in to steam. Achievements will not work"]),
@@ -198,6 +198,31 @@ CATEGORY_NORMALIZERS: dict[str, list[tuple[re.Pattern, str]]] = {
     ],
     "trigger_event": [
         (re.compile(r'0x[0-9a-fA-F]+'), "<addr>"),
+    ],
+    "streamline": [
+        (re.compile(r'(Init in )\d+\.\d+( seconds)'), r'\1<seconds>\2'),
+    ],
+    "replace_object": [
+        (re.compile(r'(Replacing (?:awake|asleep) object with id )\d+'), r'\1<id>'),
+    ],
+    "item_filter": [
+        (re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'), "<ip>"),
+        (re.compile(r'(List contained online filter )\S+( with hash: )[0-9a-f]+( \(local hash is: )[0-9a-f]+(\))'),
+         r'\1<filter>\2<filter hash>\3<local hash>\4'),
+        (re.compile(r'(Preparing to download online filter )\S+'), r'\1<filter>'),
+        (re.compile(r'(Online item filter )\S+( returned status: )\d+'), r'\1<filter>\2<status>'),
+        (re.compile(r'(Hash for online filter )\S+( is: )[0-9a-f]+'), r'\1<filter>\2<hash>'),
+        (re.compile(r'(Hash for online filter )\S+( is: \(empty\))'), r'\1<filter>\2'),
+        (re.compile(r'(X-HW: ).+'), r'\1<list>'),
+        (re.compile(r'(Successfully saved online filter )\S+(\. Hash is now: )[0-9a-f]+'),
+         r'\1<filter>\2<hash>'),
+        (re.compile(r'(Successfully saved online filter )\S+(\. Hash is now: )$'),
+         r'\1<filter>\2'),
+        (re.compile(r'(Finished reloading online filter )\S+(\. Result: )(\w+)(\. Hash: )([0-9a-f]*)(\. Type: \w+)?(\. Message: )(.*)'),
+         lambda m: (m.group(1) + '<filter>' + m.group(2) + '<result>' + m.group(4) +
+                    ('<hash>' if m.group(5) else '') +
+                    ('. Type: <type>' if m.group(6) else '') + m.group(7) +
+                    ('<msg>' if m.group(8) else ''))),
     ],
 }
 
