@@ -1,6 +1,9 @@
 #include "MainWindow.h"
 #include "Database.h"
 #include "GameOverlay.h"
+#include "LiveAlertsDialog.h"
+#include "LiveEventBus.h"
+#include "LiveEventRuleEngine.h"
 #include "LogIngestWorker.h"
 #include "SettingsDialog.h"
 #include "TaskManager.h"
@@ -44,6 +47,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_config = AppConfig::load();
 
+    m_ruleEngine = new LiveEventRuleEngine(this);
+    m_ruleEngine->setRules(m_config.liveAlertRules);
+    connect(m_ruleEngine, &LiveEventRuleEngine::notifyRequested,
+            this, [this](const QString &title, const QString &tag, const QString &msg) {
+                log(title, tag, msg);
+            });
+
     setupMenuBar();
     setupTray();
 
@@ -82,6 +92,7 @@ void MainWindow::setupMenuBar()
 {
     QMenu *fileMenu = menuBar()->addMenu("&File");
     fileMenu->addAction("&Settings", this, &MainWindow::showSettings);
+    fileMenu->addAction("Live &Alerts…", this, &MainWindow::showLiveAlerts);
     fileMenu->addSeparator();
     fileMenu->addAction("E&xit", qApp, &QApplication::quit);
 
@@ -127,6 +138,16 @@ void MainWindow::showSettings()
     m_settingsDialog->show();
     m_settingsDialog->raise();
     m_settingsDialog->activateWindow();
+}
+
+void MainWindow::showLiveAlerts()
+{
+    LiveAlertsDialog dlg(m_config.liveAlertRules, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        m_config.liveAlertRules = dlg.rules();
+        m_config.save();
+        m_ruleEngine->setRules(m_config.liveAlertRules);
+    }
 }
 
 void MainWindow::onConfigChanged()
@@ -338,6 +359,13 @@ void MainWindow::maybeIngestClientLog(const QString &installDir, bool liveMode)
 
     auto *worker = new LogIngestWorker(
         m_db->path(), inst.id, logPath, resumeOffset, m_config.channelNames, liveMode);
+
+    if (liveMode) {
+        connect(worker, &LogIngestWorker::liveEventParsed,
+                LiveEventBus::instance(), &LiveEventBus::dispatch,
+                Qt::QueuedConnection);
+    }
+
     m_taskManager->submit(taskName, TaskKind::DbWrite, worker);
 
     if (liveMode)

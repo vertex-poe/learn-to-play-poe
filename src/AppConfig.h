@@ -1,8 +1,11 @@
 #pragma once
 
+#include "LiveEventRule.h"
+
 #include <QHash>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
 struct AppConfig {
     static QStringList knownExes()
@@ -20,7 +23,8 @@ struct AppConfig {
     bool minimizeToTray{true};
     bool autoDetectInstallDir{true};
     QStringList installDirs;
-    QHash<int, QString> channelNames; // channel number → user-defined label
+    QHash<int, QString>    channelNames;    // channel number → user-defined label
+    QVector<LiveEventRule> liveAlertRules;
 
     static AppConfig load();
     void save() const;

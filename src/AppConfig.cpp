@@ -51,11 +51,42 @@ AppConfig AppConfig::load()
         if (const auto *names = tbl["chat_channel_names"].as_table()) {
             for (const auto &[key, val] : *names) {
                 bool ok;
-                const int num = QString::fromUtf8(key.data(), (int)key.size()).toInt(&ok);
+                const std::string_view ks{key};
+                const int num = QString::fromUtf8(ks.data(), (int)ks.size()).toInt(&ok);
                 if (ok) {
                     if (auto v = val.value<std::string>())
                         cfg.channelNames[num] = QString::fromStdString(*v);
                 }
+            }
+        }
+        if (const auto *rules = tbl["live_alert_rules"].as_array()) {
+            for (const auto &ruleNode : *rules) {
+                const auto *rt = ruleNode.as_table();
+                if (!rt) continue;
+                LiveEventRule rule;
+                if (auto v = (*rt)["id"].value<std::string>())          rule.id         = QString::fromStdString(*v);
+                if (auto v = (*rt)["label"].value<std::string>())        rule.label      = QString::fromStdString(*v);
+                if (auto v = (*rt)["event_type"].value<std::string>())   rule.eventType  = QString::fromStdString(*v);
+                if (auto v = (*rt)["action_type"].value<std::string>())  rule.actionType = QString::fromStdString(*v);
+                if (auto v = (*rt)["enabled"].value<bool>())             rule.enabled    = *v;
+                if (const auto *df = (*rt)["data_filter"].as_table()) {
+                    for (const auto &[k, v] : *df) {
+                        if (auto s = v.value<std::string>()) {
+                            const std::string_view ks{k};
+                            rule.dataFilter[QString::fromUtf8(ks.data(), (int)ks.size())] = QString::fromStdString(*s);
+                        }
+                    }
+                }
+                if (const auto *ap = (*rt)["action_params"].as_table()) {
+                    for (const auto &[k, v] : *ap) {
+                        if (auto s = v.value<std::string>()) {
+                            const std::string_view ks{k};
+                            rule.actionParams[QString::fromUtf8(ks.data(), (int)ks.size())] = QString::fromStdString(*s);
+                        }
+                    }
+                }
+                if (!rule.id.isEmpty())
+                    cfg.liveAlertRules.append(rule);
             }
         }
     } catch (const toml::parse_error &) {
@@ -89,6 +120,29 @@ void AppConfig::save() const
     for (auto it = channelNames.constBegin(); it != channelNames.constEnd(); ++it)
         namesTable.insert(std::to_string(it.key()), it.value().toStdString());
     tbl.insert("chat_channel_names", std::move(namesTable));
+
+    toml::array rulesArr;
+    for (const LiveEventRule &rule : liveAlertRules) {
+        toml::table rt;
+        rt.insert("id",          rule.id.toStdString());
+        rt.insert("label",       rule.label.toStdString());
+        rt.insert("event_type",  rule.eventType.toStdString());
+        rt.insert("action_type", rule.actionType.toStdString());
+        rt.insert("enabled",     rule.enabled);
+
+        toml::table df;
+        for (auto it = rule.dataFilter.constBegin(); it != rule.dataFilter.constEnd(); ++it)
+            df.insert(it.key().toStdString(), it.value().toString().toStdString());
+        rt.insert("data_filter", std::move(df));
+
+        toml::table ap;
+        for (auto it = rule.actionParams.constBegin(); it != rule.actionParams.constEnd(); ++it)
+            ap.insert(it.key().toStdString(), it.value().toString().toStdString());
+        rt.insert("action_params", std::move(ap));
+
+        rulesArr.push_back(std::move(rt));
+    }
+    tbl.insert("live_alert_rules", std::move(rulesArr));
 
     std::ofstream ofs(path.toStdString());
     ofs << tbl;

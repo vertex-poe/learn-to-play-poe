@@ -15,6 +15,7 @@ class QMenu;
 class QTimer;
 class Database;
 class GameOverlay;
+class LiveEventRuleEngine;
 class LogIngestWorker;
 class SettingsDialog;
 class TaskManager;
@@ -41,6 +42,7 @@ protected:
 private slots:
     void onTrayActivated(QSystemTrayIcon::ActivationReason reason);
     void showSettings();
+    void showLiveAlerts();
     void onConfigChanged();
     void onPollTimer();
     void onTaskUpdated(int id);
@@ -79,4 +81,5 @@ private:
     quint32          m_lastGamePid{};
 
     QPointer<LogIngestWorker> m_liveWorker;
+    LiveEventRuleEngine      *m_ruleEngine{};
 };

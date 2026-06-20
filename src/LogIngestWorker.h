@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BackgroundWorker.h"
+#include "LiveEvent.h"
 #include <QHash>
 #include <QString>
 #include <atomic>
@@ -19,6 +20,9 @@ public:
 
     // Switch from live-tail to drain-and-finish. Safe to call from any thread.
     void finalize() { m_liveMode.store(false, std::memory_order_relaxed); }
+
+signals:
+    void liveEventParsed(LiveEvent event);
 
 private:
     QString              m_dbPath;

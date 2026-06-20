@@ -14,6 +14,14 @@ qt_add_executable(l2p-poe1
     GameOverlay.h
     ListEditor.cpp
     ListEditor.h
+    LiveAlertsDialog.cpp
+    LiveAlertsDialog.h
+    LiveEvent.h
+    LiveEventBus.cpp
+    LiveEventBus.h
+    LiveEventRule.h
+    LiveEventRuleEngine.cpp
+    LiveEventRuleEngine.h
     LogIngestWorker.cpp
     LogIngestWorker.h
     MainWindow.cpp

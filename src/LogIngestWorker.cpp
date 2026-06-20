@@ -145,7 +145,7 @@ void LogIngestWorker::start()
     );
     // [INFO] Queueing for PVP match "US-ASTHC CTF Open" with 0 other players
     static const QRegularExpression pvpQueueRe(
-        R"(Queueing for PVP match "([^"]+)" with (\d+) other players)"
+        R"re(Queueing for PVP match "([^"]+)" with (\d+) other players)re"
     );
     // /passives command — multi-line block:
     // : 95 total Passive Skill Points (91 allocated)
@@ -697,6 +697,9 @@ void LogIngestWorker::start()
             // Session starts at char select — open a NULL-area span.
             openSpan(ts, -1);
 
+            if (m_liveMode.load(std::memory_order_relaxed))
+                emit liveEventParsed(LiveEvent{LiveEventType::SessionStart, ts, {}});
+
         } else if (level == QLatin1String("DEBUG")) {
             const auto genM = generatingRe.match(message);
             if (genM.hasMatch()) {
@@ -850,6 +853,13 @@ void LogIngestWorker::start()
                         sqlite3_step(levelEventStmt);
                         sqlite3_reset(levelEventStmt);
 
+                        if (m_liveMode.load(std::memory_order_relaxed))
+                            emit liveEventParsed(LiveEvent{LiveEventType::LevelUp, ts, {
+                                {"character",  lvlM.captured(1)},
+                                {"char_class", lvlM.captured(2)},
+                                {"level",      charLevel}
+                            }});
+
                         sessionCharId    = charId;
                         sessionCharLevel = charLevel;
 
@@ -876,6 +886,8 @@ void LogIngestWorker::start()
             if (afkM.hasMatch()) {
                 if (afkM.captured(1) == QLatin1String("ON")) {
                     afkOnTs = ts;
+                    if (m_liveMode.load(std::memory_order_relaxed))
+                        emit liveEventParsed(LiveEvent{LiveEventType::AfkOn, ts, {}});
                 } else if (!afkOnTs.isEmpty()) {
                     const qint64 afkDur = qMax(0LL, tsToSecs(ts) - tsToSecs(afkOnTs));
                     sessionAfkSecs     += afkDur;
@@ -889,6 +901,8 @@ void LogIngestWorker::start()
                         sqlite3_step(afkStmt);
                         sqlite3_reset(afkStmt);
                     }
+                    if (m_liveMode.load(std::memory_order_relaxed))
+                        emit liveEventParsed(LiveEvent{LiveEventType::AfkOff, ts, {{"duration_secs", afkDur}}});
                     afkOnTs.clear();
                 }
             }
@@ -902,6 +916,8 @@ void LogIngestWorker::start()
                 sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                 sqlite3_step(questEventStmt);
                 sqlite3_reset(questEventStmt);
+                if (m_liveMode.load(std::memory_order_relaxed))
+                    emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "monsters_cleared"}}});
             }
 
             if (sessionId >= 0 && message.contains(QLatin1String("You have received a Passive Skill Point."))) {
@@ -912,6 +928,8 @@ void LogIngestWorker::start()
                 sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                 sqlite3_step(questEventStmt);
                 sqlite3_reset(questEventStmt);
+                if (m_liveMode.load(std::memory_order_relaxed))
+                    emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "passive_skill_point_received"}}});
             }
 
             if (sessionId >= 0 && message.contains(QLatin1String("Passive Skill Points."))) {
@@ -922,6 +940,8 @@ void LogIngestWorker::start()
                 sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                 sqlite3_step(questEventStmt);
                 sqlite3_reset(questEventStmt);
+                if (m_liveMode.load(std::memory_order_relaxed))
+                    emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "passive_skill_points_received"}}});
             }
 
             if (sessionId >= 0 && message.contains(QLatin1String("Passive Respec Points"))) {
@@ -932,6 +952,8 @@ void LogIngestWorker::start()
                 sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                 sqlite3_step(questEventStmt);
                 sqlite3_reset(questEventStmt);
+                if (m_liveMode.load(std::memory_order_relaxed))
+                    emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "passive_respec_received"}}});
             }
 
             // Fires twice: once after Act 5 Kitava (-30%) and once after Act 10 Kitava (-60%).
@@ -943,6 +965,8 @@ void LogIngestWorker::start()
                 sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                 sqlite3_step(questEventStmt);
                 sqlite3_reset(questEventStmt);
+                if (m_liveMode.load(std::memory_order_relaxed))
+                    emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "kitava_resistance_penalty"}}});
             }
 
             if (sessionId >= 0 && message.contains(QLatin1String("There has been a patch that you need to update to."))) {
@@ -953,6 +977,8 @@ void LogIngestWorker::start()
                 sqlite3_bind_text (generalEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                 sqlite3_step(generalEventStmt);
                 sqlite3_reset(generalEventStmt);
+                if (m_liveMode.load(std::memory_order_relaxed))
+                    emit liveEventParsed(LiveEvent{LiveEventType::GeneralEvent, ts, {{"event_type", "patch_required"}}});
             }
 
             if (sessionId >= 0 && message.contains(QLatin1String("Not logged in to steam. Achievements will not work"))) {
@@ -984,6 +1010,8 @@ void LogIngestWorker::start()
                 sqlite3_bind_text (questEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                 sqlite3_step(questEventStmt);
                 sqlite3_reset(questEventStmt);
+                if (m_liveMode.load(std::memory_order_relaxed))
+                    emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "labyrinth_craft_options_received"}}});
             }
 
             if (sessionId >= 0) {
@@ -1065,6 +1093,8 @@ void LogIngestWorker::start()
                     sqlite3_bind_text (achievEventStmt, 3, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                     sqlite3_step(achievEventStmt);
                     sqlite3_reset(achievEventStmt);
+                    if (m_liveMode.load(std::memory_order_relaxed))
+                        emit liveEventParsed(LiveEvent{LiveEventType::Achievement, ts, {{"name", achievM.captured(1)}}});
                 }
             }
 
@@ -1091,6 +1121,8 @@ void LogIngestWorker::start()
                     sqlite3_bind_text (hideoutEventStmt, 4, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                     sqlite3_step(hideoutEventStmt);
                     sqlite3_reset(hideoutEventStmt);
+                    if (m_liveMode.load(std::memory_order_relaxed))
+                        emit liveEventParsed(LiveEvent{LiveEventType::HideoutDiscovered, ts, {{"name", hideoutM.captured(1).trimmed()}}});
                 }
             }
 
@@ -1119,6 +1151,11 @@ void LogIngestWorker::start()
                     sqlite3_reset(pvpQueueEventStmt);
                     if (sqlite3_changes(db) > 0)
                         lastPvpQueueEventId = sqlite3_last_insert_rowid(db);
+                    if (m_liveMode.load(std::memory_order_relaxed))
+                        emit liveEventParsed(LiveEvent{LiveEventType::PvpQueue, ts, {
+                            {"match_name",   pvpM.captured(1)},
+                            {"other_players", playerCount}
+                        }});
                 }
             }
 
@@ -1129,6 +1166,8 @@ void LogIngestWorker::start()
                 sqlite3_step(pvpQueueCancelStmt);
                 sqlite3_reset(pvpQueueCancelStmt);
                 lastPvpQueueEventId = -1;
+                if (m_liveMode.load(std::memory_order_relaxed))
+                    emit liveEventParsed(LiveEvent{LiveEventType::PvpQueueCancelled, ts, {}});
             }
 
             // Passive skill allocation / unallocation
@@ -1159,6 +1198,14 @@ void LogIngestWorker::start()
                     sqlite3_bind_text (passiveAllocStmt, 5, tsBytes.constData(),     tsBytes.size(),     SQLITE_STATIC);
                     sqlite3_step(passiveAllocStmt);
                     sqlite3_reset(passiveAllocStmt);
+                    if (m_liveMode.load(std::memory_order_relaxed)) {
+                        const bool alloc = (passiveM.captured(1).toLower() == QLatin1String("allocated"));
+                        emit liveEventParsed(LiveEvent{
+                            alloc ? LiveEventType::PassiveAllocated : LiveEventType::PassiveUnallocated,
+                            ts,
+                            {{"skill_id", passiveM.captured(2)}, {"skill_name", passiveM.captured(3)}, {"is_mastery", false}}
+                        });
+                    }
                 }
             }
 
@@ -1190,15 +1237,22 @@ void LogIngestWorker::start()
                     sqlite3_bind_text (passiveAllocStmt, 5, tsBytes.constData(),     tsBytes.size(),     SQLITE_STATIC);
                     sqlite3_step(passiveAllocStmt);
                     sqlite3_reset(passiveAllocStmt);
+                    if (m_liveMode.load(std::memory_order_relaxed)) {
+                        const bool alloc = (masteryM.captured(1).toLower() == QLatin1String("allocated"));
+                        emit liveEventParsed(LiveEvent{
+                            alloc ? LiveEventType::PassiveAllocated : LiveEventType::PassiveUnallocated,
+                            ts,
+                            {{"skill_id", masteryM.captured(2)}, {"skill_name", masteryM.captured(3)}, {"is_mastery", true}}
+                        });
+                    }
                 }
             }
 
             // Whispers
             const auto whisperM = whisperRe.match(message);
             if (whisperM.hasMatch() && sessionId >= 0) {
-                const QByteArray dirBytes  = (whisperM.captured(1) == QLatin1String("From")
-                                              ? QByteArrayLiteral("from")
-                                              : QByteArrayLiteral("to"));
+                const bool       isFrom    = (whisperM.captured(1) == QLatin1String("From"));
+                const QByteArray dirBytes  = isFrom ? QByteArrayLiteral("from") : QByteArrayLiteral("to");
                 const QByteArray nameBytes = whisperM.captured(2).toUtf8();
                 const QByteArray msgBytes  = whisperM.captured(3).toUtf8();
                 sqlite3_bind_int64(whisperStmt, 1, sessionId);
@@ -1208,6 +1262,12 @@ void LogIngestWorker::start()
                 sqlite3_bind_text (whisperStmt, 5, tsBytes.constData(),   tsBytes.size(),   SQLITE_STATIC);
                 sqlite3_step(whisperStmt);
                 sqlite3_reset(whisperStmt);
+                if (m_liveMode.load(std::memory_order_relaxed))
+                    emit liveEventParsed(LiveEvent{LiveEventType::Whisper, ts, {
+                        {"direction", isFrom ? QString("from") : QString("to")},
+                        {"player",    whisperM.captured(2)},
+                        {"message",   whisperM.captured(3)}
+                    }});
             }
 
             // Character death
@@ -1233,6 +1293,8 @@ void LogIngestWorker::start()
                     sqlite3_bind_text(deathStmt, 5, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                     sqlite3_step(deathStmt);
                     sqlite3_reset(deathStmt);
+                    if (m_liveMode.load(std::memory_order_relaxed))
+                        emit liveEventParsed(LiveEvent{LiveEventType::CharacterDeath, ts, {{"character", deathM.captured(1)}}});
                 }
             }
 
@@ -1267,6 +1329,15 @@ void LogIngestWorker::start()
                     sqlite3_bind_text (chatStmt, 6, tsBytes.constData(),      tsBytes.size(),      SQLITE_STATIC);
                     sqlite3_step(chatStmt);
                     sqlite3_reset(chatStmt);
+                    if (m_liveMode.load(std::memory_order_relaxed)) {
+                        QVariantMap chatData;
+                        chatData[QStringLiteral("channel")] = chatM.captured(1);
+                        chatData[QStringLiteral("player")]  = chatM.captured(3);
+                        chatData[QStringLiteral("message")] = chatM.captured(4);
+                        if (!guildTag.isEmpty())
+                            chatData[QStringLiteral("guild_tag")] = guildTag;
+                        emit liveEventParsed(LiveEvent{LiveEventType::Chat, ts, chatData});
+                    }
                 }
             }
 
@@ -1302,6 +1373,13 @@ void LogIngestWorker::start()
                         // Close the previous span (char select or prior area) and open one for this area.
                         closeSpan(ts);
                         openSpan(ts, areaId);
+
+                        if (m_liveMode.load(std::memory_order_relaxed))
+                            emit liveEventParsed(LiveEvent{LiveEventType::AreaEntered, ts, {
+                                {"area_name",  entM.captured(1)},
+                                {"area_code",  pendingCode},
+                                {"area_level", pendingLevel}
+                            }});
                     }
 
                     pendingCode.clear();
@@ -1337,6 +1415,13 @@ void LogIngestWorker::start()
 
                         closeSpan(ts);
                         openSpan(ts, areaId);
+
+                        if (m_liveMode.load(std::memory_order_relaxed))
+                            emit liveEventParsed(LiveEvent{LiveEventType::AreaEntered, ts, {
+                                {"area_name",  sceneM.captured(1)},
+                                {"area_code",  sceneM.captured(1)},
+                                {"area_level", 0}
+                            }});
                     }
                 }
             }
