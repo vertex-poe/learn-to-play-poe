@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# dev/refilter_logs.py (python)
+
 """
 Concurrent log splitter using findstr. Extracts all categories in parallel
 (one findstr process per category, up to os.cpu_count() at a time), then
@@ -31,13 +33,27 @@ CATEGORIES = [
     ("sound",          ["[SOUND"]),
     ("startup",        ["[STARTUP"]),
     ("d3d12",          ["[D3D12"]),
+    ("d3d11",          ["[D3D11]"]),
     ("window",         ["[WINDOW"]),
     ("gamepadmanager", ["GamepadManager"]),
     ("job",            ["[JOB]"]),
     ("bundle2",        ["[BUNDLE2]"]),
+    ("bundle",         ["[BUNDLE] "]),
+    ("download",       ["[DOWNLOAD]"]),
+    ("storage",        ["[STORAGE]"]),
+    ("streamline",     ["[STREAMLINE]"]),
+    ("gamepad",        ["[GAMEPAD]"]),
+    ("ingame_audio",   ["[InGameAudioManager]"]),
+    ("vulkan",         ["[VULKAN]"]),
+    ("gpu_trail",      ["[GPU TRAIL]"]),
+    ("dxc",            ["[DXC]"]),
     ("enumerated",     ["Enumerated"]),
     ("item_filter",    ["[Item Filter]"]),
     ("blueprint_ui",   ["[Blueprint UI]"]),
+    ("faridun",        ["[Faridun]"]),
+    ("entity2",        ["[ENTITY2]"]),
+    ("replace_object", ["Replacing awake object with id ", "Replacing asleep object with id "]),
+    ("trigger_event",  ["Trigger Event '"]),
 ]
 
 # Lines silently dropped from the remainder (refiltered_client.txt) — we don't care about these
@@ -60,9 +76,30 @@ IGNORE_PREFIXES = [
     "FindClosestObject found no nearby object",
     "Matching object found for InstanceClientActionUpdate, but no matching action was found on object to update.",
     "InstanceClientFinishChannellingAction id did not match current channelled action",
+    "Unable to connect to login server.",
+    "Attempted to trigger GEAL event on destructing object ",
+    "Marking steam content as corrupt ",
+    "Remove Timeline Component ",
+    "Failed to create effect graph node ",
+    " animation cannot be a looping animation! ",
+    "Effect builder being destroyed without ",
+    " tried to create an object out of bounds!",
+    "The operation timed out.",
+    "Selected XInput.dll is ",
+    "Attempting to get depth for location in unconnected area",
+    " after level generation was complete",
+    "Tried to add Steam stat ",
+    "Client-Safe Instance ID = ",
+    "Resyncing ",
+    "Core::OpenVirtualKeyboard called with mode '",
+    "Building Uncached Shader ",
+    "Attempted to remove an effect pack, \"",
     "packet for a container this skill doesn't have - packet is for wrong skill",
     "Invalid for Metadata/",
     "GEAL Triggered action with animation event - could not find specified event",
+    "GEAL Triggered action with animation event was serialized to the client, but the client did not have the action.",
+    "Mod did not exist",
+    " with a self targetted cast.",
     "SetOrientation failed as the orientation value wasn't a location or float",
     "Received an update for a blight portal that we didn't know about",
     "Could not find row for ",
@@ -77,8 +114,10 @@ IGNORE_PREFIXES = [
 CATEGORIES_SQL = [
     ("area_generating",    ["Generating level"]),
     ("area_entered",       ["You have entered"]),
-    ("guild_joined",       ["Joined guild named"]),
-    ("guild_member_updated", ["Guild member updated "]),
+    ("scene_set_source",   ["[SCENE] Set Source ["]),
+    ("guild_joined",           ["Joined guild named"]),
+    ("guild_details_changed",  ["Guild details changed "]),
+    ("guild_member_updated",   ["Guild member updated "]),
     ("chat_channel_joined", ["You have joined global chat channel"]),
     ("char_level_up",       ["is now level"]),
     ("session_afk",         ["AFK mode is now"]),
@@ -152,6 +191,9 @@ CATEGORY_NORMALIZERS: dict[str, list[tuple[re.Pattern, str]]] = {
         # adapter lines dedup across sessions.
         (re.compile(r'\bLUID [0-9A-Fa-f]+\b'), "LUID <id>"),
     ],
+    "trigger_event": [
+        (re.compile(r'0x[0-9a-fA-F]+'), "<addr>"),
+    ],
 }
 
 
@@ -211,12 +253,19 @@ with ThreadPoolExecutor(max_workers=WORKERS) as pool:
 t1 = time.perf_counter()
 print(f"  extraction: {t1 - t0:.2f}s")
 
-# Phase 2: single inverse pass combining all patterns → remainder
-all_c = [f"/c:{p}" for _, patterns in (*CATEGORIES, *CATEGORIES_SQL) for p in patterns]
-ignore_c = [f"/c:{p}" for p in IGNORE_PREFIXES]
-with open(OUT, "wb") as f:
-    subprocess.run(["findstr", "/v"] + all_c + ignore_c + [str(client_txt)],
-                   stdout=f, stderr=subprocess.DEVNULL)
+# Phase 2: chained findstr /v passes, 60 patterns per pass, to stay under findstr's
+# internal pattern-count limit (~85).  Each pass writes a temp file; the last writes OUT.
+_all_filter = [p for _, patterns in (*CATEGORIES, *CATEGORIES_SQL) for p in patterns] + list(IGNORE_PREFIXES)
+_chunks     = [_all_filter[i:i+60] for i in range(0, len(_all_filter), 60)]
+_src = client_txt
+for _i, _chunk in enumerate(_chunks):
+    _dst = OUT if _i == len(_chunks) - 1 else OUT.with_suffix(f".tmp{_i}")
+    with open(_dst, "wb") as _f:
+        subprocess.run(["findstr", "/v"] + [f"/c:{p}" for p in _chunk] + [str(_src)],
+                       stdout=_f, stderr=subprocess.DEVNULL)
+    if _i > 0:
+        _src.unlink(missing_ok=True)
+    _src = _dst
 
 t2 = time.perf_counter()
 print(f"  remainder:  {t2 - t1:.2f}s  ({OUT.stat().st_size // 1024} KB)")
@@ -242,7 +291,8 @@ if OUT.exists() and OUT.stat().st_size > 0:
     OUT.write_text("".join(keep), encoding="utf-8")
 
 t25 = time.perf_counter()
-print(f"  dialog:     {t25 - t2:.2f}s  ({dialog_out.stat().st_size // 1024} KB)")
+dialog_kb = dialog_out.stat().st_size // 1024 if dialog_out.exists() else 0
+print(f"  dialog:     {t25 - t2:.2f}s  ({dialog_kb} KB)")
 
 # Phase 3: strip timestamp prefix and dedup every output file
 targets = (
@@ -258,5 +308,5 @@ for p, normalizers in targets:
     total_out += n_out
 
 elapsed = time.perf_counter() - t0
-print(f"  dedup:      {total_in:,} → {total_out:,} lines  ({100*total_out//total_in if total_in else 0}% kept)")
+print(f"  dedup:      {total_in:,} -> {total_out:,} lines  ({100*total_out//total_in if total_in else 0}% kept)")
 print(f"done in {elapsed:.2f}s")

@@ -74,9 +74,17 @@ void LogIngestWorker::start()
     static const QRegularExpression enteredRe(
         R"(You have entered (.+?)\.)"
     );
+    // [INFO] [SCENE] Set Source [Volcano]  (message body after stripping the [SCENE] bracket)
+    static const QRegularExpression sceneSourceRe(
+        R"(Set Source \[([^\]]+)\])"
+    );
     // [INFO] Joined guild named Unicorns with 5 members
     static const QRegularExpression guildRe(
         R"(Joined guild named (.+?) with \d+ members)"
+    );
+    // [INFO] Guild details changed Pomegranate
+    static const QRegularExpression guildDetailsRe(
+        R"(Guild details changed (.+))"
     );
     // [INFO] Guild member updated KayKay83
     static const QRegularExpression guildMemberRe(
@@ -166,6 +174,7 @@ void LogIngestWorker::start()
     // ── prepared statements ──────────────────────────────────────────────────
 
     sqlite3_stmt *areaUpsertStmt      = nullptr;
+    sqlite3_stmt *areaInsertIgnoreStmt = nullptr;
     sqlite3_stmt *areaSelectStmt      = nullptr;
     sqlite3_stmt *moveInsertStmt      = nullptr;
     sqlite3_stmt *accountUpsertStmt   = nullptr;
@@ -220,6 +229,9 @@ void LogIngestWorker::start()
         "INSERT INTO areas(code, level, display_name) VALUES(?,?,?) "
         "ON CONFLICT(code) DO UPDATE SET level=excluded.level, display_name=excluded.display_name;",
         -1, &areaUpsertStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "INSERT OR IGNORE INTO areas(code, level, display_name) VALUES(?,0,?);",
+        -1, &areaInsertIgnoreStmt, nullptr);
     sqlite3_prepare_v2(db,
         "SELECT id FROM areas WHERE code=?;",
         -1, &areaSelectStmt, nullptr);
@@ -706,6 +718,16 @@ void LogIngestWorker::start()
                 sqlite3_reset(accountUpsertStmt);
             }
 
+            // Guild details changed — also tells us the current guild
+            const auto guildDetailsM = guildDetailsRe.match(message);
+            if (guildDetailsM.hasMatch()) {
+                currentGuild = guildDetailsM.captured(1).trimmed();
+                const QByteArray guildBytes = currentGuild.toUtf8();
+                sqlite3_bind_text(accountUpsertStmt, 1, guildBytes.constData(), guildBytes.size(), SQLITE_STATIC);
+                sqlite3_step(accountUpsertStmt);
+                sqlite3_reset(accountUpsertStmt);
+            }
+
             // Guild member updated — record the account name and add to guild_members
             const auto guildMemberM = guildMemberRe.match(message);
             if (guildMemberM.hasMatch()) {
@@ -1182,6 +1204,39 @@ void LogIngestWorker::start()
                     pendingCode.clear();
                 }
             }
+
+            // [SCENE] Set Source — fallback area transition when no Generating level preceded it
+            if (pendingCode.isEmpty() && sessionId >= 0) {
+                const auto sceneM = sceneSourceRe.match(message);
+                if (sceneM.hasMatch()) {
+                    const QByteArray nameBytes = sceneM.captured(1).toUtf8();
+
+                    sqlite3_bind_text(areaInsertIgnoreStmt, 1, nameBytes.constData(), nameBytes.size(), SQLITE_STATIC);
+                    sqlite3_bind_text(areaInsertIgnoreStmt, 2, nameBytes.constData(), nameBytes.size(), SQLITE_STATIC);
+                    sqlite3_step(areaInsertIgnoreStmt);
+                    sqlite3_reset(areaInsertIgnoreStmt);
+
+                    sqlite3_bind_text(areaSelectStmt, 1, nameBytes.constData(), nameBytes.size(), SQLITE_STATIC);
+                    qint64 areaId = -1;
+                    if (sqlite3_step(areaSelectStmt) == SQLITE_ROW)
+                        areaId = sqlite3_column_int64(areaSelectStmt, 0);
+                    sqlite3_reset(areaSelectStmt);
+
+                    if (areaId >= 0) {
+                        sqlite3_bind_int64(moveInsertStmt, 1, m_installId);
+                        sqlite3_bind_int64(moveInsertStmt, 2, areaId);
+                        sqlite3_bind_text (moveInsertStmt, 3, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
+                        sqlite3_step(moveInsertStmt);
+                        sqlite3_reset(moveInsertStmt);
+                        ++totalVisits;
+                        safeCommitPos = lineStartPos;
+                        sessionAreaId = areaId;
+
+                        closeSpan(ts);
+                        openSpan(ts, areaId);
+                    }
+                }
+            }
         }
 
         if (++chunkCount >= kChunkSize) {
@@ -1201,6 +1256,7 @@ void LogIngestWorker::start()
     execSql(db, "COMMIT;");
 
     sqlite3_finalize(areaUpsertStmt);
+    sqlite3_finalize(areaInsertIgnoreStmt);
     sqlite3_finalize(areaSelectStmt);
     sqlite3_finalize(moveInsertStmt);
     sqlite3_finalize(accountUpsertStmt);
