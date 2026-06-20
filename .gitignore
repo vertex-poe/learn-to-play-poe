@@ -16,3 +16,4 @@ _rust_archive
 dev/filtered_client.txt
 dev/filtered_client/
 dev/filtered_sql/
+bin/
