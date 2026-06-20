@@ -58,13 +58,15 @@ void TaskPanel::onTaskUpdated(int id)
     const bool terminal = record->status == TaskStatus::Finished
                        || record->status == TaskStatus::Cancelled
                        || record->status == TaskStatus::Failed;
-    if (terminal) {
+    if (terminal || record->status == TaskStatus::Monitoring) {
         removeRow(id);
         return;
     }
 
     if (m_rows.contains(id))
         updateRow(*record);
+    else if (record->status == TaskStatus::Running)
+        addRow(*record);  // re-show if we fell behind after being hidden
 }
 
 void TaskPanel::addRow(const TaskRecord &record)

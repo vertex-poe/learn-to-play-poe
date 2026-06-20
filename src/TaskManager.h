@@ -16,6 +16,7 @@ enum class TaskKind {
 enum class TaskStatus {
     Pending,
     Running,
+    Monitoring,  // running but caught up — task row is hidden
     Finished,
     Failed,
     Cancelled,
@@ -38,6 +39,7 @@ class TaskManager : public QObject
     Q_OBJECT
 public:
     explicit TaskManager(QObject *parent = nullptr);
+    ~TaskManager() override;
 
     // Takes ownership of worker. Returns the assigned task ID.
     int  submit(const QString &name, TaskKind kind, BackgroundWorker *worker);

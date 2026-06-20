@@ -7,6 +7,18 @@ static constexpr int kMaxPooledSlots  = 3;
 
 TaskManager::TaskManager(QObject *parent) : QObject(parent) {}
 
+TaskManager::~TaskManager()
+{
+    for (auto &record : m_tasks) {
+        if (!record.thread) continue;  // already cleaned up via normal finish path
+        if (record.worker) record.worker->cancel();
+        record.thread->quit();
+        record.thread->wait();
+        delete record.worker;
+        // record.thread is a child of TaskManager; destroyed by parent-child after wait()
+    }
+}
+
 int TaskManager::submit(const QString &name, TaskKind kind, BackgroundWorker *worker)
 {
     worker->setParent(nullptr);
@@ -37,7 +49,7 @@ void TaskManager::cancel(int id)
         return;
     }
 
-    if (record->status == TaskStatus::Running) {
+    if (record->status == TaskStatus::Running || record->status == TaskStatus::Monitoring) {
         record->cancelling = true;
         record->worker->cancel();
     }
@@ -89,6 +101,10 @@ void TaskManager::onWorkerProgress(int id, int percent, const QString &message)
     if (!record) return;
     record->percent = percent;
     record->message = message;
+    if (percent >= 100 && record->status == TaskStatus::Running)
+        record->status = TaskStatus::Monitoring;
+    else if (percent < 100 && record->status == TaskStatus::Monitoring)
+        record->status = TaskStatus::Running;
     emit taskUpdated(id);
 }
 
@@ -132,7 +148,7 @@ int TaskManager::runningCount(TaskKind kind) const
 {
     int count = 0;
     for (const auto &r : m_tasks)
-        if (r.kind == kind && r.status == TaskStatus::Running)
+        if (r.kind == kind && (r.status == TaskStatus::Running || r.status == TaskStatus::Monitoring))
             ++count;
     return count;
 }

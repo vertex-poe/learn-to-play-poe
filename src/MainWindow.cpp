@@ -329,7 +329,9 @@ void MainWindow::maybeIngestClientLog(const QString &installDir, bool liveMode)
     const QString taskName = QStringLiteral("Ingest %1").arg(logPath);
     for (const TaskRecord &t : m_taskManager->tasks()) {
         if (t.name == taskName
-                && (t.status == TaskStatus::Pending || t.status == TaskStatus::Running)) {
+                && (t.status == TaskStatus::Pending
+                    || t.status == TaskStatus::Running
+                    || t.status == TaskStatus::Monitoring)) {
             if (liveMode) {
                 // Cancel the existing batch worker so live mode can take over
                 // from its last committed offset.

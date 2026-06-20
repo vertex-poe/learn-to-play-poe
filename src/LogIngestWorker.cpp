@@ -56,7 +56,7 @@ void LogIngestWorker::start()
         return;
     }
 
-    const qint64 totalSize = file.size();
+    qint64 totalSize = file.size();
     if (m_resumeOffset > 0 && m_resumeOffset < totalSize)
         file.seek(m_resumeOffset);
 
@@ -637,6 +637,7 @@ void LogIngestWorker::start()
             if (chunkCount > 0) {
                 flushSource(file.pos());
                 execSql(db, "COMMIT;");
+                emit progress(100, QStringLiteral("%1 area visits").arg(totalVisits));
                 chunkCount = 0;
                 execSql(db, "BEGIN;");
             }
@@ -1430,6 +1431,7 @@ void LogIngestWorker::start()
         if (++chunkCount >= kChunkSize) {
             flushSource(safeCommitPos);
             execSql(db, "COMMIT;");
+            totalSize = qMax(totalSize, file.size());
             emit progress(
                 totalSize > 0 ? static_cast<int>((file.pos() * 100LL) / totalSize) : 0,
                 QStringLiteral("%1 area visits").arg(totalVisits));
