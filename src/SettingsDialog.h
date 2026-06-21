@@ -30,4 +30,5 @@ private:
     QCheckBox  *m_minimizeToTray{};
     QCheckBox  *m_autoUpdate{};
     QCheckBox  *m_autoStartOnBoot{};
+    QCheckBox  *m_showGuildTags{};
 };

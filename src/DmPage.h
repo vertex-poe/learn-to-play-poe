@@ -20,6 +20,7 @@ public:
     explicit DmPage(Database *db, QWidget *parent = nullptr);
 
     void setDatabase(Database *db);
+    void setShowGuildTags(bool show);
     void reload();
 
 public slots:
@@ -48,6 +49,7 @@ private:
     QTimer      *m_liveRebuildTimer{};
     bool         m_liveRebuildScrollToBottom{false};
     bool         m_dirty{true};
+    bool         m_showGuildTags{true};
     int          m_limit{100};
 
     QStackedWidget                *m_view{};

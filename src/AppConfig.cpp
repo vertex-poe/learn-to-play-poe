@@ -45,6 +45,7 @@ AppConfig AppConfig::load()
         cfg.startMinimized        = tbl["start_minimized"].value_or(false);
         cfg.minimizeToTray        = tbl["minimize_to_tray"].value_or(true);
         cfg.autoDetectInstallDir  = tbl["auto_detect_install_dir"].value_or(true);
+        cfg.showGuildTags         = tbl["show_guild_tags"].value_or(true);
         if (const auto *arr = tbl["install_dirs"].as_array()) {
             for (const auto &node : *arr) {
                 if (auto val = node.value<std::string>(); val && !val->empty())
@@ -123,6 +124,7 @@ void AppConfig::save() const
     tbl.insert("start_minimized",         startMinimized);
     tbl.insert("minimize_to_tray",        minimizeToTray);
     tbl.insert("auto_detect_install_dir", autoDetectInstallDir);
+    tbl.insert("show_guild_tags",         showGuildTags);
     toml::array dirsArr;
     for (const QString &dir : installDirs)
         dirsArr.push_back(dir.toStdString());

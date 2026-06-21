@@ -617,8 +617,8 @@ QList<Database::ChatRecord> Database::fetchChats(
     bool first = true;
     if (hasChans) {
         const QString inClause = buildInClause(channels);
-        sql += "SELECT 'chat' AS source,c.channel,pc.name,COALESCE(g.tag,''),"
-               "c.message,c.occurred_at "
+        sql += "SELECT 'chat' AS source,c.channel,pc.name AS player_name,"
+               "COALESCE(g.tag,'') AS guild_tag,c.message,c.occurred_at "
                "FROM chats c "
                "JOIN public_chars pc ON pc.id=c.public_char_id "
                "LEFT JOIN guilds g ON g.id=c.guild_id "

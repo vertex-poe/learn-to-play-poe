@@ -132,7 +132,9 @@ MainWindow::MainWindow(QWidget *parent)
         scheduleLogIngestion();
         qDebug() << "[startup] scheduleLogIngestion done in" << startupTimer.elapsed() << "ms";
         m_chatPage->setDatabase(m_db);
+        m_chatPage->setShowGuildTags(m_config.showGuildTags);
         m_dmPage->setDatabase(m_db);
+        m_dmPage->setShowGuildTags(m_config.showGuildTags);
     } else {
         log("Database error", "db", m_db->lastError());
     }
@@ -220,6 +222,8 @@ void MainWindow::showLiveAlerts()
 void MainWindow::onConfigChanged()
 {
     log("Settings saved.");
+    m_chatPage->setShowGuildTags(m_config.showGuildTags);
+    m_dmPage->setShowGuildTags(m_config.showGuildTags);
 }
 
 void MainWindow::onPollTimer()

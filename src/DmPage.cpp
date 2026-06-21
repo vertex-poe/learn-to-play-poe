@@ -70,14 +70,17 @@ class WhisperBubble : public QWidget
 {
 public:
     WhisperBubble(const QString &direction, const QString &playerName,
-                  const QString &message,   const QString &time,
-                  bool showName, QWidget *parent = nullptr)
+                  const QString &guildTag,  const QString &message,
+                  const QString &time,      bool showName,
+                  bool showGuildTag, QWidget *parent = nullptr)
         : QWidget(parent)
         , m_direction(direction)
         , m_playerName(playerName)
+        , m_guildTag(guildTag)
         , m_message(message)
         , m_time(time)
         , m_showName(showName)
+        , m_showGuildTag(showGuildTag)
     {
         QSizePolicy sp(QSizePolicy::Expanding, QSizePolicy::Preferred);
         sp.setHeightForWidth(true);
@@ -161,7 +164,12 @@ protected:
             const int nh = QFontMetrics(boldF).height();
             p.setFont(boldF);
             p.setPen(fg);
-            const QString label = out ? (QString("→ ") + m_playerName) : m_playerName;
+            const QString guildPrefix = (m_showGuildTag && !m_guildTag.isEmpty())
+                ? QStringLiteral("<%1> ").arg(m_guildTag)
+                : QString{};
+            const QString label = out
+                ? (QStringLiteral("→ ") + guildPrefix + m_playerName)
+                : (guildPrefix + m_playerName);
             p.drawText(bx + kPad, y, tw, nh, Qt::AlignLeft | Qt::AlignVCenter, label);
             y += nh + 4;
         }
@@ -194,9 +202,11 @@ private:
 
     QString m_direction;
     QString m_playerName;
+    QString m_guildTag;
     QString m_message;
     QString m_time;
     bool    m_showName;
+    bool    m_showGuildTag;
 };
 
 // ---- Filter panel helpers ---------------------------------------------------
@@ -430,6 +440,14 @@ void DmPage::setDatabase(Database *db)
     m_db = db;
 }
 
+void DmPage::setShowGuildTags(bool show)
+{
+    if (m_showGuildTags == show) return;
+    m_showGuildTags = show;
+    if (isVisible() && m_db) rebuild();
+    else m_dirty = true;
+}
+
 void DmPage::reload()
 {
     m_dirty = false;
@@ -656,8 +674,8 @@ void DmPage::rebuild()
         }
         const QString time = w.occurredAt.mid(11, 5);
         contentLayout->addWidget(
-            new WhisperBubble(w.direction, w.playerName, w.message,
-                              time, showNames, content));
+            new WhisperBubble(w.direction, w.playerName, w.guildTag, w.message,
+                              time, showNames, m_showGuildTags, content));
     }
 
     qDebug() << "[DmPage] widgets built in" << t.elapsed() << "ms";

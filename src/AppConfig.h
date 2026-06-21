@@ -29,6 +29,7 @@ struct AppConfig {
     bool startMinimized{false};
     bool minimizeToTray{true};
     bool autoDetectInstallDir{true};
+    bool showGuildTags{true};
     QStringList installDirs;
     QHash<int, QString>    channelNames;    // channel number → user-defined label
     QVector<LiveEventRule> liveAlertRules;

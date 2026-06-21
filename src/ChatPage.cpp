@@ -27,17 +27,19 @@
 
 static QColor channelColor(const QString &ch)
 {
-    if (ch == "#")     return { 91, 142, 222};  // Global  – steel blue
-    if (ch == "$")     return {212, 168,  48};  // Trade   – amber
-    if (ch == "%")     return {155, 110, 212};  // Party   – purple
-    if (ch == "&")     return { 76, 175, 142};  // Guild   – teal
-    if (ch == "@from") return {222,  91, 142};  // DM in   – pink
-    if (ch == "@to")   return { 91, 198, 174};  // DM out  – mint
-    return                    {130, 130, 130};  // unknown – gray
+    if (ch == "!")     return { 88, 148,  88};  // Local   – desaturated green
+    if (ch == "#")     return {165,  78,  78};  // Global  – desaturated red
+    if (ch == "$")     return {182, 112,  65};  // Trade   – desaturated orange
+    if (ch == "%")     return { 78, 115, 170};  // Party   – desaturated blue
+    if (ch == "&")     return {115, 118, 120};  // Guild   – desaturated gray
+    if (ch == "@from") return {148,  92, 168};  // DM in   – desaturated purple
+    if (ch == "@to")   return {115,  78, 148};  // DM out  – desaturated purple (deeper)
+    return                    {120, 120, 120};  // unknown – gray
 }
 
 static QString channelBadge(const QString &ch)
 {
+    if (ch == "!")     return "L";
     if (ch == "#")     return "#";
     if (ch == "$")     return "$";
     if (ch == "%")     return "%";
@@ -105,12 +107,13 @@ public:
 
     int heightForWidth(int w) const override
     {
-        const int msgW = w - kBarW - kPadL - kPadR;
-        if (msgW <= 0) return 40;
+        const int textX = kBarW + kBadgePadL + kBadgeW + kBadgeTextPad;
+        const int textW = w - textX - kPadR;
+        if (textW <= 0) return 40;
         QFont boldF = font(); boldF.setBold(true);
         const int nameH = QFontMetrics(boldF).height();
         const int msgH  = QFontMetrics(font())
-            .boundingRect(0, 0, msgW, 10000, Qt::TextWordWrap, m_message).height();
+            .boundingRect(0, 0, textW, 10000, Qt::TextWordWrap, m_message).height();
         return kPadV + nameH + kGap + msgH + kPadV;
     }
 
@@ -134,43 +137,40 @@ protected:
 
         const QColor accent = channelColor(m_channel);
 
-        // Accent bar
-        p.fillRect(0, 0, kBarW, height(), accent);
+        // Accent bar — stops short at the bottom to visually separate rows
+        p.fillRect(0, 0, kBarW, height() - kBarGap, accent);
 
         // Fonts
         QFont boldF = font(); boldF.setBold(true);
         QFont smallF = font(); smallF.setPointSizeF(font().pointSizeF() * 0.82);
         const QFontMetrics boldFm(boldF), fm(font()), smallFm(smallF);
 
-        const int nameH      = boldFm.height();
-        const int totalTextW = width() - kBarW - kPadL - kPadR;
+        const int nameH = boldFm.height();
+        const int textX = kBarW + kBadgePadL + kBadgeW + kBadgeTextPad;
+        const int textW = width() - textX - kPadR;
 
-        // Right section: time + badge
-        const QString badge  = channelBadge(m_channel);
-        const int     bw     = smallFm.horizontalAdvance(badge) + 10;
-        const int     timeW  = smallFm.horizontalAdvance(m_time) + 4;
-        const int     rightW = bw + kBadgeGap + timeW;
+        // Square badge on the left
+        const int badgeH = kBadgeW;
+        p.setBrush(accent);
+        p.setPen(Qt::NoPen);
+        p.drawRoundedRect(kBarW + kBadgePadL, kPadV, kBadgeW, badgeH, 5, 5);
+        p.setFont(boldF);
+        p.setPen(Qt::white);
+        p.drawText(kBarW + kBadgePadL, kPadV, kBadgeW, badgeH,
+                   Qt::AlignCenter, channelBadge(m_channel));
 
         int y = kPadV;
 
-        // Badge (far right, vertically centred in name row)
-        const int bx = width() - kPadR - bw;
-        const int by = y + (nameH - kBadgeH) / 2;
-        p.setBrush(accent);
-        p.setPen(Qt::NoPen);
-        p.drawRoundedRect(bx, by, bw, kBadgeH, 4, 4);
+        // Timestamp (right-aligned in name row)
+        const int timeW = smallFm.horizontalAdvance(m_time) + 4;
         p.setFont(smallF);
-        p.setPen(Qt::white);
-        p.drawText(bx, by, bw, kBadgeH, Qt::AlignCenter, badge);
-
-        // Timestamp (just left of badge)
-        const int tx = bx - kBadgeGap - timeW;
         p.setPen(palette().placeholderText().color());
-        p.drawText(tx, y, timeW, nameH, Qt::AlignLeft | Qt::AlignVCenter, m_time);
+        p.drawText(width() - kPadR - timeW, y, timeW, nameH,
+                   Qt::AlignLeft | Qt::AlignVCenter, m_time);
 
         // Name row – guild tag then player name
-        const int nameAvailW = totalTextW - rightW - 8;
-        int nameX = kBarW + kPadL;
+        const int nameAvailW = textW - timeW - 8;
+        int nameX = textX;
 
         if (!m_guild.isEmpty()) {
             const QString gStr = QStringLiteral("<%1> ").arg(m_guild);
@@ -181,7 +181,7 @@ protected:
             nameX += gw;
         }
 
-        const int nameRemain = (kBarW + kPadL + nameAvailW) - nameX;
+        const int nameRemain = textX + nameAvailW - nameX;
         if (nameRemain > 0) {
             const QString eName = boldFm.elidedText(m_player, Qt::ElideRight, nameRemain);
             p.setFont(boldF);
@@ -191,21 +191,21 @@ protected:
 
         y += nameH + kGap;
 
-        // Message
+        // Message (same left indent as name, badge visually spans into this area)
         p.setFont(font());
         p.setPen(palette().windowText().color());
-        p.drawText(kBarW + kPadL, y, totalTextW, height() - y - kPadV,
-                   Qt::TextWordWrap, m_message);
+        p.drawText(textX, y, textW, height() - y - kPadV, Qt::TextWordWrap, m_message);
     }
 
 private:
-    static constexpr int kBarW    = 4;
-    static constexpr int kPadL    = 10;
-    static constexpr int kPadR    = 10;
-    static constexpr int kPadV    = 6;
-    static constexpr int kGap     = 3;
-    static constexpr int kBadgeH  = 16;
-    static constexpr int kBadgeGap = 6;
+    static constexpr int kBarW        = 4;
+    static constexpr int kBarGap      = 5;   // bottom gap on accent bar to mark row boundary
+    static constexpr int kBadgePadL   = 4;   // gap between accent bar and badge
+    static constexpr int kBadgeW      = 28;  // badge width
+    static constexpr int kBadgeTextPad = 8;  // gap between badge and text
+    static constexpr int kPadR        = 10;
+    static constexpr int kPadV        = 6;
+    static constexpr int kGap         = 3;
 
     QString m_channel, m_player, m_guild, m_message, m_time;
 };
@@ -442,6 +442,14 @@ void ChatPage::setDatabase(Database *db)
     m_db = db;
 }
 
+void ChatPage::setShowGuildTags(bool show)
+{
+    if (m_showGuildTags == show) return;
+    m_showGuildTags = show;
+    if (isVisible() && m_db) rebuild();
+    else m_dirty = true;
+}
+
 void ChatPage::reload()
 {
     m_dirty = false;
@@ -543,8 +551,9 @@ void ChatPage::rebuild()
         const QString timeLabel = (date == today)
             ? r.occurredAt.mid(11, 5)   // HH:MM
             : r.occurredAt.left(16);    // YYYY-MM-DD HH:MM
+        const QString guild = m_showGuildTags ? r.guildTag : QString{};
         layout->addWidget(
-            new ChatRow(r.channel, r.playerName, r.guildTag, r.message, timeLabel, content));
+            new ChatRow(r.channel, r.playerName, guild, r.message, timeLabel, content));
     }
 
     qDebug() << "[ChatPage] rebuild done in" << t.elapsed() << "ms";

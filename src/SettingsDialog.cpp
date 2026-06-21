@@ -61,6 +61,10 @@ SettingsDialog::SettingsDialog(AppConfig &config, QWidget *parent)
     m_autoStartOnBoot->setEnabled(false);
     form->addRow("Auto start on boot:", m_autoStartOnBoot);
 
+    m_showGuildTags = new QCheckBox(this);
+    m_showGuildTags->setChecked(config.showGuildTags);
+    form->addRow("Display guild tags:", m_showGuildTags);
+
     const QString configPath = AppConfig::configPath();
     auto *pathLabel = new QLabel(configPath, this);
     pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -85,6 +89,7 @@ SettingsDialog::SettingsDialog(AppConfig &config, QWidget *parent)
     connect(m_startMinimized, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
     connect(m_enableOverlay,  &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
     connect(m_minimizeToTray, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_showGuildTags,  &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
 }
 
 void SettingsDialog::saveAndEmit()
@@ -102,6 +107,7 @@ void SettingsDialog::saveAndEmit()
     m_config.useGameOverlay       = m_enableOverlay->isChecked();
     m_config.startMinimized       = m_startMinimized->isChecked();
     m_config.minimizeToTray       = m_minimizeToTray->isChecked();
+    m_config.showGuildTags        = m_showGuildTags->isChecked();
     m_config.save();
     emit configChanged();
 }
