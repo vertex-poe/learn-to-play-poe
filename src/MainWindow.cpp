@@ -358,7 +358,7 @@ void MainWindow::onTaskUpdated(int id)
     for (const auto &r : all) {
         if (r.id != id) continue;
         const QString t = QTime::currentTime().toString("HH:mm");
-        if (r.status == TaskStatus::Finished) {
+        if (r.status == TaskStatus::Finished || r.status == TaskStatus::Monitoring) {
             if (r.name.startsWith("Ingest "))
                 setStatusContent(QString());   // let idle message take over
             else
@@ -380,11 +380,8 @@ void MainWindow::setStatusContent(const QString &content)
 
 void MainWindow::refreshStatusBar()
 {
-    if (!m_gameFound) {
-        const QString prefix = "Waiting for new game info";
-        m_statusLabel->setText(m_lastStatusContent.isEmpty()
-            ? prefix
-            : prefix + " · " + m_lastStatusContent);
+    if (m_lastStatusContent.isEmpty()) {
+        m_statusLabel->setText(m_gameFound ? "Waiting for new game info" : "Waiting for game launch");
     } else {
         m_statusLabel->setText(m_lastStatusContent);
     }
