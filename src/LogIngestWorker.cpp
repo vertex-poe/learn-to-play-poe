@@ -57,7 +57,7 @@ void LogIngestWorker::start()
     }
 
     qint64 totalSize = file.size();
-    if (m_resumeOffset > 0 && m_resumeOffset < totalSize)
+    if (m_resumeOffset > 0 && m_resumeOffset <= totalSize)
         file.seek(m_resumeOffset);
 
     const QFileInfo fi(m_logPath);
@@ -653,6 +653,7 @@ void LogIngestWorker::start()
     qint64        safeCommitPos = m_resumeOffset > 0 ? m_resumeOffset : 0;
     int           chunkCount    = 0;
     int           totalVisits   = 0;
+    bool          caughtUp      = false;
 
     execSql(db, "BEGIN;");
 
@@ -662,12 +663,15 @@ void LogIngestWorker::start()
 
             // Commit what we have so new events are visible to the UI immediately,
             // then sleep before polling for more content.
-            if (chunkCount > 0) {
-                flushSource(file.pos());
-                execSql(db, "COMMIT;");
+            if (chunkCount > 0 || !caughtUp) {
+                if (chunkCount > 0) {
+                    flushSource(file.pos());
+                    execSql(db, "COMMIT;");
+                    chunkCount = 0;
+                    execSql(db, "BEGIN;");
+                }
                 emit progress(100, QStringLiteral("%1 area visits").arg(totalVisits));
-                chunkCount = 0;
-                execSql(db, "BEGIN;");
+                caughtUp = true;
             }
             QThread::msleep(250);
             continue;
