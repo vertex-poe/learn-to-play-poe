@@ -1,5 +1,6 @@
 #include "ChatPage.h"
 #include "Database.h"
+#include "Theme.h"
 #include "LiveEvent.h"
 #include "LiveEventBus.h"
 
@@ -59,7 +60,7 @@ public:
     {
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         QFont f = font();
-        f.setPointSizeF(f.pointSizeF() + 2);
+        f.setPointSizeF(Theme::fontSm);
         setFont(f);
     }
 
@@ -99,7 +100,7 @@ public:
         sp.setHeightForWidth(true);
         setSizePolicy(sp);
         QFont f = font();
-        f.setPointSizeF(f.pointSizeF() + 2);
+        f.setPointSizeF(Theme::fontSm);
         setFont(f);
     }
 
@@ -142,7 +143,7 @@ protected:
 
         // Fonts
         QFont boldF = font(); boldF.setBold(true);
-        QFont smallF = font(); smallF.setPointSizeF(font().pointSizeF() * 0.82);
+        QFont smallF = font(); smallF.setPointSizeF(Theme::fontXs);
         const QFontMetrics boldFm(boldF), fm(font()), smallFm(smallF);
 
         const int nameH = boldFm.height();

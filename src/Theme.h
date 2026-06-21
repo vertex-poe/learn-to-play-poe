@@ -42,6 +42,16 @@ inline const QColor borderDisabled { 56,  56,  56};  // #383838
 inline const QColor borderMenuSep  { 64,  64,  64};  // #404040
 inline const QColor scrollHandle   { 72,  72,  72};  // #484848
 
+// --- Font sizes (Tailwind typographic scale, px × 0.75 → pt at 96 DPI) ---
+inline constexpr double fontXs   =  9.0;  // text-xs   12px
+inline constexpr double fontSm   = 10.5;  // text-sm   14px
+inline constexpr double fontBase = 12.0;  // text-base 16px
+inline constexpr double fontLg   = 13.5;  // text-lg   18px
+inline constexpr double fontXl   = 15.0;  // text-xl   20px
+inline constexpr double font2xl  = 18.0;  // text-2xl  24px
+inline constexpr double font3xl  = 22.5;  // text-3xl  30px
+inline constexpr double font4xl  = 27.0;  // text-4xl  36px
+
 // --- Geometry ---
 inline constexpr int borderRadius    = 3;
 inline constexpr int buttonRadius    = 4;

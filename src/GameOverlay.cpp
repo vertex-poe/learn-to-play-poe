@@ -19,7 +19,7 @@ public:
     {
         setContentsMargins(12, 6, 9, 6);
         QFont f = font();
-        f.setPointSize(13);
+        f.setPointSizeF(Theme::fontLg);
         f.setItalic(true);
         f.setBold(true);
         f.setStyleHint(QFont::Serif);

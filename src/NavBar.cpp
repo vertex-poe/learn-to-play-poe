@@ -1,4 +1,5 @@
 #include "NavBar.h"
+#include "Theme.h"
 
 #include <QMouseEvent>
 #include <QPainter>
@@ -29,7 +30,7 @@ void NavBar::setGearActive(bool active)
 QSize NavBar::sizeHint() const
 {
     QFont f = font();
-    f.setPointSizeF(font().pointSizeF() * 2.0);
+    f.setPointSizeF(Theme::font2xl);
     return {0, QFontMetrics(f).height() + 28};
 }
 
@@ -53,7 +54,7 @@ void NavBar::paintEvent(QPaintEvent *)
     p.fillRect(0, h - separatorH, w, separatorH, palette().mid().color());
 
     QFont f = font();
-    f.setPointSizeF(font().pointSizeF() * 2.0);
+    f.setPointSizeF(Theme::font2xl);
 
     for (int i = 0; i < n; ++i) {
         const int x  = i * colW;

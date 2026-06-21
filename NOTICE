@@ -5,6 +5,16 @@ Grinding Gear Games or Path of Exile.
 
 Path of Exile is a trademark of Grinding Gear Games Ltd.
 
+## Design Inspiration
+
+Tailwind CSS
+https://github.com/tailwindlabs/tailwindcss
+Copyright (c) Tailwind Labs, Inc.
+Licensed under the MIT License
+
+Used as a reference for font-size naming conventions and design scale standardization.
+Font size names (xs, sm, base, lg, xl, 2xl, …) are inspired by Tailwind's typographic scale.
+
 ## Icons
 
 Bootstrap Icons

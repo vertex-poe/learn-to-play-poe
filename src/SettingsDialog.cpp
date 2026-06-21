@@ -1,5 +1,6 @@
 #include "SettingsDialog.h"
 #include "AppConfig.h"
+#include "Theme.h"
 #include "ListEditor.h"
 
 #include <QCheckBox>
@@ -151,7 +152,7 @@ SettingsDialog::SettingsDialog(AppConfig &config, QWidget *parent)
 
     auto *appNameLabel = new QLabel(QCoreApplication::applicationName(), aboutContent);
     QFont appNameFont  = appNameLabel->font();
-    appNameFont.setPointSizeF(appNameFont.pointSizeF() + 4);
+    appNameFont.setPointSizeF(Theme::fontLg);
     appNameFont.setBold(true);
     appNameLabel->setFont(appNameFont);
 

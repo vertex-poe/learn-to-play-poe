@@ -1,5 +1,6 @@
 #include "SettingsPage.h"
 #include "AppConfig.h"
+#include "Theme.h"
 #include "ListEditor.h"
 
 #include <QCheckBox>
@@ -150,7 +151,7 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     const auto makeItemBtn = [&](const QString &label, bool arrow = true) {
         auto *btn = new QPushButton(arrow ? label + "  ›" : label, categoryPage);
         QFont btnFont = btn->font();
-        btnFont.setPointSizeF(btnFont.pointSizeF() * 1.75);
+        btnFont.setPointSizeF(Theme::fontXl);
         btn->setFont(btnFont);
         btn->setMinimumHeight(56);
         btn->setStyleSheet(
@@ -262,7 +263,7 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
 
     auto *appNameLabel = new QLabel(QCoreApplication::applicationName(), aboutContent);
     QFont appNameFont  = appNameLabel->font();
-    appNameFont.setPointSizeF(appNameFont.pointSizeF() + 4);
+    appNameFont.setPointSizeF(Theme::fontLg);
     appNameFont.setBold(true);
     appNameLabel->setFont(appNameFont);
 

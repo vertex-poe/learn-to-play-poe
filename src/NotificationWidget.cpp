@@ -1,4 +1,5 @@
 #include "NotificationWidget.h"
+#include "Theme.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -14,12 +15,12 @@ namespace {
 class BadgeLabel : public QWidget
 {
 public:
-    explicit BadgeLabel(const QString &text, const QColor &textColor, int fontPt,
+    explicit BadgeLabel(const QString &text, const QColor &textColor, double fontPt,
                         QWidget *parent = nullptr)
         : QWidget(parent), m_text(text), m_textColor(textColor)
     {
         QFont f = font();
-        f.setPointSize(fontPt);
+        f.setPointSizeF(fontPt);
         f.setFamily("monospace");
         setFont(f);
         setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -90,7 +91,7 @@ private:
     QColor m_textColor;
 };
 
-QWidget *buildSegmentedRow(const QString &text, const QColor &color, int fontPt, QWidget *parent)
+QWidget *buildSegmentedRow(const QString &text, const QColor &color, double fontPt, QWidget *parent)
 {
     auto *row    = new QWidget(parent);
     auto *layout = new QHBoxLayout(row);
@@ -102,7 +103,7 @@ QWidget *buildSegmentedRow(const QString &text, const QColor &color, int fontPt,
         pal.setColor(QPalette::WindowText, color);
         lbl->setPalette(pal);
         QFont f = lbl->font();
-        f.setPointSize(fontPt);
+        f.setPointSizeF(fontPt);
         lbl->setFont(f);
     };
 
@@ -116,7 +117,7 @@ QWidget *buildSegmentedRow(const QString &text, const QColor &color, int fontPt,
             applyLabelStyle(lbl);
             layout->addWidget(lbl);
         }
-        auto *badge = new BadgeLabel(match.captured(1), color, fontPt - 2, row);
+        auto *badge = new BadgeLabel(match.captured(1), color, fontPt - 1.5, row);
         layout->addWidget(badge);
         lastEnd = match.capturedEnd();
     }
@@ -155,7 +156,7 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
         pal.setColor(QPalette::WindowText, style.timestampColor);
         tsLabel->setPalette(pal);
         QFont f = tsLabel->font();
-        f.setPointSize(11);
+        f.setPointSizeF(Theme::fontSm);
         tsLabel->setFont(f);
     }
     tsLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -180,7 +181,7 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
             pal.setColor(QPalette::WindowText, style.accentColor);
             titleLabel->setPalette(pal);
             QFont f = titleLabel->font();
-            f.setPointSize(15);
+            f.setPointSizeF(Theme::fontXl);
             f.setBold(true);
             titleLabel->setFont(f);
         }
@@ -190,7 +191,7 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
         if (!tag.isEmpty()) {
             auto *tagLabel = new TagLabel(tag, style.accentColor, left);
             QFont tagFont = tagLabel->font();
-            tagFont.setPointSize(8);
+            tagFont.setPointSizeF(Theme::fontXs);
             tagLabel->setFont(tagFont);
             leftLayout->addWidget(tagLabel, 0, Qt::AlignTop);
         }
@@ -198,12 +199,12 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
         leftLayout->addStretch();
         topRow->addWidget(left, 1);
     } else {
-        topRow->addWidget(buildSegmentedRow(message, style.textColor, 12, this), 1);
+        topRow->addWidget(buildSegmentedRow(message, style.textColor, Theme::fontBase, this), 1);
     }
 
     topRow->addWidget(tsLabel, 0);
     outer->addLayout(topRow);
 
     if (!title.isEmpty())
-        outer->addWidget(buildSegmentedRow(message, style.bodyColor, 10, this));
+        outer->addWidget(buildSegmentedRow(message, style.bodyColor, Theme::fontSm, this));
 }

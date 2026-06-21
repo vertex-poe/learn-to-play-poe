@@ -1,5 +1,6 @@
 #include "DmPage.h"
 #include "Database.h"
+#include "Theme.h"
 #include "LiveEvent.h"
 #include "LiveEventBus.h"
 
@@ -33,7 +34,7 @@ public:
     {
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         QFont f = font();
-        f.setPointSizeF(f.pointSizeF() + 2);
+        f.setPointSizeF(Theme::fontSm);
         setFont(f);
     }
 
@@ -86,7 +87,7 @@ public:
         sp.setHeightForWidth(true);
         setSizePolicy(sp);
         QFont f = font();
-        f.setPointSizeF(f.pointSizeF() + 2);
+        f.setPointSizeF(Theme::fontSm);
         setFont(f);
     }
 
@@ -182,7 +183,7 @@ protected:
 
         // Timestamp (right-aligned, slightly smaller)
         QFont smallF = font();
-        smallF.setPointSizeF(font().pointSizeF() * 0.82);
+        smallF.setPointSizeF(Theme::fontXs);
         p.setFont(smallF);
         p.setPen(dim);
         p.drawText(bx + kPad, y, tw, QFontMetrics(smallF).height(),
