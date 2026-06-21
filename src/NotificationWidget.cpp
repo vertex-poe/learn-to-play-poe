@@ -156,7 +156,7 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
         pal.setColor(QPalette::WindowText, style.timestampColor);
         tsLabel->setPalette(pal);
         QFont f = tsLabel->font();
-        f.setPointSizeF(Theme::fontSm);
+        f.setPointSizeF(Theme::fontBase);
         tsLabel->setFont(f);
     }
     tsLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -206,5 +206,5 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
     outer->addLayout(topRow);
 
     if (!title.isEmpty())
-        outer->addWidget(buildSegmentedRow(message, style.bodyColor, Theme::fontSm, this));
+        outer->addWidget(buildSegmentedRow(message, style.bodyColor, Theme::fontBase, this));
 }

@@ -40,6 +40,7 @@ void NotificationsPanel::insertCard(const QString &title, const QString &tag,
 {
     auto *notif = new NotificationWidget(title, tag, message, timestamp, style, m_container);
     m_layout->insertWidget(0, notif);
+    m_layout->activate();
 
     QTimer::singleShot(0, this, [this]() {
         verticalScrollBar()->setValue(0);

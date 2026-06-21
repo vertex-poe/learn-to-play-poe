@@ -180,21 +180,23 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     connect(makeItemBtn("Exit App", false), &QPushButton::clicked,
             qApp, &QCoreApplication::quit);
     connect(makeItemBtn("Alerts"), &QPushButton::clicked,
-            this, [this] { navigateTo(5, "Alerts"); });
+            this, [this] { navigateTo(6, "Alerts"); });
 
     addDivider();
 
-    connect(makeItemBtn("Game"),   &QPushButton::clicked,
+    connect(makeItemBtn("Game"),    &QPushButton::clicked,
             this, [this] { navigateTo(1, "Game"); });
-    connect(makeItemBtn("Window"), &QPushButton::clicked,
-            this, [this] { navigateTo(2, "Window"); });
-    connect(makeItemBtn("Chat"),   &QPushButton::clicked,
-            this, [this] { navigateTo(3, "Chat"); });
+    connect(makeItemBtn("Overlay"), &QPushButton::clicked,
+            this, [this] { navigateTo(2, "Overlay"); });
+    connect(makeItemBtn("Window"),  &QPushButton::clicked,
+            this, [this] { navigateTo(3, "Window"); });
+    connect(makeItemBtn("Chat"),    &QPushButton::clicked,
+            this, [this] { navigateTo(4, "Chat"); });
 
     addDivider();
 
     connect(makeItemBtn("About"),  &QPushButton::clicked,
-            this, [this] { navigateTo(4, "About"); });
+            this, [this] { navigateTo(5, "About"); });
 
     categoryLayout->addStretch(1);
 
@@ -222,14 +224,21 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     m_exeNames->setInputFileBrowser(true);
     gameForm->addRow("Executable names:", m_exeNames);
 
-    m_enableOverlay = new QCheckBox(gameContent);
-    m_enableOverlay->setChecked(config.useGameOverlay);
-    gameForm->addRow("Enable overlay:", m_enableOverlay);
-
     gameScroll->setWidget(gameContent);
     m_stack->addWidget(gameScroll); // index 1
 
-    // ---- Page 2: Window -----------------------------------------------
+    // ---- Page 2: Overlay -----------------------------------------------
+    auto *overlayContent = new QWidget;
+    auto *overlayForm    = new QFormLayout(overlayContent);
+    overlayForm->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
+
+    m_enableOverlay = new QCheckBox(overlayContent);
+    m_enableOverlay->setChecked(config.useGameOverlay);
+    overlayForm->addRow("Enable overlay:", m_enableOverlay);
+
+    m_stack->addWidget(overlayContent); // index 2
+
+    // ---- Page 3: Window -----------------------------------------------
     auto *windowContent = new QWidget;
     auto *windowForm    = new QFormLayout(windowContent);
     windowForm->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
@@ -242,9 +251,9 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     m_minimizeToTray->setChecked(config.minimizeToTray);
     windowForm->addRow("Minimize to tray on close:", m_minimizeToTray);
 
-    m_stack->addWidget(windowContent); // index 2
+    m_stack->addWidget(windowContent); // index 3
 
-    // ---- Page 3: Chat -------------------------------------------------
+    // ---- Page 4: Chat -------------------------------------------------
     auto *chatContent = new QWidget;
     auto *chatForm    = new QFormLayout(chatContent);
     chatForm->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
@@ -253,9 +262,9 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     m_showGuildTags->setChecked(config.showGuildTags);
     chatForm->addRow("Display guild tags:", m_showGuildTags);
 
-    m_stack->addWidget(chatContent); // index 3
+    m_stack->addWidget(chatContent); // index 4
 
-    // ---- Page 4: About ------------------------------------------------
+    // ---- Page 5: About ------------------------------------------------
     auto *aboutContent = new QWidget;
     auto *aboutLayout  = new QVBoxLayout(aboutContent);
     aboutLayout->setContentsMargins(Theme::spacingBase, Theme::spacingLg, Theme::spacingBase, Theme::spacingBase);
@@ -310,9 +319,9 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     aboutLayout->addWidget(copyBtn, 0, Qt::AlignLeft);
     aboutLayout->addStretch(1);
 
-    m_stack->addWidget(aboutContent); // index 4
+    m_stack->addWidget(aboutContent); // index 5
 
-    // ---- Page 5: Alerts -----------------------------------------------
+    // ---- Page 6: Alerts -----------------------------------------------
     auto *alertsContent = new QWidget;
     auto *alertsLayout  = new QVBoxLayout(alertsContent);
     alertsLayout->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
@@ -339,7 +348,7 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     connect(alertsBtnRemove, &QPushButton::clicked, this, &SettingsPage::alertsRemoveRule);
     connect(m_alertsList, &QListWidget::itemDoubleClicked, this, &SettingsPage::alertsEditRule);
 
-    m_stack->addWidget(alertsContent); // index 5
+    m_stack->addWidget(alertsContent); // index 6
 
     // ---- Signal connections -------------------------------------------
     connect(m_autoDetect,     &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
@@ -353,7 +362,7 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
 
 void SettingsPage::navigateTo(int pageIndex, const QString &title)
 {
-    if (pageIndex == 5)
+    if (pageIndex == 6)
         alertsRebuildList();
     m_titleLabel->setText(title);
     m_backBtn->setVisible(true);

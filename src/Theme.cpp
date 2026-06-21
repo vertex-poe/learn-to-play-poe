@@ -2,6 +2,7 @@
 #include "AppStyle.h"
 
 #include <QApplication>
+#include <QFont>
 #include <QPalette>
 #include <QStyleFactory>
 
@@ -10,6 +11,12 @@ namespace Theme {
 void apply(QApplication &app)
 {
     app.setStyle(new AppStyle(QStyleFactory::create("Fusion")));
+
+    QFont defaultFont = app.font();
+    defaultFont.setFamilies({"Whitney", "Segoe UI"});
+    defaultFont.setStyleHint(QFont::Serif);
+    defaultFont.setPointSizeF(fontBase);
+    app.setFont(defaultFont);
 
     QPalette p;
 

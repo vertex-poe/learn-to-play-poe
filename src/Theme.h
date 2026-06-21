@@ -49,6 +49,7 @@ inline constexpr int spacingBase = 12;  // space-3  12px
 inline constexpr int spacingLg   = 16;  // space-4  16px
 inline constexpr int spacingXl   = 20;  // space-5  20px
 inline constexpr int spacing2xl  = 24;  // space-6  24px
+inline constexpr int spacing3xl  = 28;  // space-7  28px
 
 // --- Font sizes (Tailwind typographic scale, px × 0.75 → pt at 96 DPI) ---
 inline constexpr double fontXs   =  9.0;  // text-xs   12px

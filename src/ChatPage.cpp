@@ -1,5 +1,6 @@
 #include "ChatPage.h"
 #include "Database.h"
+#include "ScrollJumpButton.h"
 #include "Theme.h"
 #include "LiveEvent.h"
 #include "LiveEventBus.h"
@@ -16,6 +17,7 @@
 #include <QLocale>
 #include <QPainter>
 #include <QPushButton>
+#include <QSvgRenderer>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -33,8 +35,8 @@ static QColor channelColor(const QString &ch)
     if (ch == "$")     return {182, 112,  65};  // Trade   – desaturated orange
     if (ch == "%")     return { 78, 115, 170};  // Party   – desaturated blue
     if (ch == "&")     return {115, 118, 120};  // Guild   – desaturated gray
-    if (ch == "@from") return {148,  92, 168};  // DM in   – desaturated purple
-    if (ch == "@to")   return {115,  78, 148};  // DM out  – desaturated purple (deeper)
+    if (ch == "@from") return {175, 105, 205};  // DM in   – lighter purple
+    if (ch == "@to")   return { 90,  58, 120};  // DM out  – darker purple
     return                    {120, 120, 120};  // unknown – gray
 }
 
@@ -45,8 +47,8 @@ static QString channelBadge(const QString &ch)
     if (ch == "$")     return "$";
     if (ch == "%")     return "%";
     if (ch == "&")     return "&";
-    if (ch == "@from") return "←";
-    if (ch == "@to")   return "→";
+    if (ch == "@from") return "❮";
+    if (ch == "@to")   return "❯";
     return "?";
 }
 
@@ -99,9 +101,6 @@ public:
         QSizePolicy sp(QSizePolicy::Expanding, QSizePolicy::Preferred);
         sp.setHeightForWidth(true);
         setSizePolicy(sp);
-        QFont f = font();
-        f.setPointSizeF(Theme::fontSm);
-        setFont(f);
     }
 
     bool hasHeightForWidth() const override { return true; }
@@ -143,7 +142,7 @@ protected:
 
         // Fonts
         QFont boldF = font(); boldF.setBold(true);
-        QFont smallF = font(); smallF.setPointSizeF(Theme::fontXs);
+        QFont smallF = font(); smallF.setPointSizeF(Theme::fontSm);
         const QFontMetrics boldFm(boldF), fm(font()), smallFm(smallF);
 
         const int nameH = boldFm.height();
@@ -155,21 +154,33 @@ protected:
         p.setBrush(accent);
         p.setPen(Qt::NoPen);
         p.drawRoundedRect(kBarW + kBadgePadL, kPadV, kBadgeW, badgeH, 5, 5);
-        p.setFont(boldF);
-        p.setPen(Qt::white);
-        p.drawText(kBarW + kBadgePadL, kPadV, kBadgeW, badgeH,
-                   Qt::AlignCenter, channelBadge(m_channel));
+
+        if (m_channel == "@from" || m_channel == "@to") {
+            const QString svgPath = (m_channel == "@from")
+                ? QStringLiteral(":/icons/chevron-bar-left.svg")
+                : QStringLiteral(":/icons/chevron-bar-right.svg");
+            const int pad      = 6;
+            const int iconSize = kBadgeW - pad * 2;
+            const qreal dpr    = devicePixelRatioF();
+            QPixmap pix(qRound(iconSize * dpr), qRound(iconSize * dpr));
+            pix.setDevicePixelRatio(dpr);
+            pix.fill(Qt::transparent);
+            { QPainter gp(&pix); QSvgRenderer(svgPath).render(&gp); }
+            { QPainter cp(&pix);
+              cp.setCompositionMode(QPainter::CompositionMode_SourceIn);
+              cp.fillRect(pix.rect(), Qt::white); }
+            p.drawPixmap(kBarW + kBadgePadL + pad, kPadV + pad, pix);
+        } else {
+            p.setFont(boldF);
+            p.setPen(Qt::white);
+            p.drawText(kBarW + kBadgePadL, kPadV, kBadgeW, badgeH,
+                       Qt::AlignCenter, channelBadge(m_channel));
+        }
 
         int y = kPadV;
 
-        // Timestamp (right-aligned in name row)
-        const int timeW = smallFm.horizontalAdvance(m_time) + 4;
-        p.setFont(smallF);
-        p.setPen(palette().placeholderText().color());
-        p.drawText(width() - kPadR - timeW, y, timeW, nameH,
-                   Qt::AlignLeft | Qt::AlignVCenter, m_time);
-
-        // Name row – guild tag then player name
+        // Name row – guild tag then player name, timestamp inline after name
+        const int timeW      = smallFm.horizontalAdvance(m_time) + 4;
         const int nameAvailW = textW - timeW - 8;
         int nameX = textX;
 
@@ -188,7 +199,13 @@ protected:
             p.setFont(boldF);
             p.setPen(palette().windowText().color());
             p.drawText(nameX, y, nameRemain, nameH, Qt::AlignLeft | Qt::AlignVCenter, eName);
+            nameX += boldFm.horizontalAdvance(eName);
         }
+
+        // Timestamp immediately after name
+        p.setFont(smallF);
+        p.setPen(palette().placeholderText().color());
+        p.drawText(nameX + 8, y, timeW, nameH, Qt::AlignLeft | Qt::AlignVCenter, m_time);
 
         y += nameH + kGap;
 
@@ -278,6 +295,10 @@ public:
             auto *sb = m_target->verticalScrollBar();
             sb->setValue(sb->value() + m_dir * 30);
         });
+        auto *sb = m_target->verticalScrollBar();
+        connect(sb, &QScrollBar::valueChanged, this, [this](int) { updateEnabled(); });
+        connect(sb, &QScrollBar::rangeChanged, this, [this](int, int) { updateEnabled(); });
+        updateEnabled();
     }
 
 protected:
@@ -285,6 +306,15 @@ protected:
     void leaveEvent(QEvent    *e) override { QPushButton::leaveEvent(e); m_timer->stop();  }
 
 private:
+    void updateEnabled()
+    {
+        const auto *sb = m_target->verticalScrollBar();
+        const bool canScroll = (m_dir < 0) ? sb->value() > sb->minimum()
+                                           : sb->value() < sb->maximum();
+        setEnabled(canScroll);
+        if (!canScroll) m_timer->stop();
+    }
+
     int          m_dir;
     QScrollArea *m_target;
     QTimer      *m_timer{};
@@ -312,7 +342,12 @@ ChatPage::ChatPage(Database *db, QWidget *parent)
     m_filterBtn = new QPushButton(this);
     m_filterBtn->setFlat(true);
     m_filterBtn->setStyleSheet("QPushButton { text-align: right; padding: 4px 8px; }");
-    connect(m_filterBtn, &QPushButton::clicked, this, &ChatPage::openFilterPanel);
+    connect(m_filterBtn, &QPushButton::clicked, this, [this] {
+        if (m_view->currentIndex() == 1)
+            m_view->setCurrentIndex(0);
+        else
+            openFilterPanel();
+    });
 
     auto *cbRow = new QWidget(this);
     auto *cbBox = new QHBoxLayout(cbRow);
@@ -436,6 +471,17 @@ ChatPage::ChatPage(Database *db, QWidget *parent)
 
     connect(LiveEventBus::instance(), &LiveEventBus::eventFired,
             this, &ChatPage::onLiveChat);
+
+    m_scrollDownBtn = new ScrollJumpButton(this);
+    m_scrollDownBtn->hide();
+    m_scrollDownBtn->raise();
+    connect(m_scrollDownBtn, &QPushButton::clicked, this, &ChatPage::scrollToBottom);
+    connect(m_scroll->verticalScrollBar(), &QScrollBar::valueChanged,
+            this, [this](int) { updateScrollDownBtn(); });
+    connect(m_scroll->verticalScrollBar(), &QScrollBar::rangeChanged,
+            this, [this](int, int) { updateScrollDownBtn(); });
+    connect(m_view, &QStackedWidget::currentChanged,
+            this, [this](int) { updateScrollDownBtn(); });
 }
 
 void ChatPage::setDatabase(Database *db)
@@ -507,9 +553,9 @@ void ChatPage::updateFilterLabel()
         const QString label = (m_fromDate == m_toDate)
             ? m_fromDate
             : QStringLiteral("%1 – %2").arg(m_fromDate, m_toDate);
-        m_filterBtn->setText(QStringLiteral("Filtered: %1 — click to change").arg(label));
+        m_filterBtn->setText(QStringLiteral("Filtered: %1").arg(label));
     } else {
-        m_filterBtn->setText("Filter by date");
+        m_filterBtn->setText("Filter");
     }
 }
 
@@ -602,7 +648,7 @@ void ChatPage::refreshFilterPanel()
         m_filterTitle->setText("Filter by date");
         m_backBtn->setText("✕ Close");
 
-        addRow("All messages  (no date filter)", false, [this] {
+        addRow("Reset filter — Show all dates", false, [this] {
             m_view->setCurrentIndex(0);
             m_fromDate.clear();
             m_toDate.clear();
@@ -670,6 +716,20 @@ void ChatPage::refreshFilterPanel()
 
     listLayout->addStretch(1);
     m_filterScroll->setWidget(listWidget);
+}
+
+void ChatPage::resizeEvent(QResizeEvent *e)
+{
+    QWidget::resizeEvent(e);
+    m_scrollDownBtn->move(rect().right()  - m_scrollDownBtn->width()  - Theme::spacing3xl,
+                          rect().bottom() - m_scrollDownBtn->height() - Theme::spacingBase);
+}
+
+void ChatPage::updateScrollDownBtn()
+{
+    const auto *sb = m_scroll->verticalScrollBar();
+    const bool atBottom = sb->value() >= sb->maximum() - 4;
+    m_scrollDownBtn->setVisible(m_view->currentIndex() == 0 && !atBottom);
 }
 
 void ChatPage::scrollToBottom()

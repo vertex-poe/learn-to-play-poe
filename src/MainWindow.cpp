@@ -25,6 +25,7 @@
 #include <QTime>
 #include <QTimer>
 #include "NavBar.h"
+#include "Theme.h"
 
 #include <QStackedWidget>
 #include <QVBoxLayout>
@@ -118,6 +119,11 @@ MainWindow::MainWindow(QWidget *parent)
     setupTray();
 
     m_statusLabel = new QLabel(this);
+    {
+        QFont f = m_statusLabel->font();
+        f.setPointSizeF(Theme::fontSm);
+        m_statusLabel->setFont(f);
+    }
     statusBar()->addPermanentWidget(m_statusLabel);
 
     connect(m_taskManager, &TaskManager::taskAdded,   this, &MainWindow::onTaskUpdated);

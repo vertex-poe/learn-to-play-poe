@@ -43,6 +43,8 @@ private:
     QCheckBox  *m_autoDetect{};
     ListEditor *m_installDirs{};
     ListEditor *m_exeNames{};
+
+    // Overlay page
     QCheckBox  *m_enableOverlay{};
 
     // Window page

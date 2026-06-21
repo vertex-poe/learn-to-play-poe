@@ -18,6 +18,7 @@ int AppStyle::pixelMetric(PixelMetric metric, const QStyleOption *option,
     if (metric == PM_ScrollBarExtent)    return Theme::scrollBarWidth;
     if (metric == PM_ScrollBarSliderMin) return Theme::scrollHandleMin;
     if (metric == PM_MenuBarVMargin)     return 6;
+    if (metric == PM_IndicatorWidth || metric == PM_IndicatorHeight) return 20;
     return QProxyStyle::pixelMetric(metric, option, widget);
 }
 
@@ -137,7 +138,7 @@ void AppStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *optio
         painter->setRenderHint(QPainter::Antialiasing);
         const bool checked = option->state & (State_On | State_NoChange);
         const bool enabled = option->state & State_Enabled;
-        const QRect r = option->rect.adjusted(1, 1, -1, -1);
+        const QRect r = option->rect.translated(0, 2).adjusted(1, 1, -1, -1);
         const QColor bg = (checked && enabled) ? Theme::accent
                         : !enabled             ? Theme::bgApp
                         :                        Theme::bgInput;
@@ -145,10 +146,11 @@ void AppStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *optio
         painter->setBrush(bg);
         painter->drawRoundedRect(r, 2, 2);
         if (checked && enabled) {
-            painter->setPen(QPen(Theme::textSelected, 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            const qreal s = qreal(r.width()) / 12.0;
             const QPointF c = QRectF(r).center();
-            painter->drawLine(QPointF(c.x() - 3, c.y()),     QPointF(c.x() - 1, c.y() + 2));
-            painter->drawLine(QPointF(c.x() - 1, c.y() + 2), QPointF(c.x() + 3, c.y() - 2));
+            painter->setPen(QPen(Theme::textSelected, 1.5 * s, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            painter->drawLine(QPointF(c.x() - 3*s, c.y()),     QPointF(c.x() - 1*s, c.y() + 2*s));
+            painter->drawLine(QPointF(c.x() - 1*s, c.y() + 2*s), QPointF(c.x() + 3*s, c.y() - 2*s));
         }
         painter->restore();
         return;

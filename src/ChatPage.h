@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Database.h"
+#include <QResizeEvent>
 #include <QSet>
 #include <QShowEvent>
 #include <QStringList>
@@ -14,6 +15,7 @@ class QScrollArea;
 class QStackedWidget;
 class QTimer;
 class QVBoxLayout;
+class ScrollJumpButton;
 
 class ChatPage : public QWidget
 {
@@ -30,12 +32,14 @@ public slots:
 
 protected:
     void showEvent(QShowEvent *e) override;
+    void resizeEvent(QResizeEvent *e) override;
 
 private:
     void rebuild();
     void openFilterPanel();
     void refreshFilterPanel();
     void scrollToBottom();
+    void updateScrollDownBtn();
     QSet<QChar> activeChannels() const;
     void updateFilterLabel();
 
@@ -60,7 +64,8 @@ private:
     QCheckBox   *m_cbGuild{};
     QPushButton *m_filterBtn{};
 
-    QStackedWidget *m_view{};
+    ScrollJumpButton *m_scrollDownBtn{};
+    QStackedWidget   *m_view{};
     QWidget        *m_filterPanel{};
     QScrollArea    *m_filterScroll{};
     QLabel         *m_filterTitle{};

@@ -38,6 +38,8 @@ qt_add_executable(l2p-poe1
     NotificationWidget.h
     NotificationsPanel.cpp
     NotificationsPanel.h
+    ScrollJumpButton.cpp
+    ScrollJumpButton.h
     SettingsPage.cpp
     SettingsPage.h
     TaskManager.cpp
@@ -62,6 +64,9 @@ qt_add_resources(l2p-poe1 "svgicons"
     FILES
         "${CMAKE_SOURCE_DIR}/assets/icons/gear.svg"
         "${CMAKE_SOURCE_DIR}/assets/icons/gear-fill.svg"
+        "${CMAKE_SOURCE_DIR}/assets/icons/arrow-down.svg"
+        "${CMAKE_SOURCE_DIR}/assets/icons/chevron-bar-left.svg"
+        "${CMAKE_SOURCE_DIR}/assets/icons/chevron-bar-right.svg"
 )
 
 if (WIN32)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Database.h"
+#include <QResizeEvent>
 #include <QShowEvent>
 #include <QStringList>
 #include <QWidget>
@@ -12,6 +13,7 @@ class QScrollArea;
 class QStackedWidget;
 class QTimer;
 class QVBoxLayout;
+class ScrollJumpButton;
 
 class DmPage : public QWidget
 {
@@ -28,6 +30,7 @@ public slots:
 
 protected:
     void showEvent(QShowEvent *e) override;
+    void resizeEvent(QResizeEvent *e) override;
 
 private slots:
     void onPlayerSelected(const QString &name);
@@ -38,6 +41,7 @@ private:
     void refreshFilterPanel();
     void filterLeafSelected(const QString &name);
     void scrollToBottom();
+    void updateScrollDownBtn();
 
     Database    *m_db{};
     QLabel      *m_conversationLabel{};
@@ -52,6 +56,7 @@ private:
     bool         m_showGuildTags{true};
     int          m_limit{100};
 
+    ScrollJumpButton              *m_scrollDownBtn{};
     QStackedWidget                *m_view{};
     QWidget                       *m_filterPanel{};
     QScrollArea                   *m_filterScroll{};

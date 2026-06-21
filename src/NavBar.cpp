@@ -8,13 +8,17 @@
 NavBar::NavBar(const QStringList &labels, QWidget *parent)
     : QWidget(parent), m_labels(labels)
 {
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 }
 
 void NavBar::setCurrentIndex(int index)
 {
-    if (index == m_current || index < 0 || index >= m_labels.size())
+    if (index < 0 || index >= m_labels.size())
+        return;
+    if (index == m_current && !m_gearActive)
         return;
     m_current = index;
+    m_gearActive = false;
     update();
     emit currentChanged(index);
 }

@@ -1,5 +1,6 @@
 #include "DmPage.h"
 #include "Database.h"
+#include "ScrollJumpButton.h"
 #include "Theme.h"
 #include "LiveEvent.h"
 #include "LiveEventBus.h"
@@ -16,6 +17,7 @@
 #include <QMap>
 #include <QPainter>
 #include <QPushButton>
+#include <QSvgRenderer>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -86,9 +88,6 @@ public:
         QSizePolicy sp(QSizePolicy::Expanding, QSizePolicy::Preferred);
         sp.setHeightForWidth(true);
         setSizePolicy(sp);
-        QFont f = font();
-        f.setPointSizeF(Theme::fontSm);
-        setFont(f);
     }
 
     bool hasHeightForWidth() const override { return true; }
@@ -107,7 +106,6 @@ public:
         if (m_showName)
             h += QFontMetrics(boldF).height() + 4;
         h += fm.boundingRect(0, 0, tw, 10000, Qt::TextWordWrap, m_message).height();
-        h += 4 + fm.height(); // gap + time row
         h += kPad;
         return h + 2 * kMargin;
     }
@@ -168,10 +166,23 @@ protected:
             const QString guildPrefix = (m_showGuildTag && !m_guildTag.isEmpty())
                 ? QStringLiteral("<%1> ").arg(m_guildTag)
                 : QString{};
-            const QString label = out
-                ? (QStringLiteral("→ ") + guildPrefix + m_playerName)
-                : (guildPrefix + m_playerName);
-            p.drawText(bx + kPad, y, tw, nh, Qt::AlignLeft | Qt::AlignVCenter, label);
+
+            int textX = bx + kPad;
+            if (out) {
+                const qreal dpr = devicePixelRatioF();
+                QPixmap pix(qRound(nh * dpr), qRound(nh * dpr));
+                pix.setDevicePixelRatio(dpr);
+                pix.fill(Qt::transparent);
+                { QPainter gp(&pix); QSvgRenderer(QStringLiteral(":/icons/chevron-bar-right.svg")).render(&gp); }
+                { QPainter cp(&pix);
+                  cp.setCompositionMode(QPainter::CompositionMode_SourceIn);
+                  cp.fillRect(pix.rect(), fg); }
+                p.drawPixmap(textX, y, pix);
+                textX += nh + 4;
+            }
+
+            const QString label = guildPrefix + m_playerName;
+            p.drawText(textX, y, bx + kPad + tw - textX, nh, Qt::AlignLeft | Qt::AlignVCenter, label);
             y += nh + 4;
         }
 
@@ -179,14 +190,14 @@ protected:
         p.setFont(font());
         p.setPen(fg);
         p.drawText(bx + kPad, y, tw, msgR.height(), Qt::TextWordWrap, m_message);
-        y += msgR.height() + 4;
 
-        // Timestamp (right-aligned, slightly smaller)
+        // Timestamp overlaid at the right of the last message line
         QFont smallF = font();
-        smallF.setPointSizeF(Theme::fontXs);
+        smallF.setPointSizeF(Theme::fontSm);
         p.setFont(smallF);
         p.setPen(dim);
-        p.drawText(bx + kPad, y, tw, QFontMetrics(smallF).height(),
+        const int lastLineY = y + msgR.height() - fm.height();
+        p.drawText(bx + kPad, lastLineY, tw, fm.height(),
                    Qt::AlignRight | Qt::AlignVCenter, m_time);
     }
 
@@ -302,6 +313,10 @@ public:
             auto *sb = m_target->verticalScrollBar();
             sb->setValue(sb->value() + m_dir * 30);
         });
+        auto *sb = m_target->verticalScrollBar();
+        connect(sb, &QScrollBar::valueChanged, this, [this](int) { updateEnabled(); });
+        connect(sb, &QScrollBar::rangeChanged, this, [this](int, int) { updateEnabled(); });
+        updateEnabled();
     }
 
 protected:
@@ -309,6 +324,15 @@ protected:
     void leaveEvent(QEvent    *e) override { QPushButton::leaveEvent(e); m_timer->stop();  }
 
 private:
+    void updateEnabled()
+    {
+        const auto *sb = m_target->verticalScrollBar();
+        const bool canScroll = (m_dir < 0) ? sb->value() > sb->minimum()
+                                           : sb->value() < sb->maximum();
+        setEnabled(canScroll);
+        if (!canScroll) m_timer->stop();
+    }
+
     int          m_dir;
     QScrollArea *m_target;
     QTimer      *m_timer{};
@@ -321,12 +345,17 @@ DmPage::DmPage(Database *db, QWidget *parent)
     , m_db(db)
 {
     // ---- Header row: conversation label + filter button --------------------
-    m_conversationLabel = new QLabel("All Conversations", this);
+    m_conversationLabel = new QLabel("All Combined", this);
 
     m_filterBtn = new QPushButton("Filter", this);
     m_filterBtn->setFlat(true);
     m_filterBtn->setStyleSheet("QPushButton { padding: 4px 8px; }");
-    connect(m_filterBtn, &QPushButton::clicked, this, &DmPage::openFilterPanel);
+    connect(m_filterBtn, &QPushButton::clicked, this, [this] {
+        if (m_view->currentIndex() == 1)
+            m_view->setCurrentIndex(0);
+        else
+            openFilterPanel();
+    });
 
     auto *headerRow = new QWidget(this);
     auto *headerBox = new QHBoxLayout(headerRow);
@@ -434,6 +463,17 @@ DmPage::DmPage(Database *db, QWidget *parent)
 
     connect(LiveEventBus::instance(), &LiveEventBus::eventFired,
             this, &DmPage::onLiveWhisper);
+
+    m_scrollDownBtn = new ScrollJumpButton(this);
+    m_scrollDownBtn->hide();
+    m_scrollDownBtn->raise();
+    connect(m_scrollDownBtn, &QPushButton::clicked, this, &DmPage::scrollToBottom);
+    connect(m_scroll->verticalScrollBar(), &QScrollBar::valueChanged,
+            this, [this](int) { updateScrollDownBtn(); });
+    connect(m_scroll->verticalScrollBar(), &QScrollBar::rangeChanged,
+            this, [this](int, int) { updateScrollDownBtn(); });
+    connect(m_view, &QStackedWidget::currentChanged,
+            this, [this](int) { updateScrollDownBtn(); });
 }
 
 void DmPage::setDatabase(Database *db)
@@ -485,7 +525,7 @@ void DmPage::onPlayerSelected(const QString &name)
     if (m_filterPlayer == name) return;
     m_filterPlayer = name;
     if (name.isEmpty())
-        m_conversationLabel->setText("All Conversations");
+        m_conversationLabel->setText("All Combined");
     else
         m_conversationLabel->setText(QStringLiteral("Conversation with %1").arg(name));
     m_limit = 100;
@@ -529,9 +569,9 @@ void DmPage::refreshFilterPanel()
 
     // ---- Root level ---------------------------------------------------------
     if (m_filterPath.isEmpty()) {
-        m_filterTitle->setText("Select filter");
+        m_filterTitle->setText("Filter by person");
 
-        addRow("All conversations", false, [this] { filterLeafSelected({}); });
+        addRow("Reset filter — Show all conversations combined", false, [this] { filterLeafSelected({}); });
         addSep();
 
         const QList<BucketDef> buckets = makeBuckets(QDate::currentDate(), m_cachedPartners);
@@ -685,6 +725,20 @@ void DmPage::rebuild()
     m_contentLayout = contentLayout;
     m_scroll->setWidget(m_content);
     qDebug() << "[DmPage] rebuild done in" << t.elapsed() << "ms";
+}
+
+void DmPage::resizeEvent(QResizeEvent *e)
+{
+    QWidget::resizeEvent(e);
+    m_scrollDownBtn->move(rect().right()  - m_scrollDownBtn->width()  - Theme::spacing3xl,
+                          rect().bottom() - m_scrollDownBtn->height() - Theme::spacingBase);
+}
+
+void DmPage::updateScrollDownBtn()
+{
+    const auto *sb = m_scroll->verticalScrollBar();
+    const bool atBottom = sb->value() >= sb->maximum() - 4;
+    m_scrollDownBtn->setVisible(m_view->currentIndex() == 0 && !atBottom);
 }
 
 void DmPage::scrollToBottom()
