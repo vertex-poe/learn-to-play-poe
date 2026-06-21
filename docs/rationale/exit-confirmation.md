@@ -6,7 +6,7 @@ Confirmation dialogs are the worst when you actually meant to do the thing. "Do 
 
 So why do we have one?
 
-Because we designed the interface for mobile (ADR #3), and because the tool supports "close to tray," it isn't always obvious when the app is truly exited. We added a dedicated Exit button to make that clear. Then we kept hitting it by accident.
+Because we designed the interface for mobile ([ADR-003](../decisions/003-mobile-first-ui-design.md)), and because the tool supports "close to tray," it isn't always obvious when the app is truly exited. We added a dedicated Exit button to make that clear. Then we kept hitting it by accident.
 
 The cost of an accidental exit isn't just an extra click — it's alt-tabbing out of the game (potentially having to revisit desktop shortcuts), relaunching the tool, waiting for it to boot and reconnect, and navigating back to whatever settings page you were trying to click in the first place.
 

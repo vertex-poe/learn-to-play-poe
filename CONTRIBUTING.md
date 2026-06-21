@@ -1,57 +1,48 @@
-# Contributing to Learn to Play Path of Exile
+<!-- CONTRIBUTING.md (markdown) -->
 
-Welcome! This document outlines the process for building and running this project locally on a Windows machine.
+# Contributing
 
-## Architecture
+## Documentation
 
-This project uses Rust to build a transparent, click-through overlay that floats above the Path of Exile game window.
-Because of specific bugs related to how Windows handles transparent layers with mouse passthrough (`WS_EX_LAYERED | WS_EX_TRANSPARENT`), we use the `egui_overlay` crate. 
-`egui_overlay` relies on a customized `glfw` implementation to correctly manage the desktop compositor and input hooks.
+### Architecture decisions
 
-## Windows Build Requirements
+[`docs/decisions/`](docs/decisions/) holds the architecture decision records (ADRs) that govern the project. Each ADR records the context, options considered, the decision taken, and its consequences.
 
-Because our windowing layer requires building C/C++ code under the hood (specifically the `glfw-sys-passthrough` crate), a standard Rust installation is not enough. You must have `CMake` installed and available in your system's PATH.
+[ADR-004: Game–Addon Interaction Principles](docs/decisions/004-game-addon-interaction-principles.md) is the most important one to read first: it defines the ethical and practical framework for how the addon interacts with Path of Exile and GGG infrastructure, including the feature decision checklist and the hard limits that are unconditional.
 
-### 1. Install Rust
-If you haven't already, install Rust using `rustup`:
-- Download and run `rustup-init.exe` from [rustup.rs](https://rustup.rs/).
-- **Important:** During installation, ensure you install the **C++ Build Tools for Visual Studio** when prompted. CMake requires this MSVC toolchain to compile the GLFW C code.
+### Feature rationale
 
-### 2. Install CMake
-You need CMake to build the `glfw-sys-passthrough` dependency. You can install it via the Windows Package Manager (`winget`):
+[`docs/rationale/`](docs/rationale/) holds longer-form rationale for features where the *why* is not obvious from the code. These are more discursive than ADRs — they describe the problem space and the reasoning behind specific design choices.
 
-```powershell
-winget install cmake
-```
-*(Alternatively, you can download the installer directly from [cmake.org](https://cmake.org/download/).)*
+[Chat & Direct Messages](docs/rationale/chat.md) is the most substantive: it explains why a chat log viewer exists, the three-tier feature arc (log viewer → in-game overlay → tab-out send client), and how the shift of trade traffic to the Merchant Tab made whisper history more legible and therefore more worth building for.
 
-**Note:** After installing CMake, you may need to restart your terminal or IDE so that the `cmake` command is available in your PATH.
+## How it works
 
-### 3. Build the Project
-Once the dependencies are installed, you can build and run the project normally:
+The core pipeline is short:
 
-```powershell
-# Build the project
-cargo build
+1. **`LogIngestWorker`** tails `Client.txt`, parsing new lines as they arrive and writing structured rows into SQLite via `Database`. Ingest is idempotent — re-reading the same file is always safe.
+2. **`LiveEventBus`** receives parsed events in real time and routes them through the user's configured rules (`LiveEventRuleEngine`), firing notifications or overlay updates.
+3. **UI pages** (`ChatPage`, `DmPage`, `NotificationsPanel`, `SettingsPage`) query the database directly or subscribe to the event bus for live updates.
+4. **`GameOverlay`** renders a transparent Qt window positioned over the game. Its hit-test mask is updated whenever the overlay's layout changes, keeping non-widget areas click-through.
+5. **`WindowTracker`** watches the game's window position so the overlay follows it across monitors and window moves.
 
-# Run the overlay
-cargo run
-```
+All data originates from `Client.txt`. There is no network access, no GGG API calls, and no game-process interaction of any kind beyond reading a file the game writes itself.
 
-## Updating Dependencies
+## Building
 
-To avoid breaking changes or recently introduced bugs, we enforce a 7-day cooldown on new dependency versions. If you need to update dependencies, **do not use `cargo update`**. 
+The project uses C++17, Qt 6, CMake, and vcpkg. See [ADR-001](docs/decisions/001-technology-stack.md) for the full rationale behind this stack and the per-platform deployment approach (`windeployqt` on Windows, AppImage on Linux, `macdeployqt` on macOS).
 
-Instead, ensure you have the `cargo-cooldown` tool installed and run our `Justfile` recipe:
+Build instructions will be documented before the first public release.
 
-```powershell
-cargo install cargo-cooldown
-just update
-```
+## Database schema
 
-This will run `cargo cooldown update` under the hood to fetch only packages published more than 7 days ago.
+[`docs/schema.md`](docs/schema.md) documents every table in the SQLite database — reference/lookup tables, sessions, movement, character progression, social/chat, game events, the app-state store, and the event history spine — along with the design patterns used throughout (install-scoping, reference normalization, idempotent ingest).
 
-## Troubleshooting
+## Measurements
 
-- **"is `cmake` not installed?"**: If `cargo build` fails complaining about CMake, verify it is installed by running `cmake --version`. If it is installed but not found, ensure `C:\Program Files\CMake\bin` is added to your System PATH variables.
-- **Overlay Disappears / Black Screen**: Ensure Path of Exile is set to **Windowed Fullscreen** or **Borderless Windowed**. Transparent overlays generally do not work over games running in Exclusive Fullscreen mode.
+[`docs/measurements/`](docs/measurements/) holds pre-implementation research and benchmarks that inform technology choices in the project.
+
+| Document | Summary |
+|---|---|
+| [Database engine evaluation](docs/measurements/database.md) | SQLite3 vs DuckDB for bulk ingest and filtered reads; why SQLite was chosen and when DuckDB would become the right upgrade |
+| [Dev log filtering](docs/measurements/dev_client_log_filtering.md) | Design and benchmarks for `dev/refilter_logs.py`, a development tool for trimming `Client.txt` to lines worth examining |

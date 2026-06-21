@@ -45,13 +45,13 @@ The viewer is the feature. Everything else follows from it.
 
 Once a modern chat interface exists, an obvious question follows: can it cover the deficiencies of the in-game one while the game is still open?
 
-The overlay window (see ADR-001) can place our chat widget directly over the in-game chat panel, giving the player history, filtering, and copy support without leaving the game. The cost is some visual opacity over what sits beneath it. For players who want the functionality, that is a fair trade — and it keeps the player looking at the same conversation the game is showing, rather than pulling them out of it.
+The overlay window (see [ADR-001](../decisions/001-technology-stack.md)) can place our chat widget directly over the in-game chat panel, giving the player history, filtering, and copy support without leaving the game. The cost is some visual opacity over what sits beneath it. For players who want the functionality, that is a fair trade — and it keeps the player looking at the same conversation the game is showing, rather than pulling them out of it.
 
 ### Tertiary: tab-out chat client
 
 The other shortcoming of in-game chat is quieter: it only works while the game holds focus. A player who tabs out to check a trade site, a build guide, or Discord is cut off from in-game conversation for the duration — and in PoE, tabbing out is constant.
 
-So we offer a narrow bridge. With the game running and the player logged in, a message typed into our interface is forwarded as a single keystroke sequence to the client, placed in the chat box and sent. One message in, one message out. This is exactly ADR-004's principle that "one action outside the game should correspond to one action inside the game." We are not automating anything. We are giving the player a second input surface for a single action they would otherwise have to switch windows to perform.
+So we offer a narrow bridge. With the game running and the player logged in, a message typed into our interface is forwarded as a single keystroke sequence to the client, placed in the chat box and sent. One message in, one message out. This is exactly [ADR-004](../decisions/004-game-addon-interaction-principles.md)'s principle that "one action outside the game should correspond to one action inside the game." We are not automating anything. We are giving the player a second input surface for a single action they would otherwise have to switch windows to perform.
 
 We do not take this lightly, because the obvious worry is real: a tool that keeps a player in chat while out of the game could, in theory, reduce the reason to be in the game at all. But it is worth being honest about who this feature is even for. The savvy already have it — Discord, Slack, the Steam overlay, phone chat clients, Telegram bots wired up for trade notifications. AI coding tools have only widened that gap, letting more players build their own bots. So the real question is not whether out-of-game chat is good or bad in the abstract; it already exists for a subset of players. The question is whether we extend it to the whole playerbase, and in which direction it pushes.
 
