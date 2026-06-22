@@ -56,6 +56,9 @@ private:
     // Chat page
     QCheckBox  *m_showGuildTags{};
 
+    // About page
+    QCheckBox  *m_debugMode{};
+
     // Alerts page
     QListWidget *m_alertsList{};
 };

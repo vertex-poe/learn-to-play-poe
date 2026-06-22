@@ -61,6 +61,10 @@ inline constexpr double font2xl  = 18.0;  // text-2xl  24px
 inline constexpr double font3xl  = 22.5;  // text-3xl  30px
 inline constexpr double font4xl  = 27.0;  // text-4xl  36px
 
+// --- Checkbox indicator sizes (paired with font scale) ---
+inline constexpr int checkboxSm   = 14;  // paired with fontSm
+inline constexpr int checkboxBase = 20;  // paired with fontBase  (AppStyle default)
+
 // --- Geometry ---
 inline constexpr int borderRadius    = 3;
 inline constexpr int buttonRadius    = 4;

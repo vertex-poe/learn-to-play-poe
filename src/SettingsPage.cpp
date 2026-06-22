@@ -4,7 +4,6 @@
 #include "ListEditor.h"
 
 #include <QCheckBox>
-#include <QClipboard>
 #include <QMessageBox>
 #include <QComboBox>
 #include <QCoreApplication>
@@ -13,7 +12,6 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QFrame>
-#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
@@ -279,56 +277,106 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     // ---- Page 5: About ------------------------------------------------
     auto *aboutContent = new QWidget;
     auto *aboutLayout  = new QVBoxLayout(aboutContent);
-    aboutLayout->setContentsMargins(Theme::spacingBase, Theme::spacingLg, Theme::spacingBase, Theme::spacingBase);
-    aboutLayout->setSpacing(Theme::spacingXs);
+    aboutLayout->setContentsMargins(Theme::spacingBase, Theme::spacingLg, Theme::spacingBase, Theme::spacingLg);
+    aboutLayout->setSpacing(Theme::spacingSm);
 
-    auto *appNameLabel = new QLabel(QCoreApplication::applicationName(), aboutContent);
-    QFont appNameFont  = appNameLabel->font();
-    appNameFont.setPointSizeF(Theme::fontLg);
-    appNameFont.setBold(true);
-    appNameLabel->setFont(appNameFont);
+    // Short centered HR: stretch 3:2:3 gives the line 25% of the width
+    const auto makeSep = [&]() -> QWidget * {
+        auto *w = new QWidget(aboutContent);
+        auto *h = new QHBoxLayout(w);
+        h->setContentsMargins(0, Theme::spacingSm, 0, Theme::spacingSm);
+        auto *line = new QFrame(w);
+        line->setFrameShape(QFrame::HLine);
+        line->setFrameShadow(QFrame::Sunken);
+        h->addStretch(3);
+        h->addWidget(line, 2);
+        h->addStretch(3);
+        return w;
+    };
+
+    auto *appTitleLabel = new QLabel("Learn to Play", aboutContent);
+    {
+        QFont f = appTitleLabel->font();
+        f.setPointSizeF(Theme::font4xl);
+        f.setBold(true);
+        appTitleLabel->setFont(f);
+        appTitleLabel->setAlignment(Qt::AlignCenter);
+    }
+
+    auto *gameLabel = new QLabel("Path of Exile 1", aboutContent);
+    {
+        QFont f = gameLabel->font();
+        f.setPointSizeF(Theme::font3xl);
+        gameLabel->setFont(f);
+        gameLabel->setAlignment(Qt::AlignCenter);
+    }
 
     auto *versionLabel = new QLabel(
         QStringLiteral("Version %1").arg(QCoreApplication::applicationVersion()), aboutContent);
+    versionLabel->setAlignment(Qt::AlignCenter);
 
-    auto *qtLabel = new QLabel(
-        QStringLiteral("Built with Qt %1").arg(QT_VERSION_STR), aboutContent);
-    qtLabel->setForegroundRole(QPalette::PlaceholderText);
-
-    auto *aboutSep = new QFrame(aboutContent);
-    aboutSep->setFrameShape(QFrame::HLine);
-    aboutSep->setFrameShadow(QFrame::Sunken);
-
-    auto *configTitle = new QLabel("Config file", aboutContent);
-    QFont configTitleFont = configTitle->font();
-    configTitleFont.setBold(true);
-    configTitle->setFont(configTitleFont);
-
-    const QString configPath = AppConfig::configPath();
-    auto *configPathLabel    = new QLabel(configPath, aboutContent);
-    configPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    configPathLabel->setWordWrap(true);
-    configPathLabel->setForegroundRole(QPalette::PlaceholderText);
-
-    auto *copyBtn = new QPushButton(
-        QIcon::fromTheme("edit-copy", QIcon(":/icons/copy.png")), "Copy path", aboutContent);
-    copyBtn->setFlat(true);
-    copyBtn->setCursor(Qt::PointingHandCursor);
-    connect(copyBtn, &QPushButton::clicked, this, [configPath] {
-        QGuiApplication::clipboard()->setText(configPath);
-    });
-
-    aboutLayout->addWidget(appNameLabel);
+    aboutLayout->addWidget(appTitleLabel);
+    aboutLayout->addWidget(gameLabel);
     aboutLayout->addWidget(versionLabel);
-    aboutLayout->addSpacing(Theme::spacingXs);
-    aboutLayout->addWidget(qtLabel);
-    aboutLayout->addSpacing(Theme::spacingBase);
-    aboutLayout->addWidget(aboutSep);
-    aboutLayout->addSpacing(Theme::spacingSm);
-    aboutLayout->addWidget(configTitle);
-    aboutLayout->addWidget(configPathLabel);
-    aboutLayout->addSpacing(Theme::spacingXs);
-    aboutLayout->addWidget(copyBtn, 0, Qt::AlignLeft);
+    aboutLayout->addWidget(makeSep());
+
+    auto *presentedByLabel = new QLabel("Presented by:", aboutContent);
+    presentedByLabel->setAlignment(Qt::AlignCenter);
+
+    auto *vertexLabel = new QLabel("Vertex Industries", aboutContent);
+    {
+        QFont f = vertexLabel->font();
+        f.setPointSizeF(Theme::fontXl);
+        vertexLabel->setFont(f);
+        vertexLabel->setAlignment(Qt::AlignCenter);
+    }
+
+    auto *communityLabel = new QLabel("and the community", aboutContent);
+    {
+        QFont f = communityLabel->font();
+        f.setPointSizeF(Theme::fontSm);
+        communityLabel->setFont(f);
+    }
+    communityLabel->setAlignment(Qt::AlignCenter);
+
+    aboutLayout->addWidget(presentedByLabel);
+    aboutLayout->addWidget(vertexLabel);
+    aboutLayout->addWidget(communityLabel);
+    aboutLayout->addWidget(makeSep());
+
+    auto *copyrightLabel = new QLabel(
+        "© 2026 Vertex Industries. All rights reserved.<br>"
+        "Available under <a href=\"https://github.com/vertex-poe1/learn-to-play-poe1/blob/main/LICENSE\""
+        " style=\"color: #787060;\">AGPL-3.0</a>"
+        " — contact us for <a href=\"https://github.com/vertex-poe1/learn-to-play-poe1/blob/main/LICENSE-ALTERNATE\""
+        " style=\"color: #787060;\">other licensing</a>.<br>"
+        "See <a href=\"https://github.com/vertex-poe1/learn-to-play-poe1/blob/main/NOTICE\""
+        " style=\"color: #787060;\">NOTICE</a>"
+        " for third-party attributions.",
+        aboutContent);
+    copyrightLabel->setTextFormat(Qt::RichText);
+    copyrightLabel->setOpenExternalLinks(true);
+    copyrightLabel->setAlignment(Qt::AlignCenter);
+    copyrightLabel->setForegroundRole(QPalette::PlaceholderText);
+
+    aboutLayout->addWidget(copyrightLabel);
+    aboutLayout->addWidget(makeSep());
+
+    m_debugMode = new QCheckBox("Enable debug mode", aboutContent);
+    {
+        QFont f = m_debugMode->font();
+        f.setPointSizeF(Theme::fontSm);
+        m_debugMode->setFont(f);
+    }
+    m_debugMode->setStyleSheet(
+        QStringLiteral("QCheckBox::indicator { width: %1px; height: %1px; }").arg(Theme::checkboxSm));
+    m_debugMode->setChecked(config.debugLog);
+    auto *debugRow = new QHBoxLayout;
+    debugRow->addStretch();
+    debugRow->addWidget(m_debugMode);
+    debugRow->addStretch();
+    aboutLayout->addLayout(debugRow);
+
     aboutLayout->addStretch(1);
 
     m_stack->addWidget(aboutContent); // index 5
@@ -371,6 +419,7 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     connect(m_startMinimized, &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
     connect(m_minimizeToTray, &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
     connect(m_showGuildTags,  &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
+    connect(m_debugMode,      &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
 }
 
 void SettingsPage::navigateTo(int pageIndex, const QString &title)
@@ -526,6 +575,7 @@ void SettingsPage::saveAndEmit()
     m_config.startMinimized  = m_startMinimized->isChecked();
     m_config.minimizeToTray  = m_minimizeToTray->isChecked();
     m_config.showGuildTags   = m_showGuildTags->isChecked();
+    m_config.debugLog        = m_debugMode->isChecked();
     m_config.save();
     emit configChanged();
 }

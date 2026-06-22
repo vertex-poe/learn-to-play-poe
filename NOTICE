@@ -5,6 +5,17 @@ Grinding Gear Games or Path of Exile.
 
 Path of Exile is a trademark of Grinding Gear Games Ltd.
 
+## Qt Framework
+
+Qt
+https://www.qt.io/
+Copyright (C) The Qt Company Ltd. and contributors
+Licensed under the GNU Lesser General Public License v3.0 (LGPL-3.0)
+https://www.gnu.org/licenses/lgpl-3.0.html
+
+Used as the UI and application framework. Qt source code and build instructions
+are available at https://www.qt.io/download-open-source.
+
 ## Design Inspiration
 
 Tailwind CSS

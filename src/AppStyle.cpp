@@ -18,7 +18,7 @@ int AppStyle::pixelMetric(PixelMetric metric, const QStyleOption *option,
     if (metric == PM_ScrollBarExtent)    return Theme::scrollBarWidth;
     if (metric == PM_ScrollBarSliderMin) return Theme::scrollHandleMin;
     if (metric == PM_MenuBarVMargin)     return 6;
-    if (metric == PM_IndicatorWidth || metric == PM_IndicatorHeight) return 20;
+    if (metric == PM_IndicatorWidth || metric == PM_IndicatorHeight) return Theme::checkboxBase;
     return QProxyStyle::pixelMetric(metric, option, widget);
 }
 
