@@ -79,7 +79,7 @@ qt_add_resources(l2p-poe1 "svgicons"
 )
 
 if (WIN32)
-    target_sources(l2p-poe1 PRIVATE WindowTrackerWindows.cpp l2p-poe1.rc)
+    target_sources(l2p-poe1 PRIVATE WindowTrackerWindows.cpp OverlayKeepalive.cpp OverlayKeepalive.h l2p-poe1.rc)
     target_link_libraries(l2p-poe1 PRIVATE psapi)
     if (MSVC)
         # Disable the auto-generated manifest; we embed our own via the RC file.

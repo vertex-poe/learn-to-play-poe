@@ -4,14 +4,6 @@
 
 Everything here can be considered aspirational and will likely never see the light of day. Item ideas may not be fleshed out and change drastically or be considered an actual bad idea the morning after we wrote it down in the middle of the night.
 
-## Goal: UI freeze hardening
-
-- [x] UI freeze hardening: RAII frame-budget guard on all rebuild slots and the poll timer so regressions are caught in development, not at gameplay time (see `.plan/004_ui_freeze.md`)
-- [x] UI freeze hardening: `sqlite3_progress_handler` query abort on the main-thread DB connection (~30ms budget) so a missing index or bad query returns an error instead of freezing the window
-- [x] UI freeze hardening: move `closeOrphanSessions` off the poll loop onto the DbWrite worker so the 1000ms poll handler does only Win32 enumeration and overlay updates
-- [x] UI freeze hardening: async read service — WAL mode, dedicated read thread with its own read-only connection, callback-style `fetch*` so page rebuilds are structurally non-blocking; migrate pages one at a time
-- [ ] UI freeze hardening: Win32 overlay keepalive — worker thread that periodically re-asserts `HWND_TOPMOST` and click-through ex-styles with `SWP_NOACTIVATE` so the overlay survives a brief UI-thread wedge without tearing down the window or stealing game focus
-
 ## Goal: Basic Features
 
 ## Goal: Public release

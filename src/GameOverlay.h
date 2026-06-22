@@ -2,11 +2,16 @@
 
 #include <QWidget>
 
+#ifdef _WIN32
+class OverlayKeepalive;
+#endif
+
 class GameOverlay : public QWidget
 {
     Q_OBJECT
 public:
     explicit GameOverlay(QWidget *parent = nullptr);
+    ~GameOverlay() override;
 
     // Reposition and resize the overlay to cover the given game window rect (physical px on Windows).
     void updateGameRect(const QRect &physicalRect);
@@ -23,4 +28,8 @@ private:
     void updateMask();
 
     QWidget *m_infoPanel{};
+
+#ifdef _WIN32
+    OverlayKeepalive *m_keepalive{};
+#endif
 };

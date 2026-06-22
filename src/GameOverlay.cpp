@@ -1,6 +1,15 @@
 #include "GameOverlay.h"
 #include "Theme.h"
 
+#ifdef _WIN32
+#ifndef _WIN32_WINNT
+#  define _WIN32_WINNT 0x0600
+#endif
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include "OverlayKeepalive.h"
+#endif
+
 #include <QFont>
 #include <QFontMetrics>
 #include <QGuiApplication>
@@ -69,11 +78,26 @@ GameOverlay::GameOverlay(QWidget *parent)
 
     m_infoPanel = new InfoPanel(QStringLiteral("l2p"), this);
     m_infoPanel->adjustSize();
+
+#ifdef _WIN32
+    // Calling winId() forces native HWND creation so we can read/set exstyles now.
+    const auto hwnd = reinterpret_cast<HWND>(winId());
+    const LONG ex   = GetWindowLong(hwnd, GWL_EXSTYLE);
+    SetWindowLong(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED | WS_EX_TRANSPARENT);
+    m_keepalive = new OverlayKeepalive(hwnd);
+#endif
+}
+
+GameOverlay::~GameOverlay()
+{
+#ifdef _WIN32
+    delete m_keepalive;
+#endif
 }
 
 void GameOverlay::updateGameRect(const QRect &physicalRect)
 {
-#ifdef Q_OS_WIN
+#ifdef _WIN32
     // Win32 GetWindowRect returns physical px; Qt setGeometry wants logical px.
     const QScreen *scr = QGuiApplication::primaryScreen();
     const qreal    dpr = scr ? scr->devicePixelRatio() : 1.0;
