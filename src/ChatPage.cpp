@@ -362,7 +362,8 @@ ChatPage::ChatPage(QWidget *parent)
     cbBox->addWidget(m_filterBtn);
 
     const auto onToggle = [this] {
-        m_limit = 100;
+        m_limit        = kInitialLimit;
+        m_windowOffset = 0;
         m_fromDate.clear();
         m_toDate.clear();
         updateFilterLabel();
@@ -472,7 +473,7 @@ ChatPage::ChatPage(QWidget *parent)
     m_scrollDownBtn = new ScrollJumpButton(this);
     m_scrollDownBtn->hide();
     m_scrollDownBtn->raise();
-    connect(m_scrollDownBtn, &QPushButton::clicked, this, &ChatPage::scrollToBottom);
+    connect(m_scrollDownBtn, &QPushButton::clicked, this, &ChatPage::jumpToLiveView);
     connect(m_scroll->verticalScrollBar(), &QScrollBar::valueChanged,
             this, [this](int) { updateScrollDownBtn(); });
     connect(m_scroll->verticalScrollBar(), &QScrollBar::rangeChanged,
@@ -496,8 +497,9 @@ void ChatPage::setShowGuildTags(bool show)
 
 void ChatPage::reload()
 {
-    m_dirty = false;
-    m_limit = 100;
+    m_dirty        = false;
+    m_limit        = kInitialLimit;
+    m_windowOffset = 0;
     rebuild();
     QTimer::singleShot(0, this, &ChatPage::scrollToBottom);
 }
@@ -569,10 +571,19 @@ void ChatPage::rebuild()
     m_dirty           = false;
     m_rebuildInFlight = true;
 
-    const QSet<QChar> channels  = activeChannels();
+    const QSet<QChar> channels   = activeChannels();
     const bool        includeDms = m_cbDm->isChecked();
 
-    m_queryService->fetchChats(channels, includeDms, m_limit, m_fromDate, m_toDate,
+    // Capture scroll position for live rebuild restoration (not at bottom, not load-previous).
+    if (m_scrollRestoreMax < 0 && !m_liveRebuildScrollToBottom) {
+        const auto *sb = m_scroll->verticalScrollBar();
+        if (sb->maximum() > 0) {
+            m_scrollRestoreMax   = sb->maximum();
+            m_scrollRestoreValue = sb->value();
+        }
+    }
+
+    m_queryService->fetchChats(channels, includeDms, m_limit, m_fromDate, m_toDate, m_windowOffset,
         [this](QList<Database::ChatRecord> records) {
             m_rebuildInFlight = false;
             applyChats(records);
@@ -588,13 +599,18 @@ void ChatPage::applyChats(const QList<Database::ChatRecord> &records)
     layout->setSpacing(0);
     layout->addStretch(1);
 
+    // "Load previous 50" at the top.
     if (records.size() == m_limit) {
-        auto *btn = new QPushButton("Load previous 50 messages", content);
+        auto *btn = new QPushButton(
+            QStringLiteral("Load previous %1 messages").arg(kPageStep), content);
         btn->setFlat(true);
         connect(btn, &QPushButton::clicked, this, [this] {
-            m_scrollRestorePrevMax   = m_scroll->verticalScrollBar()->maximum();
-            m_scrollRestorePrevValue = m_scroll->verticalScrollBar()->value();
-            m_limit += 50;
+            m_scrollRestoreMax   = m_scroll->verticalScrollBar()->maximum();
+            m_scrollRestoreValue = m_scroll->verticalScrollBar()->value();
+            if (m_limit < kMaxWindow)
+                m_limit += kPageStep;
+            else
+                m_windowOffset += kPageStep;
             rebuild();
         });
         layout->addWidget(btn);
@@ -616,21 +632,37 @@ void ChatPage::applyChats(const QList<Database::ChatRecord> &records)
             new ChatRow(r.channel, r.playerName, guild, r.message, timeLabel, content));
     }
 
+    // "Load next 50" at the bottom — only when window is slid away from newest.
+    if (m_windowOffset > 0) {
+        auto *btn = new QPushButton(
+            QStringLiteral("Load next %1 messages").arg(kPageStep), content);
+        btn->setFlat(true);
+        connect(btn, &QPushButton::clicked, this, [this] {
+            m_scrollRestoreMax = -1;   // scroll to bottom of new content
+            m_windowOffset = qMax(0, m_windowOffset - kPageStep);
+            rebuild();
+        });
+        layout->addWidget(btn);
+    }
+
     delete m_content;
     m_content       = content;
     m_contentLayout = layout;
     m_scroll->setWidget(m_content);
 
-    if (m_scrollRestorePrevMax >= 0) {
-        const int prevMax   = m_scrollRestorePrevMax;
-        const int prevValue = m_scrollRestorePrevValue;
-        m_scrollRestorePrevMax = -1;
+    if (m_liveRebuildScrollToBottom) {
+        m_liveRebuildScrollToBottom = false;
+        m_scrollRestoreMax = -1;
+        QTimer::singleShot(0, this, &ChatPage::scrollToBottom);
+    } else if (m_scrollRestoreMax >= 0) {
+        const int prevMax   = m_scrollRestoreMax;
+        const int prevValue = m_scrollRestoreValue;
+        m_scrollRestoreMax = -1;
         QTimer::singleShot(0, this, [this, prevMax, prevValue] {
             const int delta = m_scroll->verticalScrollBar()->maximum() - prevMax;
             m_scroll->verticalScrollBar()->setValue(prevValue + delta);
         });
-    } else if (m_liveRebuildScrollToBottom) {
-        m_liveRebuildScrollToBottom = false;
+    } else {
         QTimer::singleShot(0, this, &ChatPage::scrollToBottom);
     }
 }
@@ -681,7 +713,7 @@ void ChatPage::refreshFilterPanel()
             m_view->setCurrentIndex(0);
             m_fromDate.clear();
             m_toDate.clear();
-            m_limit = 100;
+            m_limit = kInitialLimit; m_windowOffset = 0;
             updateFilterLabel();
             rebuild();
             QTimer::singleShot(0, this, &ChatPage::scrollToBottom);
@@ -704,7 +736,7 @@ void ChatPage::refreshFilterPanel()
                     // Single date — apply directly
                     m_view->setCurrentIndex(0);
                     m_fromDate = m_toDate = inBucket[0];
-                    m_limit = 100;
+                    m_limit = kInitialLimit; m_windowOffset = 0;
                     updateFilterLabel();
                     rebuild();
                     QTimer::singleShot(0, this, &ChatPage::scrollToBottom);
@@ -735,7 +767,7 @@ void ChatPage::refreshFilterPanel()
             addRow(date, false, [this, date] {
                 m_view->setCurrentIndex(0);
                 m_fromDate = m_toDate = date;
-                m_limit = 100;
+                m_limit = kInitialLimit; m_windowOffset = 0;
                 updateFilterLabel();
                 rebuild();
                 QTimer::singleShot(0, this, &ChatPage::scrollToBottom);
@@ -764,4 +796,19 @@ void ChatPage::updateScrollDownBtn()
 void ChatPage::scrollToBottom()
 {
     m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum());
+}
+
+void ChatPage::jumpToLiveView()
+{
+    if (m_windowOffset == 0) {
+        scrollToBottom();
+        return;
+    }
+    m_windowOffset = 0;
+    m_limit        = kInitialLimit;
+    m_fromDate.clear();
+    m_toDate.clear();
+    m_scrollRestoreMax = -1;
+    updateFilterLabel();
+    rebuild();
 }

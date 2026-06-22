@@ -41,9 +41,14 @@ private:
     void openFilterPanel();
     void refreshFilterPanel();
     void scrollToBottom();
+    void jumpToLiveView();
     void updateScrollDownBtn();
     QSet<QChar> activeChannels() const;
     void updateFilterLabel();
+
+    static constexpr int kInitialLimit = 100;
+    static constexpr int kPageStep     = 50;
+    static constexpr int kMaxWindow    = 300;
 
     QueryService *m_queryService{};
     QScrollArea  *m_scroll{};
@@ -54,9 +59,10 @@ private:
     bool          m_dirty{true};
     bool          m_rebuildInFlight{false};
     bool          m_showGuildTags{true};
-    int           m_limit{100};
-    int           m_scrollRestorePrevMax{-1};
-    int           m_scrollRestorePrevValue{0};
+    int           m_limit{kInitialLimit};
+    int           m_windowOffset{0};
+    int           m_scrollRestoreMax{-1};
+    int           m_scrollRestoreValue{0};
 
     QString m_fromDate;
     QString m_toDate;

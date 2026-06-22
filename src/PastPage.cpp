@@ -84,7 +84,7 @@ PastPage::PastPage(QWidget *parent)
     m_scrollDownBtn = new ScrollJumpButton(this);
     m_scrollDownBtn->hide();
     m_scrollDownBtn->raise();
-    connect(m_scrollDownBtn, &QPushButton::clicked, this, &PastPage::scrollToBottom);
+    connect(m_scrollDownBtn, &QPushButton::clicked, this, &PastPage::jumpToLiveView);
     connect(m_scroll->verticalScrollBar(), &QScrollBar::valueChanged,
             this, [this](int) { updateScrollDownBtn(); });
     connect(m_scroll->verticalScrollBar(), &QScrollBar::rangeChanged,
@@ -97,7 +97,8 @@ PastPage::PastPage(QWidget *parent)
 void PastPage::setQueryService(QueryService *qs)
 {
     m_queryService = qs;
-    m_limit        = 100;
+    m_limit        = kInitialLimit;
+    m_windowOffset = 0;
     m_dirty        = true;
 }
 
@@ -133,7 +134,7 @@ void PastPage::rebuild()
     m_dirty           = false;
     m_rebuildInFlight = true;
 
-    m_queryService->fetchSessionEvents(m_limit,
+    m_queryService->fetchSessionEvents(m_limit, m_windowOffset,
         [this](QList<Database::SessionEventRecord> events) {
             m_rebuildInFlight = false;
             applySessionEvents(events);
@@ -150,13 +151,18 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
     layout->setSpacing(6);
     layout->addStretch(1);
 
+    // "Load previous 50" at the top — shows when there may be older items.
     if (events.size() == m_limit) {
-        auto *btn = new QPushButton("Load previous 50 notifications", content);
+        auto *btn = new QPushButton(
+            QStringLiteral("Load previous %1 notifications").arg(kPageStep), content);
         btn->setFlat(true);
         connect(btn, &QPushButton::clicked, this, [this] {
-            m_scrollRestorePrevMax   = m_scroll->verticalScrollBar()->maximum();
-            m_scrollRestorePrevValue = m_scroll->verticalScrollBar()->value();
-            m_limit += 50;
+            m_scrollRestoreMax   = m_scroll->verticalScrollBar()->maximum();
+            m_scrollRestoreValue = m_scroll->verticalScrollBar()->value();
+            if (m_limit < kMaxWindow)
+                m_limit += kPageStep;
+            else
+                m_windowOffset += kPageStep;
             rebuild();
         });
         layout->addWidget(btn);
@@ -210,15 +216,28 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
         }
     }
 
+    // "Load next 50" at the bottom — shows when we've slid the window away from newest.
+    if (m_windowOffset > 0) {
+        auto *btn = new QPushButton(
+            QStringLiteral("Load next %1 notifications").arg(kPageStep), content);
+        btn->setFlat(true);
+        connect(btn, &QPushButton::clicked, this, [this] {
+            m_scrollRestoreMax   = -1;   // scroll to bottom of new content
+            m_windowOffset = qMax(0, m_windowOffset - kPageStep);
+            rebuild();
+        });
+        layout->addWidget(btn);
+    }
+
     delete m_content;
     m_content       = content;
     m_contentLayout = layout;
     m_scroll->setWidget(m_content);
 
-    if (m_scrollRestorePrevMax >= 0) {
-        const int prevMax   = m_scrollRestorePrevMax;
-        const int prevValue = m_scrollRestorePrevValue;
-        m_scrollRestorePrevMax = -1;
+    if (m_scrollRestoreMax >= 0) {
+        const int prevMax   = m_scrollRestoreMax;
+        const int prevValue = m_scrollRestoreValue;
+        m_scrollRestoreMax = -1;
         QTimer::singleShot(0, this, [this, prevMax, prevValue] {
             const int delta = m_scroll->verticalScrollBar()->maximum() - prevMax;
             m_scroll->verticalScrollBar()->setValue(prevValue + delta);
@@ -231,6 +250,18 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
 void PastPage::scrollToBottom()
 {
     m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum());
+}
+
+void PastPage::jumpToLiveView()
+{
+    if (m_windowOffset == 0) {
+        scrollToBottom();
+        return;
+    }
+    m_windowOffset   = 0;
+    m_limit          = kInitialLimit;
+    m_scrollRestoreMax = -1;
+    rebuild();
 }
 
 void PastPage::updateScrollDownBtn()

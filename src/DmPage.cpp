@@ -463,7 +463,7 @@ DmPage::DmPage(QWidget *parent)
     m_scrollDownBtn = new ScrollJumpButton(this);
     m_scrollDownBtn->hide();
     m_scrollDownBtn->raise();
-    connect(m_scrollDownBtn, &QPushButton::clicked, this, &DmPage::scrollToBottom);
+    connect(m_scrollDownBtn, &QPushButton::clicked, this, &DmPage::jumpToLiveView);
     connect(m_scroll->verticalScrollBar(), &QScrollBar::valueChanged,
             this, [this](int) { updateScrollDownBtn(); });
     connect(m_scroll->verticalScrollBar(), &QScrollBar::rangeChanged,
@@ -487,8 +487,9 @@ void DmPage::setShowGuildTags(bool show)
 
 void DmPage::reload()
 {
-    m_dirty = false;
-    m_limit = 100;
+    m_dirty        = false;
+    m_limit        = kInitialLimit;
+    m_windowOffset = 0;
     rebuild();
     QTimer::singleShot(0, this, &DmPage::scrollToBottom);
 }
@@ -530,7 +531,8 @@ void DmPage::onPlayerSelected(const QString &name)
         m_conversationLabel->setText("All Combined");
     else
         m_conversationLabel->setText(QStringLiteral("Conversation with %1").arg(name));
-    m_limit = 100;
+    m_limit        = kInitialLimit;
+    m_windowOffset = 0;
     rebuild();
     QTimer::singleShot(0, this, &DmPage::scrollToBottom);
 }
@@ -690,7 +692,16 @@ void DmPage::rebuild()
     m_dirty           = false;
     m_rebuildInFlight = true;
 
-    m_queryService->fetchWhispers(m_filterPlayer, m_limit,
+    // Capture scroll position for live rebuild restoration (not at bottom).
+    if (m_scrollRestoreMax < 0 && !m_liveRebuildScrollToBottom) {
+        const auto *sb = m_scroll->verticalScrollBar();
+        if (sb->maximum() > 0) {
+            m_scrollRestoreMax   = sb->maximum();
+            m_scrollRestoreValue = sb->value();
+        }
+    }
+
+    m_queryService->fetchWhispers(m_filterPlayer, m_limit, m_windowOffset,
         [this](QList<Database::WhisperRecord> whispers) {
             m_rebuildInFlight = false;
             applyWhispers(whispers);
@@ -709,13 +720,18 @@ void DmPage::applyWhispers(const QList<Database::WhisperRecord> &whispers)
     contentLayout->setSpacing(2);
     contentLayout->addStretch(1);
 
+    // "Load previous 50" at the top.
     if (whispers.size() == m_limit) {
-        auto *btn = new QPushButton(QStringLiteral("Load previous 50 messages"), content);
+        auto *btn = new QPushButton(
+            QStringLiteral("Load previous %1 messages").arg(kPageStep), content);
         btn->setFlat(true);
         connect(btn, &QPushButton::clicked, this, [this] {
-            m_scrollRestorePrevMax   = m_scroll->verticalScrollBar()->maximum();
-            m_scrollRestorePrevValue = m_scroll->verticalScrollBar()->value();
-            m_limit += 50;
+            m_scrollRestoreMax   = m_scroll->verticalScrollBar()->maximum();
+            m_scrollRestoreValue = m_scroll->verticalScrollBar()->value();
+            if (m_limit < kMaxWindow)
+                m_limit += kPageStep;
+            else
+                m_windowOffset += kPageStep;
             rebuild();
         });
         contentLayout->addWidget(btn);
@@ -734,21 +750,37 @@ void DmPage::applyWhispers(const QList<Database::WhisperRecord> &whispers)
                               time, showNames, m_showGuildTags, content));
     }
 
+    // "Load next 50" at the bottom — only when window is slid away from newest.
+    if (m_windowOffset > 0) {
+        auto *btn = new QPushButton(
+            QStringLiteral("Load next %1 messages").arg(kPageStep), content);
+        btn->setFlat(true);
+        connect(btn, &QPushButton::clicked, this, [this] {
+            m_scrollRestoreMax = -1;   // scroll to bottom of new content
+            m_windowOffset = qMax(0, m_windowOffset - kPageStep);
+            rebuild();
+        });
+        contentLayout->addWidget(btn);
+    }
+
     delete m_content;
     m_content       = content;
     m_contentLayout = contentLayout;
     m_scroll->setWidget(m_content);
 
-    if (m_scrollRestorePrevMax >= 0) {
-        const int prevMax   = m_scrollRestorePrevMax;
-        const int prevValue = m_scrollRestorePrevValue;
-        m_scrollRestorePrevMax = -1;
+    if (m_liveRebuildScrollToBottom) {
+        m_liveRebuildScrollToBottom = false;
+        m_scrollRestoreMax = -1;
+        QTimer::singleShot(0, this, &DmPage::scrollToBottom);
+    } else if (m_scrollRestoreMax >= 0) {
+        const int prevMax   = m_scrollRestoreMax;
+        const int prevValue = m_scrollRestoreValue;
+        m_scrollRestoreMax = -1;
         QTimer::singleShot(0, this, [this, prevMax, prevValue] {
             const int delta = m_scroll->verticalScrollBar()->maximum() - prevMax;
             m_scroll->verticalScrollBar()->setValue(prevValue + delta);
         });
-    } else if (m_liveRebuildScrollToBottom) {
-        m_liveRebuildScrollToBottom = false;
+    } else {
         QTimer::singleShot(0, this, &DmPage::scrollToBottom);
     }
 }
@@ -771,4 +803,16 @@ void DmPage::scrollToBottom()
 {
     m_scroll->verticalScrollBar()->setValue(
         m_scroll->verticalScrollBar()->maximum());
+}
+
+void DmPage::jumpToLiveView()
+{
+    if (m_windowOffset == 0) {
+        scrollToBottom();
+        return;
+    }
+    m_windowOffset = 0;
+    m_limit        = kInitialLimit;
+    m_scrollRestoreMax = -1;
+    rebuild();
 }

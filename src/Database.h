@@ -74,8 +74,8 @@ public:
     int upsertNpcDialogEntries(const QList<NpcDialogEntry> &entries);
 
     // Returns whispers ordered by time; optionally filtered to one player.
-    // limit > 0 returns only the most recent N messages.
-    QList<WhisperRecord> fetchWhispers(const QString &playerFilter = {}, int limit = 0) const;
+    // limit > 0 returns only the most recent N messages; offset skips the newest N.
+    QList<WhisperRecord> fetchWhispers(const QString &playerFilter = {}, int limit = 0, int offset = 0) const;
 
     // Returns distinct whisper partner names, ordered by most-recent message.
     QStringList fetchWhisperPartners() const;
@@ -87,12 +87,13 @@ public:
     // Returns unified chat+DM records, most recent N rows in chronological order.
     // channels: which public channel prefixes to include ('#', '$', '%', '&').
     // includeDms: also include rows from the whispers table.
-    // limit > 0 returns only the most recent N rows.
+    // limit > 0 returns only the most recent N rows; offset skips the newest N.
     // fromDate/toDate: optional "YYYY-MM-DD" bounds (inclusive).
     QList<ChatRecord> fetchChats(const QSet<QChar> &channels, bool includeDms,
                                  int limit = 100,
                                  const QString &fromDate = {},
-                                 const QString &toDate   = {}) const;
+                                 const QString &toDate   = {},
+                                 int offset = 0) const;
 
     // Returns distinct dates ("YYYY-MM-DD") that have data for the given filter,
     // most-recent first. Used to populate the filter panel date buckets.
@@ -112,8 +113,8 @@ public:
     };
 
     // Returns game-start and game-stop events as a flat chronological list.
-    // limit > 0 returns only the most recent N events.
-    QList<SessionEventRecord> fetchSessionEvents(int limit = 0) const;
+    // limit > 0 returns only the most recent N events; offset skips the newest N.
+    QList<SessionEventRecord> fetchSessionEvents(int limit = 0, int offset = 0) const;
 
     // Closes sessions with no ended_at whose install is NOT in runningInstallPaths.
     // Uses datetime('now','localtime') as the end timestamp; returns count closed.

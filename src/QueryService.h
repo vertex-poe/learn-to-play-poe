@@ -31,17 +31,17 @@ public:
     void fetchZoneTransitions(int limit, int offset,
         std::function<void(QList<Database::ZoneTransitionRecord>)> cb);
 
-    void fetchSessionEvents(int limit,
+    void fetchSessionEvents(int limit, int offset,
         std::function<void(QList<Database::SessionEventRecord>)> cb);
 
     void fetchChats(const QSet<QChar> &channels, bool includeDms,
-        int limit, const QString &fromDate, const QString &toDate,
+        int limit, const QString &fromDate, const QString &toDate, int offset,
         std::function<void(QList<Database::ChatRecord>)> cb);
 
     void fetchChatDates(const QSet<QChar> &channels, bool includeDms,
         std::function<void(QStringList)> cb);
 
-    void fetchWhispers(const QString &playerFilter, int limit,
+    void fetchWhispers(const QString &playerFilter, int limit, int offset,
         std::function<void(QList<Database::WhisperRecord>)> cb);
 
     void fetchWhisperPartnersWithDates(

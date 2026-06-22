@@ -517,7 +517,7 @@ void Database::initSchema()
         migrate(version);
 }
 
-QList<Database::WhisperRecord> Database::fetchWhispers(const QString &playerFilter, int limit) const
+QList<Database::WhisperRecord> Database::fetchWhispers(const QString &playerFilter, int limit, int offset) const
 {
     if (!m_db) return {};
     armQueryBudget();
@@ -525,18 +525,18 @@ QList<Database::WhisperRecord> Database::fetchWhispers(const QString &playerFilt
     sqlite3_stmt *stmt = nullptr;
     QByteArray nameBytes;
 
-    // When a limit is requested, fetch DESC so we get the most recent N rows,
+    // Fetch DESC to get the most recent rows, with optional OFFSET to skip the newest ones,
     // then reverse in memory to restore chronological order for display.
     const bool useLimit = limit > 0;
     const char *order = useLimit ? "DESC" : "ASC";
 
-    char sql[256];
+    char sql[300];
     if (playerFilter.isEmpty()) {
         if (useLimit)
             std::snprintf(sql, sizeof(sql),
                 "SELECT w.direction, w.player_name, g.tag, w.message, w.occurred_at "
                 "FROM whispers w LEFT JOIN guilds g ON g.id = w.guild_id "
-                "ORDER BY w.occurred_at %s LIMIT %d;", order, limit);
+                "ORDER BY w.occurred_at %s LIMIT %d OFFSET %d;", order, limit, offset);
         else
             std::snprintf(sql, sizeof(sql),
                 "SELECT w.direction, w.player_name, g.tag, w.message, w.occurred_at "
@@ -549,7 +549,7 @@ QList<Database::WhisperRecord> Database::fetchWhispers(const QString &playerFilt
             std::snprintf(sql, sizeof(sql),
                 "SELECT w.direction, w.player_name, g.tag, w.message, w.occurred_at "
                 "FROM whispers w LEFT JOIN guilds g ON g.id = w.guild_id "
-                "WHERE w.player_name = ? ORDER BY w.occurred_at %s LIMIT %d;", order, limit);
+                "WHERE w.player_name = ? ORDER BY w.occurred_at %s LIMIT %d OFFSET %d;", order, limit, offset);
         else
             std::snprintf(sql, sizeof(sql),
                 "SELECT w.direction, w.player_name, g.tag, w.message, w.occurred_at "
@@ -655,7 +655,7 @@ static QString colStr(sqlite3_stmt *stmt, int col)
 
 QList<Database::ChatRecord> Database::fetchChats(
     const QSet<QChar> &channels, bool includeDms,
-    int limit, const QString &fromDate, const QString &toDate) const
+    int limit, const QString &fromDate, const QString &toDate, int offset) const
 {
     if (!m_db) return {};
     if (channels.isEmpty() && !includeDms) return {};
@@ -699,7 +699,10 @@ QList<Database::ChatRecord> Database::fetchChats(
     }
 
     sql += ") ORDER BY occurred_at DESC";
-    if (useLimit) sql += QStringLiteral(" LIMIT %1").arg(limit);
+    if (useLimit) {
+        sql += QStringLiteral(" LIMIT %1").arg(limit);
+        if (offset > 0) sql += QStringLiteral(" OFFSET %1").arg(offset);
+    }
     sql += ";";
 
     sqlite3_stmt *stmt = nullptr;
@@ -881,7 +884,7 @@ QList<Database::SessionRecord> Database::fetchSessions() const
     return result;
 }
 
-QList<Database::SessionEventRecord> Database::fetchSessionEvents(int limit) const
+QList<Database::SessionEventRecord> Database::fetchSessionEvents(int limit, int offset) const
 {
     QList<SessionEventRecord> result;
     if (!m_db) return result;
@@ -892,6 +895,7 @@ QList<Database::SessionEventRecord> Database::fetchSessionEvents(int limit) cons
     // giving O(N) cost even for LIMIT 1.  Running one query per event type lets
     // SQLite use idx_sessions_started_at and idx_sessions_ended_at so each scan
     // is O(log N + limit).  We merge the two DESC result sets in C++.
+    // Offset is handled by fetching limit+offset rows and slicing after merge.
     static const char *startSql = R"(
         SELECT 'start'       AS event_type,
                s.started_at  AS occurred_at,
@@ -925,7 +929,8 @@ QList<Database::SessionEventRecord> Database::fetchSessionEvents(int limit) cons
         LIMIT ?
     )";
 
-    const int bindLimit = limit > 0 ? limit : -1;
+    const int fetchCount = (limit > 0 && offset > 0) ? (limit + offset) : limit;
+    const int bindLimit = fetchCount > 0 ? fetchCount : -1;
 
     auto runQuery = [&](const char *sql, QList<SessionEventRecord> &out) {
         sqlite3_stmt *stmt = nullptr;
@@ -957,13 +962,18 @@ QList<Database::SessionEventRecord> Database::fetchSessionEvents(int limit) cons
     runQuery(startSql, starts);
     runQuery(stopSql,  stops);
 
-    // Merge two DESC-sorted lists into a DESC-sorted result, keeping the top `limit`.
+    // Merge two DESC-sorted lists into a DESC-sorted result, keeping the top `fetchCount`.
     int i = 0, j = 0;
-    while ((limit <= 0 || result.size() < limit) && (i < starts.size() || j < stops.size())) {
+    while ((fetchCount <= 0 || result.size() < fetchCount) && (i < starts.size() || j < stops.size())) {
         const bool takeStart = (j >= stops.size()) ||
             (i < starts.size() && starts[i].occurredAt >= stops[j].occurredAt);
         result.append(takeStart ? starts[i++] : stops[j++]);
     }
+    // Apply offset by dropping the first `offset` entries (newest ones, since we're DESC).
+    if (offset > 0 && offset < result.size())
+        result = result.mid(offset);
+    else if (offset > 0)
+        result.clear();
     // Callers expect ASC (oldest first); we collected DESC above, so reverse.
     std::reverse(result.begin(), result.end());
     return result;

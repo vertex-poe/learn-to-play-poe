@@ -72,14 +72,14 @@ void QueryService::fetchZoneTransitions(int limit, int offset,
         }, Qt::QueuedConnection);
 }
 
-void QueryService::fetchSessionEvents(int limit,
+void QueryService::fetchSessionEvents(int limit, int offset,
     std::function<void(QList<Database::SessionEventRecord>)> cb)
 {
     QPointer<QueryService> self(this);
     auto *worker = m_worker;
     QMetaObject::invokeMethod(worker,
-        [worker, qs = this, self, limit, cb = std::move(cb)]() mutable {
-            auto result = worker->db().fetchSessionEvents(limit);
+        [worker, qs = this, self, limit, offset, cb = std::move(cb)]() mutable {
+            auto result = worker->db().fetchSessionEvents(limit, offset);
             QMetaObject::invokeMethod(qs,
                 [self, result = std::move(result), cb = std::move(cb)]() mutable {
                     if (self) cb(std::move(result));
@@ -88,15 +88,15 @@ void QueryService::fetchSessionEvents(int limit,
 }
 
 void QueryService::fetchChats(const QSet<QChar> &channels, bool includeDms,
-    int limit, const QString &fromDate, const QString &toDate,
+    int limit, const QString &fromDate, const QString &toDate, int offset,
     std::function<void(QList<Database::ChatRecord>)> cb)
 {
     QPointer<QueryService> self(this);
     auto *worker = m_worker;
     QMetaObject::invokeMethod(worker,
-        [worker, qs = this, self, channels, includeDms, limit, fromDate, toDate,
+        [worker, qs = this, self, channels, includeDms, limit, fromDate, toDate, offset,
          cb = std::move(cb)]() mutable {
-            auto result = worker->db().fetchChats(channels, includeDms, limit, fromDate, toDate);
+            auto result = worker->db().fetchChats(channels, includeDms, limit, fromDate, toDate, offset);
             QMetaObject::invokeMethod(qs,
                 [self, result = std::move(result), cb = std::move(cb)]() mutable {
                     if (self) cb(std::move(result));
@@ -119,14 +119,14 @@ void QueryService::fetchChatDates(const QSet<QChar> &channels, bool includeDms,
         }, Qt::QueuedConnection);
 }
 
-void QueryService::fetchWhispers(const QString &playerFilter, int limit,
+void QueryService::fetchWhispers(const QString &playerFilter, int limit, int offset,
     std::function<void(QList<Database::WhisperRecord>)> cb)
 {
     QPointer<QueryService> self(this);
     auto *worker = m_worker;
     QMetaObject::invokeMethod(worker,
-        [worker, qs = this, self, playerFilter, limit, cb = std::move(cb)]() mutable {
-            auto result = worker->db().fetchWhispers(playerFilter, limit);
+        [worker, qs = this, self, playerFilter, limit, offset, cb = std::move(cb)]() mutable {
+            auto result = worker->db().fetchWhispers(playerFilter, limit, offset);
             QMetaObject::invokeMethod(qs,
                 [self, result = std::move(result), cb = std::move(cb)]() mutable {
                     if (self) cb(std::move(result));

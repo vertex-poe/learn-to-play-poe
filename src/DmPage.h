@@ -43,7 +43,12 @@ private:
     void refreshFilterPanel();
     void filterLeafSelected(const QString &name);
     void scrollToBottom();
+    void jumpToLiveView();
     void updateScrollDownBtn();
+
+    static constexpr int kInitialLimit = 100;
+    static constexpr int kPageStep     = 50;
+    static constexpr int kMaxWindow    = 300;
 
     QueryService *m_queryService{};
     QLabel       *m_conversationLabel{};
@@ -57,9 +62,10 @@ private:
     bool          m_dirty{true};
     bool          m_rebuildInFlight{false};
     bool          m_showGuildTags{true};
-    int           m_limit{100};
-    int           m_scrollRestorePrevMax{-1};
-    int           m_scrollRestorePrevValue{0};
+    int           m_limit{kInitialLimit};
+    int           m_windowOffset{0};
+    int           m_scrollRestoreMax{-1};
+    int           m_scrollRestoreValue{0};
 
     ScrollJumpButton              *m_scrollDownBtn{};
     QStackedWidget                *m_view{};

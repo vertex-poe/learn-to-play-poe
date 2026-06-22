@@ -446,7 +446,7 @@ void MainWindow::maybeIngestClientLog(const QString &installDir, bool liveMode)
     if (!QFileInfo::exists(logPath))
         return;
 
-    const QString taskName = QStringLiteral("Ingest %1").arg(logPath);
+    const QString taskName = QStringLiteral("Ingest Client.txt");
     for (const TaskRecord &t : m_taskManager->tasks()) {
         if (t.name == taskName
                 && (t.status == TaskStatus::Pending
