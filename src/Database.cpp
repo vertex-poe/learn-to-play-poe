@@ -61,6 +61,9 @@ void Database::applyPragmas()
     execSql(m_db, "PRAGMA synchronous=NORMAL;");
     execSql(m_db, "PRAGMA temp_store=MEMORY;");
     execSql(m_db, "PRAGMA cache_size=-65536;");
+    // No busy_timeout here: the main thread must never block waiting for
+    // a SQLite lock — SQLITE_BUSY should fail immediately so the UI stays
+    // responsive.  The ingest worker sets its own busy_timeout separately.
 }
 
 // Keep docs/schema.md in sync with any changes made here.
@@ -463,6 +466,15 @@ void Database::initSchema()
         CREATE INDEX IF NOT EXISTS idx_events_by_time ON events (occurred_at DESC);
     )");
 
+    execSql(m_db, R"(
+        CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions (started_at DESC);
+    )");
+
+    execSql(m_db, R"(
+        CREATE INDEX IF NOT EXISTS idx_sessions_ended_at
+        ON sessions (ended_at DESC) WHERE ended_at IS NOT NULL;
+    )");
+
     const int version = readUserVersion(m_db);
     if (version == 0)
         setUserVersion(m_db, kDbVersion);
@@ -833,66 +845,84 @@ QList<Database::SessionEventRecord> Database::fetchSessionEvents(int limit) cons
     QList<SessionEventRecord> result;
     if (!m_db) return result;
 
-    // UNION of session starts and session stops, most-recent first.
-    // Caller reverses to get chronological (ASC) display order.
-    static const char *sql = R"(
-        SELECT event_type, occurred_at, char_name, char_class, install_path, active_secs, total_secs
-        FROM (
-            SELECT 'start'     AS event_type,
-                   s.started_at AS occurred_at,
-                   c.name       AS char_name,
-                   cl.name      AS char_class,
-                   i.path       AS install_path,
-                   s.active_secs,
-                   s.total_secs
-            FROM sessions s
-            JOIN installs i        ON s.install_id = i.id
-            LEFT JOIN characters c ON s.char_id    = c.id
-            LEFT JOIN classes cl   ON c.class_id   = cl.id
-
-            UNION ALL
-
-            SELECT 'stop'    AS event_type,
-                   s.ended_at AS occurred_at,
-                   c.name     AS char_name,
-                   cl.name    AS char_class,
-                   i.path     AS install_path,
-                   s.active_secs,
-                   s.total_secs
-            FROM sessions s
-            JOIN installs i        ON s.install_id = i.id
-            LEFT JOIN characters c ON s.char_id    = c.id
-            LEFT JOIN classes cl   ON c.class_id   = cl.id
-            WHERE s.ended_at IS NOT NULL
-        )
-        ORDER BY occurred_at DESC
+    // Two separate indexed queries instead of a single UNION ALL: the UNION ALL
+    // forces SQLite to materialise the entire sessions table twice and sort it,
+    // giving O(N) cost even for LIMIT 1.  Running one query per event type lets
+    // SQLite use idx_sessions_started_at and idx_sessions_ended_at so each scan
+    // is O(log N + limit).  We merge the two DESC result sets in C++.
+    static const char *startSql = R"(
+        SELECT 'start'       AS event_type,
+               s.started_at  AS occurred_at,
+               c.name        AS char_name,
+               cl.name       AS char_class,
+               i.path        AS install_path,
+               s.active_secs,
+               s.total_secs
+        FROM sessions s
+        JOIN installs i        ON s.install_id = i.id
+        LEFT JOIN characters c ON s.char_id    = c.id
+        LEFT JOIN classes cl   ON c.class_id   = cl.id
+        ORDER BY s.started_at DESC
         LIMIT ?
     )";
 
-    sqlite3_stmt *stmt = nullptr;
-    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK)
-        return result;
-    sqlite3_bind_int(stmt, 1, limit > 0 ? limit : -1);
+    static const char *stopSql = R"(
+        SELECT 'stop'      AS event_type,
+               s.ended_at  AS occurred_at,
+               c.name      AS char_name,
+               cl.name     AS char_class,
+               i.path      AS install_path,
+               s.active_secs,
+               s.total_secs
+        FROM sessions s
+        JOIN installs i        ON s.install_id = i.id
+        LEFT JOIN characters c ON s.char_id    = c.id
+        LEFT JOIN classes cl   ON c.class_id   = cl.id
+        WHERE s.ended_at IS NOT NULL
+        ORDER BY s.ended_at DESC
+        LIMIT ?
+    )";
 
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        SessionEventRecord r;
-        if (auto *p = sqlite3_column_text(stmt, 0))
-            r.eventType   = QString::fromUtf8(reinterpret_cast<const char *>(p));
-        if (auto *p = sqlite3_column_text(stmt, 1))
-            r.occurredAt  = QString::fromUtf8(reinterpret_cast<const char *>(p));
-        if (auto *p = sqlite3_column_text(stmt, 2))
-            r.charName    = QString::fromUtf8(reinterpret_cast<const char *>(p));
-        if (auto *p = sqlite3_column_text(stmt, 3))
-            r.charClass   = QString::fromUtf8(reinterpret_cast<const char *>(p));
-        if (auto *p = sqlite3_column_text(stmt, 4))
-            r.installPath = QString::fromUtf8(reinterpret_cast<const char *>(p));
-        r.activeSecs = sqlite3_column_type(stmt, 5) != SQLITE_NULL
-                       ? sqlite3_column_int(stmt, 5) : -1;
-        r.totalSecs  = sqlite3_column_type(stmt, 6) != SQLITE_NULL
-                       ? sqlite3_column_int(stmt, 6) : -1;
-        result.append(r);
+    const int bindLimit = limit > 0 ? limit : -1;
+
+    auto runQuery = [&](const char *sql, QList<SessionEventRecord> &out) {
+        sqlite3_stmt *stmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+            return;
+        sqlite3_bind_int(stmt, 1, bindLimit);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            SessionEventRecord r;
+            if (auto *p = sqlite3_column_text(stmt, 0))
+                r.eventType   = QString::fromUtf8(reinterpret_cast<const char *>(p));
+            if (auto *p = sqlite3_column_text(stmt, 1))
+                r.occurredAt  = QString::fromUtf8(reinterpret_cast<const char *>(p));
+            if (auto *p = sqlite3_column_text(stmt, 2))
+                r.charName    = QString::fromUtf8(reinterpret_cast<const char *>(p));
+            if (auto *p = sqlite3_column_text(stmt, 3))
+                r.charClass   = QString::fromUtf8(reinterpret_cast<const char *>(p));
+            if (auto *p = sqlite3_column_text(stmt, 4))
+                r.installPath = QString::fromUtf8(reinterpret_cast<const char *>(p));
+            r.activeSecs = sqlite3_column_type(stmt, 5) != SQLITE_NULL
+                           ? sqlite3_column_int(stmt, 5) : -1;
+            r.totalSecs  = sqlite3_column_type(stmt, 6) != SQLITE_NULL
+                           ? sqlite3_column_int(stmt, 6) : -1;
+            out.append(r);
+        }
+        sqlite3_finalize(stmt);
+    };
+
+    QList<SessionEventRecord> starts, stops;
+    runQuery(startSql, starts);
+    runQuery(stopSql,  stops);
+
+    // Merge two DESC-sorted lists into a DESC-sorted result, keeping the top `limit`.
+    int i = 0, j = 0;
+    while ((limit <= 0 || result.size() < limit) && (i < starts.size() || j < stops.size())) {
+        const bool takeStart = (j >= stops.size()) ||
+            (i < starts.size() && starts[i].occurredAt >= stops[j].occurredAt);
+        result.append(takeStart ? starts[i++] : stops[j++]);
     }
-    sqlite3_finalize(stmt);
+    // Callers expect ASC (oldest first); we collected DESC above, so reverse.
     std::reverse(result.begin(), result.end());
     return result;
 }

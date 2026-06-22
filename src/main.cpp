@@ -6,10 +6,12 @@
 #include <QApplication>
 #include <QDateTime>
 #include <QFile>
+#include <QMutex>
 #include <QTextStream>
 
 static QFile       *s_logFile   = nullptr;
 static QTextStream *s_logStream = nullptr;
+static QMutex       s_logMutex;
 
 static void fileMessageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg)
 {
@@ -18,8 +20,10 @@ static void fileMessageHandler(QtMsgType type, const QMessageLogContext &, const
     if      (type == QtWarningMsg)  level = "W";
     else if (type == QtCriticalMsg) level = "E";
     else if (type == QtFatalMsg)    level = "F";
-    *s_logStream << QDateTime::currentDateTime().toString("HH:mm:ss.zzz")
-                 << " [" << level << "] " << msg << '\n';
+    const QString line = QDateTime::currentDateTime().toString("HH:mm:ss.zzz")
+                         + " [" + level + "] " + msg + '\n';
+    QMutexLocker lock(&s_logMutex);
+    *s_logStream << line;
     s_logStream->flush();
 }
 

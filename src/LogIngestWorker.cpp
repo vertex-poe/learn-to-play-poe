@@ -1,6 +1,8 @@
 #include "LogIngestWorker.h"
 
 #include <QDateTime>
+#include <QDebug>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -39,6 +41,7 @@ void LogIngestWorker::start()
     }
     execSql(db, "PRAGMA journal_mode=WAL;");
     execSql(db, "PRAGMA synchronous=NORMAL;");
+    execSql(db, "PRAGMA busy_timeout=5000;");
 
     // ReadOnly is the only acceptable open mode — we must never create or
     // truncate Client.txt.  Bail silently if the file has disappeared since
@@ -59,6 +62,13 @@ void LogIngestWorker::start()
     qint64 totalSize = file.size();
     if (m_resumeOffset > 0 && m_resumeOffset <= totalSize)
         file.seek(m_resumeOffset);
+
+    QElapsedTimer wallClock;
+    wallClock.start();
+    qDebug() << "[ingest] start path=" << m_logPath
+             << "size=" << totalSize
+             << "offset=" << m_resumeOffset
+             << "live=" << m_liveMode.load(std::memory_order_relaxed);
 
     const QFileInfo fi(m_logPath);
     const qint64 fileCreatedAt  = fi.birthTime().toSecsSinceEpoch();
@@ -665,8 +675,17 @@ void LogIngestWorker::start()
             // then sleep before polling for more content.
             if (chunkCount > 0 || !caughtUp) {
                 if (chunkCount > 0) {
+                    const qint64 commitStart = wallClock.elapsed();
                     flushSource(file.pos());
                     execSql(db, "COMMIT;");
+                    totalSize = qMax(totalSize, file.size());
+                    const int pct = totalSize > 0
+                        ? static_cast<int>((file.pos() * 100LL) / totalSize) : 0;
+                    qDebug() << "[ingest] eof-commit"
+                             << pct << "% pos=" << file.pos() << "/" << totalSize
+                             << "visits=" << totalVisits
+                             << "commit_ms=" << (wallClock.elapsed() - commitStart)
+                             << "elapsed_ms=" << wallClock.elapsed();
                     chunkCount = 0;
                     execSql(db, "BEGIN;");
                 }
@@ -718,7 +737,7 @@ void LogIngestWorker::start()
 
                 openSpan(ts, -1);
 
-                if (m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                     emit liveEventParsed(LiveEvent{LiveEventType::SessionStart, ts, {}});
             }
             continue;
@@ -902,7 +921,7 @@ void LogIngestWorker::start()
                         insertEvent(tsBytes, "level_up");
                         sqlite3_reset(levelEventStmt);
 
-                        if (m_liveMode.load(std::memory_order_relaxed))
+                        if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                             emit liveEventParsed(LiveEvent{LiveEventType::LevelUp, ts, {
                                 {"character",  lvlM.captured(1)},
                                 {"char_class", lvlM.captured(2)},
@@ -935,7 +954,7 @@ void LogIngestWorker::start()
             if (afkM.hasMatch()) {
                 if (afkM.captured(1) == QLatin1String("ON")) {
                     afkOnTs = ts;
-                    if (m_liveMode.load(std::memory_order_relaxed))
+                    if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                         emit liveEventParsed(LiveEvent{LiveEventType::AfkOn, ts, {}});
                 } else if (!afkOnTs.isEmpty()) {
                     const qint64 afkDur = qMax(0LL, tsToSecs(ts) - tsToSecs(afkOnTs));
@@ -950,7 +969,7 @@ void LogIngestWorker::start()
                         sqlite3_step(afkStmt);
                         sqlite3_reset(afkStmt);
                     }
-                    if (m_liveMode.load(std::memory_order_relaxed))
+                    if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                         emit liveEventParsed(LiveEvent{LiveEventType::AfkOff, ts, {{"duration_secs", afkDur}}});
                     afkOnTs.clear();
                 }
@@ -966,7 +985,7 @@ void LogIngestWorker::start()
                 sqlite3_step(questEventStmt);
                 insertEvent(tsBytes, "quest");
                 sqlite3_reset(questEventStmt);
-                if (m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                     emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "monsters_cleared"}}});
             }
 
@@ -979,7 +998,7 @@ void LogIngestWorker::start()
                 sqlite3_step(questEventStmt);
                 insertEvent(tsBytes, "quest");
                 sqlite3_reset(questEventStmt);
-                if (m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                     emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "passive_skill_point_received"}}});
             }
 
@@ -992,7 +1011,7 @@ void LogIngestWorker::start()
                 sqlite3_step(questEventStmt);
                 insertEvent(tsBytes, "quest");
                 sqlite3_reset(questEventStmt);
-                if (m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                     emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "passive_skill_points_received"}}});
             }
 
@@ -1005,7 +1024,7 @@ void LogIngestWorker::start()
                 sqlite3_step(questEventStmt);
                 insertEvent(tsBytes, "quest");
                 sqlite3_reset(questEventStmt);
-                if (m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                     emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "passive_respec_received"}}});
             }
 
@@ -1019,7 +1038,7 @@ void LogIngestWorker::start()
                 sqlite3_step(questEventStmt);
                 insertEvent(tsBytes, "quest");
                 sqlite3_reset(questEventStmt);
-                if (m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                     emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "kitava_resistance_penalty"}}});
             }
 
@@ -1032,7 +1051,7 @@ void LogIngestWorker::start()
                 sqlite3_step(generalEventStmt);
                 insertEvent(tsBytes, "general");
                 sqlite3_reset(generalEventStmt);
-                if (m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                     emit liveEventParsed(LiveEvent{LiveEventType::GeneralEvent, ts, {{"event_type", "patch_required"}}});
             }
 
@@ -1067,7 +1086,7 @@ void LogIngestWorker::start()
                 sqlite3_step(questEventStmt);
                 insertEvent(tsBytes, "quest");
                 sqlite3_reset(questEventStmt);
-                if (m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                     emit liveEventParsed(LiveEvent{LiveEventType::QuestEvent, ts, {{"event_type", "labyrinth_craft_options_received"}}});
             }
 
@@ -1153,7 +1172,7 @@ void LogIngestWorker::start()
                     sqlite3_step(achievEventStmt);
                     insertEvent(tsBytes, "achievement");
                     sqlite3_reset(achievEventStmt);
-                    if (m_liveMode.load(std::memory_order_relaxed))
+                    if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                         emit liveEventParsed(LiveEvent{LiveEventType::Achievement, ts, {{"name", achievM.captured(1)}}});
                 }
             }
@@ -1182,7 +1201,7 @@ void LogIngestWorker::start()
                     sqlite3_step(hideoutEventStmt);
                     insertEvent(tsBytes, "hideout");
                     sqlite3_reset(hideoutEventStmt);
-                    if (m_liveMode.load(std::memory_order_relaxed))
+                    if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                         emit liveEventParsed(LiveEvent{LiveEventType::HideoutDiscovered, ts, {{"name", hideoutM.captured(1).trimmed()}}});
                 }
             }
@@ -1213,7 +1232,7 @@ void LogIngestWorker::start()
                         lastPvpQueueEventId = sqlite3_last_insert_rowid(db);
                     insertEvent(tsBytes, "pvp_queue");
                     sqlite3_reset(pvpQueueEventStmt);
-                    if (m_liveMode.load(std::memory_order_relaxed))
+                    if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                         emit liveEventParsed(LiveEvent{LiveEventType::PvpQueue, ts, {
                             {"match_name",   pvpM.captured(1)},
                             {"other_players", playerCount}
@@ -1228,7 +1247,7 @@ void LogIngestWorker::start()
                 sqlite3_step(pvpQueueCancelStmt);
                 sqlite3_reset(pvpQueueCancelStmt);
                 lastPvpQueueEventId = -1;
-                if (m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                     emit liveEventParsed(LiveEvent{LiveEventType::PvpQueueCancelled, ts, {}});
             }
 
@@ -1261,7 +1280,7 @@ void LogIngestWorker::start()
                     sqlite3_step(passiveAllocStmt);
                     insertEvent(tsBytes, "passive_alloc");
                     sqlite3_reset(passiveAllocStmt);
-                    if (m_liveMode.load(std::memory_order_relaxed)) {
+                    if (caughtUp && m_liveMode.load(std::memory_order_relaxed)) {
                         const bool alloc = (passiveM.captured(1).toLower() == QLatin1String("allocated"));
                         emit liveEventParsed(LiveEvent{
                             alloc ? LiveEventType::PassiveAllocated : LiveEventType::PassiveUnallocated,
@@ -1301,7 +1320,7 @@ void LogIngestWorker::start()
                     sqlite3_step(passiveAllocStmt);
                     insertEvent(tsBytes, "passive_alloc");
                     sqlite3_reset(passiveAllocStmt);
-                    if (m_liveMode.load(std::memory_order_relaxed)) {
+                    if (caughtUp && m_liveMode.load(std::memory_order_relaxed)) {
                         const bool alloc = (masteryM.captured(1).toLower() == QLatin1String("allocated"));
                         emit liveEventParsed(LiveEvent{
                             alloc ? LiveEventType::PassiveAllocated : LiveEventType::PassiveUnallocated,
@@ -1343,7 +1362,7 @@ void LogIngestWorker::start()
                 sqlite3_step(whisperStmt);
                 insertEvent(tsBytes, "whisper");
                 sqlite3_reset(whisperStmt);
-                if (m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                     emit liveEventParsed(LiveEvent{LiveEventType::Whisper, ts, {
                         {"direction", isFrom ? QString("from") : QString("to")},
                         {"player",    whisperM.captured(3)},
@@ -1375,7 +1394,7 @@ void LogIngestWorker::start()
                     sqlite3_step(deathStmt);
                     insertEvent(tsBytes, "death");
                     sqlite3_reset(deathStmt);
-                    if (m_liveMode.load(std::memory_order_relaxed))
+                    if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                         emit liveEventParsed(LiveEvent{LiveEventType::CharacterDeath, ts, {{"character", deathM.captured(1)}}});
                 }
             }
@@ -1427,7 +1446,7 @@ void LogIngestWorker::start()
                     sqlite3_bind_text (chatStmt, 6, tsBytes.constData(),      tsBytes.size(),      SQLITE_STATIC);
                     sqlite3_step(chatStmt);
                     sqlite3_reset(chatStmt);
-                    if (m_liveMode.load(std::memory_order_relaxed)) {
+                    if (caughtUp && m_liveMode.load(std::memory_order_relaxed)) {
                         QVariantMap chatData;
                         chatData[QStringLiteral("channel")] = chatM.captured(1);
                         chatData[QStringLiteral("player")]  = chatM.captured(3);
@@ -1472,7 +1491,7 @@ void LogIngestWorker::start()
                         closeSpan(ts);
                         openSpan(ts, areaId);
 
-                        if (m_liveMode.load(std::memory_order_relaxed))
+                        if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                             emit liveEventParsed(LiveEvent{LiveEventType::AreaEntered, ts, {
                                 {"area_name",  entM.captured(1)},
                                 {"area_code",  pendingCode},
@@ -1514,7 +1533,7 @@ void LogIngestWorker::start()
                         closeSpan(ts);
                         openSpan(ts, areaId);
 
-                        if (m_liveMode.load(std::memory_order_relaxed))
+                        if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                             emit liveEventParsed(LiveEvent{LiveEventType::AreaEntered, ts, {
                                 {"area_name",  sceneM.captured(1)},
                                 {"area_code",  sceneM.captured(1)},
@@ -1526,12 +1545,18 @@ void LogIngestWorker::start()
         }
 
         if (++chunkCount >= kChunkSize) {
+            const qint64 commitStart = wallClock.elapsed();
             flushSource(safeCommitPos);
             execSql(db, "COMMIT;");
             totalSize = qMax(totalSize, file.size());
-            emit progress(
-                totalSize > 0 ? static_cast<int>((file.pos() * 100LL) / totalSize) : 0,
-                QStringLiteral("%1 area visits").arg(totalVisits));
+            const int pct = totalSize > 0
+                ? static_cast<int>((file.pos() * 100LL) / totalSize) : 0;
+            qDebug() << "[ingest] commit"
+                     << pct << "% pos=" << file.pos() << "/" << totalSize
+                     << "visits=" << totalVisits
+                     << "commit_ms=" << (wallClock.elapsed() - commitStart)
+                     << "elapsed_ms=" << wallClock.elapsed();
+            emit progress(pct, QStringLiteral("%1 area visits").arg(totalVisits));
             chunkCount = 0;
             execSql(db, "BEGIN;");
         }
@@ -1540,7 +1565,11 @@ void LogIngestWorker::start()
     flushPassives();
     closeSession(lastTs);
     flushSource(file.pos());
-    execSql(db, "COMMIT;");
+    {
+        const qint64 commitStart = wallClock.elapsed();
+        execSql(db, "COMMIT;");
+        qDebug() << "[ingest] final commit_ms=" << (wallClock.elapsed() - commitStart);
+    }
 
     sqlite3_finalize(areaUpsertStmt);
     sqlite3_finalize(areaInsertIgnoreStmt);
@@ -1601,6 +1630,8 @@ void LogIngestWorker::start()
     sqlite3_finalize(eventInsertStmt);
     sqlite3_close(db);
 
+    qDebug() << "[ingest] done total_ms=" << wallClock.elapsed()
+             << "visits=" << totalVisits;
     emit progress(100, QStringLiteral("%1 area visits").arg(totalVisits));
     emit finished();
 }

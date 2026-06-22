@@ -16,6 +16,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QScreen>
+#include <QDateTime>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QFileInfo>
@@ -221,10 +222,16 @@ void MainWindow::onConfigChanged()
 
 void MainWindow::onPollTimer()
 {
+    QElapsedTimer pollTimer;
+    pollTimer.start();
+
     const QStringList exeNames = m_config.executableNames.isEmpty()
         ? AppConfig::knownExes() : m_config.executableNames;
 
     const QList<WindowState> states = m_tracker->poll(exeNames);
+    const qint64 pollMs = pollTimer.elapsed();
+    if (pollMs > 200)
+        qDebug() << "[poll] tracker::poll took" << pollMs << "ms";
 
     QSet<quint32> newPids;
     for (const auto &s : states)
@@ -291,15 +298,29 @@ void MainWindow::onPollTimer()
             for (const auto &t : m_taskManager->tasks()) {
                 if (t.name.startsWith("Ingest ")
                         && (t.status == TaskStatus::Pending
-                            || t.status == TaskStatus::Running)) {
+                            || t.status == TaskStatus::Running
+                            || t.status == TaskStatus::Monitoring)) {
                     ingestActive = true;
                     break;
                 }
             }
-            if (!ingestActive && m_db->closeOrphanSessions(m_runningInstallDirs) > 0)
-                m_pastPage->markDirty();
+            if (!ingestActive) {
+                QElapsedTimer orphanTimer;
+                orphanTimer.start();
+                const int closed = m_db->closeOrphanSessions(m_runningInstallDirs);
+                const qint64 ms = orphanTimer.elapsed();
+                if (ms > 100 || closed > 0)
+                    qDebug() << "[poll] closeOrphanSessions closed=" << closed
+                             << "elapsed_ms=" << ms;
+                if (closed > 0)
+                    m_pastPage->markDirty();
+            }
         }
     }
+
+    const qint64 tickMs = pollTimer.elapsed();
+    if (tickMs > 500)
+        qDebug() << "[poll] SLOW tick elapsed_ms=" << tickMs;
 }
 
 void MainWindow::onTrayActivated(QSystemTrayIcon::ActivationReason reason)
@@ -368,6 +389,8 @@ void MainWindow::onTaskUpdated(int id)
         const QString t = QTime::currentTime().toString("HH:mm");
         if (r.status == TaskStatus::Finished || r.status == TaskStatus::Monitoring) {
             if (r.name.startsWith("Ingest ")) {
+                qDebug() << "[task]" << r.name
+                         << (r.status == TaskStatus::Monitoring ? "→ Monitoring" : "→ Finished");
                 setStatusContent(QString());   // let idle message take over
                 m_pastPage->markDirty();
             } else {

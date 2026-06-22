@@ -7,6 +7,7 @@
 
 #include <QDateTime>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QFrame>
 #include <QPushButton>
 #include <QScrollArea>
@@ -246,7 +247,11 @@ void CurrentPage::rebuildDbZones()
                 msg += QStringLiteral(" · {%1}").arg(g.installDir);
             const QString ts = g.startedAt.isEmpty() ? m_detectedAt.value(g.pid) : g.startedAt;
 
+            QElapsedTimer seTimer; seTimer.start();
             const auto sessionEvents = m_db->fetchSessionEvents(1);
+            const qint64 seMs = seTimer.elapsed();
+            if (seMs > 20)
+                qDebug() << "[CurrentPage] fetchSessionEvents(1) took" << seMs << "ms";
             if (!sessionEvents.isEmpty()
                     && sessionEvents.last().eventType == QLatin1String("start")) {
                 const auto &ev = sessionEvents.last();
@@ -277,7 +282,11 @@ void CurrentPage::rebuildDbZones()
     }
 
     // --- Zone (and session-start) cards ---
+    QElapsedTimer zoneTimer; zoneTimer.start();
     const auto zones = m_db->fetchZoneTransitions(kDbZoneLimit, 0);
+    const qint64 zoneMs = zoneTimer.elapsed();
+    if (zoneMs > 50)
+        qDebug() << "[CurrentPage] fetchZoneTransitions" << zones.size() << "rows in" << zoneMs << "ms";
     m_dbZoneOffset   = zones.size();
 
     if (m_runningGames.size() > 1) {
