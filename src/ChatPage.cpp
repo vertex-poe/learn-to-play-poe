@@ -587,7 +587,7 @@ void ChatPage::rebuild()
         [this](QList<Database::ChatRecord> records) {
             m_rebuildInFlight = false;
             applyChats(records);
-            if (m_dirty) rebuild();
+            if (m_dirty) QTimer::singleShot(0, this, [this] { rebuild(); });
         });
 }
 
@@ -638,7 +638,8 @@ void ChatPage::applyChats(const QList<Database::ChatRecord> &records)
             QStringLiteral("Load next %1 messages").arg(kPageStep), content);
         btn->setFlat(true);
         connect(btn, &QPushButton::clicked, this, [this] {
-            m_scrollRestoreMax = -1;   // scroll to bottom of new content
+            m_scrollRestoreMax   = m_scroll->verticalScrollBar()->maximum();
+            m_scrollRestoreValue = m_scroll->verticalScrollBar()->value();
             m_windowOffset = qMax(0, m_windowOffset - kPageStep);
             rebuild();
         });

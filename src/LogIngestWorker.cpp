@@ -691,7 +691,7 @@ void LogIngestWorker::start()
                     chunkCount = 0;
                     execSql(db, "BEGIN;");
                 }
-                emit progress(100, QStringLiteral("%1 area visits").arg(totalVisits));
+                emit progress(100, QStringLiteral("%1 events").arg(totalVisits));
                 caughtUp = true;
             }
             QThread::msleep(250);
@@ -1559,7 +1559,7 @@ void LogIngestWorker::start()
                      << "visits=" << totalVisits
                      << "commit_ms=" << (wallClock.elapsed() - commitStart)
                      << "elapsed_ms=" << wallClock.elapsed();
-            emit progress(pct, QStringLiteral("%1 area visits").arg(totalVisits));
+            emit progress(pct, QStringLiteral("%1 events").arg(totalVisits));
             chunkCount = 0;
             execSql(db, "BEGIN;");
         }
@@ -1637,6 +1637,6 @@ void LogIngestWorker::start()
              << "visits=" << totalVisits
              << "avg_chunk_mb=" << QString::number(
                     chunkCommits > 0 ? ((file.pos() - ingestStart) / 1048576.0) / chunkCommits : 0.0, 'f', 2);
-    emit progress(100, QStringLiteral("%1 area visits").arg(totalVisits));
+    emit progress(100, QStringLiteral("%1 events").arg(totalVisits));
     emit finished();
 }

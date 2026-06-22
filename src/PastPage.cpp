@@ -138,7 +138,7 @@ void PastPage::rebuild()
         [this](QList<Database::SessionEventRecord> events) {
             m_rebuildInFlight = false;
             applySessionEvents(events);
-            if (m_dirty) rebuild();
+            if (m_dirty) QTimer::singleShot(0, this, [this] { rebuild(); });
         });
 }
 
@@ -154,7 +154,7 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
     // "Load previous 50" at the top — shows when there may be older items.
     if (events.size() == m_limit) {
         auto *btn = new QPushButton(
-            QStringLiteral("Load previous %1 notifications").arg(kPageStep), content);
+            QStringLiteral("Load previous %1 events").arg(kPageStep), content);
         btn->setFlat(true);
         connect(btn, &QPushButton::clicked, this, [this] {
             m_scrollRestoreMax   = m_scroll->verticalScrollBar()->maximum();
@@ -219,10 +219,11 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
     // "Load next 50" at the bottom — shows when we've slid the window away from newest.
     if (m_windowOffset > 0) {
         auto *btn = new QPushButton(
-            QStringLiteral("Load next %1 notifications").arg(kPageStep), content);
+            QStringLiteral("Load next %1 events").arg(kPageStep), content);
         btn->setFlat(true);
         connect(btn, &QPushButton::clicked, this, [this] {
-            m_scrollRestoreMax   = -1;   // scroll to bottom of new content
+            m_scrollRestoreMax   = m_scroll->verticalScrollBar()->maximum();
+            m_scrollRestoreValue = m_scroll->verticalScrollBar()->value();
             m_windowOffset = qMax(0, m_windowOffset - kPageStep);
             rebuild();
         });

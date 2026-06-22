@@ -705,7 +705,7 @@ void DmPage::rebuild()
         [this](QList<Database::WhisperRecord> whispers) {
             m_rebuildInFlight = false;
             applyWhispers(whispers);
-            if (m_dirty) rebuild();
+            if (m_dirty) QTimer::singleShot(0, this, [this] { rebuild(); });
         });
 }
 
@@ -756,7 +756,8 @@ void DmPage::applyWhispers(const QList<Database::WhisperRecord> &whispers)
             QStringLiteral("Load next %1 messages").arg(kPageStep), content);
         btn->setFlat(true);
         connect(btn, &QPushButton::clicked, this, [this] {
-            m_scrollRestoreMax = -1;   // scroll to bottom of new content
+            m_scrollRestoreMax   = m_scroll->verticalScrollBar()->maximum();
+            m_scrollRestoreValue = m_scroll->verticalScrollBar()->value();
             m_windowOffset = qMax(0, m_windowOffset - kPageStep);
             rebuild();
         });
