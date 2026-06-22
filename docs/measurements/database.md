@@ -77,6 +77,12 @@ Embedded analytical database with columnar storage and vectorized execution (~10
 
 ---
 
+### Not Evaluated: Turso (libsql)
+
+Turso's `libsql` is a fork/rewrite of SQLite3 in Rust with additional features (built-in replication, embedded replicas, vector search extensions). Not evaluated — the project has no sync or replication requirement, and the SQLite3 C API is already well-understood here. May be worth a look if any of those extra capabilities become relevant.
+
+---
+
 ### Eliminated: RocksDB, LevelDB, LMDB, HDF5
 
 All four were eliminated early because they lack a query layer for multi-attribute filtering:
