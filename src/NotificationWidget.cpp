@@ -1,8 +1,10 @@
 #include "NotificationWidget.h"
 #include "Theme.h"
 
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPen>
 #include <QRegularExpression>
@@ -154,7 +156,7 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
         tsLabel->setPalette(pal);
     }
     tsLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    tsLabel->setAlignment(Qt::AlignRight | Qt::AlignTop);
+    tsLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
     m_outerLayout = new QVBoxLayout(this);
     m_outerLayout->setContentsMargins(10, Theme::spacingSm, 10, Theme::spacingSm);
@@ -179,16 +181,25 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
             f.setBold(true);
             titleLabel->setFont(f);
         }
-        titleLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-        leftLayout->addWidget(titleLabel, 0, Qt::AlignTop);
+        titleLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        leftLayout->addWidget(titleLabel, 0, Qt::AlignVCenter);
 
         if (!tag.isEmpty()) {
             auto *tagLabel = new TagLabel(tag, style.accentColor, left);
             QFont tagFont = tagLabel->font();
             tagFont.setPointSizeF(Theme::fontXs);
             tagLabel->setFont(tagFont);
-            leftLayout->addWidget(tagLabel, 0, Qt::AlignTop);
+            leftLayout->addWidget(tagLabel, 0, Qt::AlignVCenter);
         }
+
+        m_headerSuffixLabel = new QLabel(left);
+        {
+            QPalette pal = m_headerSuffixLabel->palette();
+            pal.setColor(QPalette::WindowText, style.bodyColor);
+            m_headerSuffixLabel->setPalette(pal);
+        }
+        m_headerSuffixLabel->setVisible(false);
+        leftLayout->addWidget(m_headerSuffixLabel, 0, Qt::AlignVCenter);
 
         leftLayout->addStretch();
         topRow->addWidget(left, 1);
@@ -196,7 +207,21 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
         topRow->addWidget(buildSegmentedRow(message, style.textColor, this), 1);
     }
 
+    m_expandIndicator = new QLabel(QString(QChar(0x25B8)), this); // ▸
+    {
+        QPalette pal = m_expandIndicator->palette();
+        pal.setColor(QPalette::WindowText, style.timestampColor);
+        m_expandIndicator->setPalette(pal);
+        QFont f = m_expandIndicator->font();
+        f.setPointSizeF(Theme::fontXl);
+        m_expandIndicator->setFont(f);
+    }
+    m_expandIndicator->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_expandIndicator->setVisible(false);
+    topRow->addWidget(m_expandIndicator, 0);
+
     topRow->addWidget(tsLabel, 0);
+
     m_outerLayout->addLayout(topRow);
 
     if (!title.isEmpty() && !message.isEmpty()) {
@@ -218,4 +243,109 @@ void NotificationWidget::setMessage(const QString &text)
         m_outerLayout->addWidget(m_bodyWidget);
     }
     updateGeometry();
+}
+
+void NotificationWidget::setHeaderSuffix(const QString &text)
+{
+    if (!m_headerSuffixLabel) return;
+    m_headerSuffixLabel->setText(text);
+    m_headerSuffixLabel->setVisible(!text.isEmpty());
+}
+
+void NotificationWidget::setDetailRows(const QList<QPair<QString, QString>> &rows)
+{
+    if (rows.isEmpty()) return;
+
+    if (m_separator) {
+        m_outerLayout->removeWidget(m_separator);
+        delete m_separator;
+        m_separator = nullptr;
+    }
+    if (m_detailWidget) {
+        m_outerLayout->removeWidget(m_detailWidget);
+        delete m_detailWidget;
+        m_detailWidget = nullptr;
+    }
+
+    auto *sep = new QWidget(this);
+    sep->setFixedHeight(1);
+    sep->setAutoFillBackground(true);
+    {
+        QPalette pal = sep->palette();
+        pal.setColor(QPalette::Window, m_style.border);
+        sep->setPalette(pal);
+    }
+    sep->setVisible(false);
+    m_outerLayout->addWidget(sep);
+    m_separator = sep;
+
+    auto *detail = new QWidget(this);
+    auto *grid = new QGridLayout(detail);
+    grid->setContentsMargins(0, 2, 0, 2);
+    grid->setHorizontalSpacing(Theme::spacingSm);
+    grid->setVerticalSpacing(3);
+    grid->setColumnStretch(1, 1);
+
+    int r = 0;
+    for (const auto &[key, value] : rows) {
+        if (value.isEmpty()) continue;
+
+        auto *keyLabel = new QLabel(key, detail);
+        {
+            QFont f = keyLabel->font();
+            f.setPointSizeF(Theme::fontSm);
+            keyLabel->setFont(f);
+            QPalette pal = keyLabel->palette();
+            pal.setColor(QPalette::WindowText, m_style.timestampColor);
+            keyLabel->setPalette(pal);
+        }
+        keyLabel->setAlignment(Qt::AlignRight | Qt::AlignTop);
+
+        auto *valLabel = new QLabel(value, detail);
+        {
+            QFont f = valLabel->font();
+            f.setPointSizeF(Theme::fontSm);
+            valLabel->setFont(f);
+            QPalette pal = valLabel->palette();
+            pal.setColor(QPalette::WindowText, m_style.bodyColor);
+            valLabel->setPalette(pal);
+        }
+        valLabel->setWordWrap(true);
+
+        grid->addWidget(keyLabel, r, 0, Qt::AlignTop | Qt::AlignRight);
+        grid->addWidget(valLabel, r, 1, Qt::AlignTop);
+        ++r;
+    }
+
+    if (r == 0) {
+        m_outerLayout->removeWidget(sep);
+        delete sep;
+        m_separator = nullptr;
+        delete detail;
+        return;
+    }
+
+    detail->setVisible(false);
+    m_outerLayout->addWidget(detail);
+    m_detailWidget = detail;
+
+    if (m_expandIndicator)
+        m_expandIndicator->setVisible(true);
+    setCursor(Qt::PointingHandCursor);
+}
+
+void NotificationWidget::mousePressEvent(QMouseEvent *e)
+{
+    if (m_detailWidget) {
+        m_expanded = !m_expanded;
+        if (m_separator)       m_separator->setVisible(m_expanded);
+        m_detailWidget->setVisible(m_expanded);
+        if (m_expandIndicator)
+            m_expandIndicator->setText(m_expanded
+                ? QString(QChar(0x25BE))   // ▾
+                : QString(QChar(0x25B8))); // ▸
+        if (m_outerLayout) m_outerLayout->activate();
+        updateGeometry();
+    }
+    QFrame::mousePressEvent(e);
 }

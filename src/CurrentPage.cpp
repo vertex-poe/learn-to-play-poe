@@ -104,7 +104,7 @@ void CurrentPage::markDirty()
 
 void CurrentPage::setRunningGames(const QList<WindowState> &games)
 {
-    const QString now = QDateTime::currentDateTime().toString("HH:mm");
+    const QString now = QDateTime::currentDateTime().toString("HH:mm:ss");
 
     // Preserve detected-at timestamps for continuing PIDs; assign now for new ones.
     QMap<quint32, QString> updated;
@@ -187,7 +187,7 @@ void CurrentPage::onLiveEvent(const LiveEvent &event, bool bulk)
                     // the captured pointer (still valid — still in m_dbZoneWidgets or
                     // m_liveEventWidgets) to stamp it directly.
                     if (zones.size() >= 2 && zones[1].durationSecs > 0)
-                        prevCard->setMessage(formatDuration(zones[1].durationSecs));
+                        prevCard->setHeaderSuffix("\xc2\xb7 " + formatDuration(zones[1].durationSecs));
                 });
         }
 
@@ -249,10 +249,10 @@ void CurrentPage::rebuildDbZones()
     setLoadMoreVisible(false);
 
     // Determine how many session events we need:
-    //   single client: 1 (for game-card enrichment)
+    //   single client: 10 (search for matching start event by folder+time)
     //   multi-client:  50 (interleaved with zones)
     //   no games:       0
-    const int sessionLimit = runningGames.size() == 1 ? 1
+    const int sessionLimit = runningGames.size() == 1 ? 10
                            : runningGames.size()  > 1 ? 50 : 0;
 
     m_queryService->fetchCurrentPageData(sessionLimit, kDbZoneLimit,
@@ -280,32 +280,78 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
         cl->setContentsMargins(0, 0, 0, 0);
         cl->setSpacing(6);
 
-        if (singleClient) {
-            const auto &g = runningGames[0];
-            QString msg = QStringLiteral("{%1} · PID {%2}").arg(g.executableName).arg(g.pid);
-            if (!g.installDir.isEmpty())
-                msg += QStringLiteral(" · {%1}").arg(g.installDir);
-            const QString ts = g.startedAt.isEmpty() ? detectedAt.value(g.pid) : g.startedAt;
-
+        // Returns the best matching "start" session event for a running game:
+        // first tries the most-recent event (primary), then searches for any
+        // start event whose installPath is under installDir and whose recorded
+        // time is within 60 seconds of the window's reported start time.
+        auto findStartEvent = [&](const WindowState &g, const QString &detected)
+            -> const Database::SessionEventRecord *
+        {
             if (!sessionEvents.isEmpty()
-                    && sessionEvents.last().eventType == QLatin1String("start")) {
-                const auto &ev = sessionEvents.last();
-                if (!ev.charName.isEmpty()) {
-                    msg = ev.charName;
-                    if (!ev.charClass.isEmpty())
-                        msg += " \xc2\xb7 " + ev.charClass;
-                }
+                    && sessionEvents.last().eventType == QLatin1String("start"))
+                return &sessionEvents.last();
+
+            if (g.installDir.isEmpty()) return nullptr;
+            const QString timeStr = g.startedAt.isEmpty() ? detected.left(5) : g.startedAt;
+            const QTime winTime   = QTime::fromString(timeStr, "HH:mm");
+            if (!winTime.isValid()) return nullptr;
+
+            for (int i = sessionEvents.size() - 1; i >= 0; --i) {
+                const auto &ev = sessionEvents[i];
+                if (ev.eventType != QLatin1String("start")) continue;
+                if (!ev.installPath.startsWith(g.installDir, Qt::CaseInsensitive)) continue;
+                const QTime evTime = QTime::fromString(ev.occurredAt.mid(11, 5), "HH:mm");
+                if (!evTime.isValid()) continue;
+                int diff = qAbs(winTime.secsTo(evTime));
+                diff = qMin(diff, 86400 - diff);
+                if (diff <= 60) return &ev;
             }
-            cl->addWidget(new NotificationWidget(
-                "Game is running", {}, msg, ts, sessionStyle(), container));
+            return nullptr;
+        };
+
+        if (singleClient) {
+            const auto &g          = runningGames[0];
+            const QString detected  = detectedAt.value(g.pid);  // "HH:mm:ss"
+            const QString ts        = g.startedAt.isEmpty() ? detected.left(5) : g.startedAt;
+
+            auto *card = new NotificationWidget(
+                "Game is running", {}, {}, ts, sessionStyle(), container);
+            card->setHeaderSuffix("\xc2\xb7 " + g.executableName);
+
+            QList<QPair<QString, QString>> details;
+            const auto *ev = findStartEvent(g, detected);
+            if (ev) {
+                if (!ev->charName.isEmpty()) {
+                    QString charInfo = ev->charName;
+                    if (!ev->charClass.isEmpty())
+                        charInfo += " \xc2\xb7 " + ev->charClass;
+                    details.append({"Character", charInfo});
+                }
+                details.append({"Started", ev->occurredAt});
+            } else {
+                details.append({"Started", g.startedAt.isEmpty() ? detected : g.startedAt});
+            }
+            details.append({"PID", QString::number(g.pid)});
+            if (!g.installDir.isEmpty())
+                details.append({"Folder", g.installDir});
+            card->setDetailRows(details);
+            cl->addWidget(card);
         } else {
             for (const auto &g : runningGames) {
-                QString msg = QStringLiteral("{%1} · PID {%2}").arg(g.executableName).arg(g.pid);
+                const QString detected = detectedAt.value(g.pid);
+                const QString ts       = g.startedAt.isEmpty() ? detected.left(5) : g.startedAt;
+                auto *card = new NotificationWidget(
+                    "Game is running", {}, {}, ts, sessionStyle(), container);
+                card->setHeaderSuffix("\xc2\xb7 " + g.executableName);
+                QList<QPair<QString, QString>> details;
+                const auto *ev = findStartEvent(g, detected);
+                details.append({"Started", ev ? ev->occurredAt
+                                              : (g.startedAt.isEmpty() ? detected : g.startedAt)});
+                details.append({"PID", QString::number(g.pid)});
                 if (!g.installDir.isEmpty())
-                    msg += QStringLiteral(" · {%1}").arg(g.installDir);
-                const QString ts = g.startedAt.isEmpty() ? detectedAt.value(g.pid) : g.startedAt;
-                cl->addWidget(new NotificationWidget(
-                    "Game is running", {}, msg, ts, sessionStyle(), container));
+                    details.append({"Folder", g.installDir});
+                card->setDetailRows(details);
+                cl->addWidget(card);
             }
         }
 
@@ -343,15 +389,22 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
                 --zi;
             } else {
                 const auto &ev = sessionStarts[si];
-                QString msg;
-                if (!ev.charName.isEmpty()) {
-                    msg = ev.charName;
-                    if (!ev.charClass.isEmpty())
-                        msg += " \xc2\xb7 " + ev.charClass;
-                }
                 auto *card = new NotificationWidget(
-                    "Game started", {}, msg, ev.occurredAt.mid(11, 5),
+                    "Game started", {}, {}, ev.occurredAt.mid(11, 5),
                     sessionStyle(), m_content);
+                if (!ev.charName.isEmpty())
+                    card->setHeaderSuffix("\xc2\xb7 " + ev.charName);
+                QList<QPair<QString, QString>> details;
+                details.append({"Time", ev.occurredAt});
+                if (!ev.charName.isEmpty()) {
+                    QString charInfo = ev.charName;
+                    if (!ev.charClass.isEmpty())
+                        charInfo += " \xc2\xb7 " + ev.charClass;
+                    details.append({"Character", charInfo});
+                }
+                if (!ev.installPath.isEmpty())
+                    details.append({"Install", ev.installPath});
+                card->setDetailRows(details);
                 m_contentLayout->addWidget(card);
                 m_dbZoneWidgets.append(card);
                 ++si;
@@ -421,9 +474,11 @@ void CurrentPage::onLoadMore()
 NotificationWidget *CurrentPage::makeZoneCard(const QString &areaName, int areaLevel,
                                                const QString &timestamp, int durationSecs)
 {
-    const QString tag  = areaLevel > 0 ? QStringLiteral("lv %1").arg(areaLevel) : QString{};
-    const QString body = durationSecs > 0 ? formatDuration(durationSecs) : QString{};
-    return new NotificationWidget(areaName, tag, body, timestamp, zoneStyle(), m_content);
+    const QString tag = areaLevel > 0 ? QStringLiteral("lv %1").arg(areaLevel) : QString{};
+    auto *card = new NotificationWidget(areaName, tag, {}, timestamp, zoneStyle(), m_content);
+    if (durationSecs > 0)
+        card->setHeaderSuffix("\xc2\xb7 " + formatDuration(durationSecs));
+    return card;
 }
 
 void CurrentPage::appendDbZone(NotificationWidget *card)

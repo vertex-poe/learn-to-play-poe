@@ -195,26 +195,41 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
             if (ev.eventType == "start") {
                 NotificationStyle style;
                 style.accentColor = {80, 180, 80};
-                QString msg;
+                auto *card = new NotificationWidget(
+                    "Game started", {}, {}, timeLabel, style, content);
+                if (!ev.charName.isEmpty())
+                    card->setHeaderSuffix("\xc2\xb7 " + ev.charName);
+                QList<QPair<QString, QString>> details;
+                details.append({"Time", ev.occurredAt});
                 if (!ev.charName.isEmpty()) {
-                    msg = ev.charName;
+                    QString charInfo = ev.charName;
                     if (!ev.charClass.isEmpty())
-                        msg += " \xc2\xb7 " + ev.charClass;
+                        charInfo += " \xc2\xb7 " + ev.charClass;
+                    details.append({"Character", charInfo});
                 }
-                layout->addWidget(new NotificationWidget(
-                    "Game started", {}, msg, timeLabel, style, content));
+                if (!ev.installPath.isEmpty())
+                    details.append({"Install", ev.installPath});
+                card->setDetailRows(details);
+                layout->addWidget(card);
             } else {
                 NotificationStyle style;
                 style.accentColor = {130, 130, 130};
-                QString msg;
                 const QString active = formatDuration(ev.activeSecs);
                 const QString total  = formatDuration(ev.totalSecs);
+                auto *card = new NotificationWidget(
+                    "Game stopped", {}, {}, timeLabel, style, content);
                 if (!active.isEmpty())
-                    msg = "Active: " + active;
+                    card->setHeaderSuffix("\xc2\xb7 " + active);
                 else if (!total.isEmpty())
-                    msg = "Duration: " + total;
-                layout->addWidget(new NotificationWidget(
-                    "Game stopped", {}, msg, timeLabel, style, content));
+                    card->setHeaderSuffix("\xc2\xb7 " + total);
+                QList<QPair<QString, QString>> details;
+                details.append({"Time", ev.occurredAt});
+                if (!active.isEmpty())
+                    details.append({"Active", active});
+                if (!total.isEmpty())
+                    details.append({"Total", total});
+                card->setDetailRows(details);
+                layout->addWidget(card);
             }
         }
     }

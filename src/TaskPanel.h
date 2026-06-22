@@ -4,6 +4,7 @@
 
 #include <QFrame>
 #include <QMap>
+#include <QSet>
 
 class QLabel;
 class QProgressBar;
@@ -39,5 +40,6 @@ private:
     TaskManager       *m_manager;
     QVBoxLayout       *m_layout;
     QMap<int, Row>     m_rows;
+    QSet<int>          m_pendingShow;   // ids waiting for the 100 ms visibility threshold
     bool               m_forcedVisible{false};
 };

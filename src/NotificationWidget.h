@@ -2,6 +2,9 @@
 
 #include <QColor>
 #include <QFrame>
+#include <QList>
+#include <QPair>
+#include <QString>
 
 struct NotificationStyle {
     QColor background{45, 45, 45};
@@ -14,6 +17,8 @@ struct NotificationStyle {
     int    borderWidth{1};
 };
 
+class QLabel;
+class QMouseEvent;
 class QVBoxLayout;
 
 class NotificationWidget : public QFrame
@@ -26,12 +31,20 @@ public:
                                 QWidget *parent = nullptr);
 
     void setMessage(const QString &text);
+    void setHeaderSuffix(const QString &text);
+    void setDetailRows(const QList<QPair<QString, QString>> &rows);
 
 protected:
     void paintEvent(QPaintEvent *) override;
+    void mousePressEvent(QMouseEvent *e) override;
 
 private:
     NotificationStyle  m_style;
     QVBoxLayout       *m_outerLayout{};
     QWidget           *m_bodyWidget{};
+    QLabel            *m_headerSuffixLabel{};
+    QLabel            *m_expandIndicator{};
+    QWidget           *m_separator{};
+    QWidget           *m_detailWidget{};
+    bool               m_expanded{false};
 };

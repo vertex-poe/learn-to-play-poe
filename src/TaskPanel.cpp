@@ -8,6 +8,7 @@
 #include <QPalette>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QTimer>
 #include <QVBoxLayout>
 
 static const TaskRecord *findRecord(const TaskManager *manager, int id)
@@ -44,10 +45,23 @@ TaskPanel::TaskPanel(TaskManager *manager, QWidget *parent)
     refreshVisibility();
 }
 
+// Tasks that complete within the threshold are never shown — avoids visual
+// noise from short-lived background operations (e.g. orphan-session closure).
+static constexpr int kShowDelayMs = 100;
+
 void TaskPanel::onTaskAdded(int id)
 {
-    const TaskRecord *record = findRecord(m_manager, id);
-    if (record) addRow(*record);
+    m_pendingShow.insert(id);
+    QTimer::singleShot(kShowDelayMs, this, [this, id] {
+        if (!m_pendingShow.remove(id)) return;  // task finished before threshold
+        const TaskRecord *record = findRecord(m_manager, id);
+        if (!record) return;
+        const bool gone = record->status == TaskStatus::Finished
+                       || record->status == TaskStatus::Cancelled
+                       || record->status == TaskStatus::Failed
+                       || record->status == TaskStatus::Monitoring;
+        if (!gone) addRow(*record);
+    });
 }
 
 void TaskPanel::onTaskUpdated(int id)
@@ -59,14 +73,15 @@ void TaskPanel::onTaskUpdated(int id)
                        || record->status == TaskStatus::Cancelled
                        || record->status == TaskStatus::Failed;
     if (terminal || record->status == TaskStatus::Monitoring) {
+        m_pendingShow.remove(id);  // cancel deferred show if still pending
         removeRow(id);
         return;
     }
 
     if (m_rows.contains(id))
         updateRow(*record);
-    else if (record->status == TaskStatus::Running)
-        addRow(*record);  // re-show if we fell behind after being hidden
+    else if (record->status == TaskStatus::Running && !m_pendingShow.contains(id))
+        addRow(*record);  // re-show after monitoring (already passed threshold)
 }
 
 void TaskPanel::addRow(const TaskRecord &record)

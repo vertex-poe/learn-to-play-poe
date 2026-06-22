@@ -376,6 +376,13 @@ void MainWindow::scheduleLogIngestion()
         maybeIngestClientLog(dir);
 }
 
+// Returns true for routine background tasks that should never surface in the
+// status bar (too frequent or too low-level to be meaningful to the user).
+static bool isSilentTask(const TaskRecord &r)
+{
+    return r.name == QLatin1String("Close orphan sessions");
+}
+
 void MainWindow::onTaskUpdated(int id)
 {
     const QList<TaskRecord> &all = m_taskManager->tasks();
@@ -383,6 +390,7 @@ void MainWindow::onTaskUpdated(int id)
     int active = 0, totalPct = 0, running = 0;
     QString activeLabel;
     for (const auto &r : all) {
+        if (isSilentTask(r)) continue;
         if (r.status != TaskStatus::Pending && r.status != TaskStatus::Running)
             continue;
         ++active;
@@ -406,6 +414,7 @@ void MainWindow::onTaskUpdated(int id)
     // All tasks done — show completion for the one that just finished.
     for (const auto &r : all) {
         if (r.id != id) continue;
+        if (isSilentTask(r)) break;  // no status bar update for silent tasks
         const QString t = QTime::currentTime().toString("HH:mm");
         if (r.status == TaskStatus::Finished || r.status == TaskStatus::Monitoring) {
             if (r.name.startsWith("Ingest ")) {

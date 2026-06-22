@@ -8,22 +8,54 @@ time.
 
 ## What the app does, in plain terms
 
-Every second, the app does the equivalent of opening Windows Task Manager and
-looking down the process list for a Path of Exile executable. It knows which
-process names to look for from a built-in list of every known PoE 1 distribution
-(`PathOfExile_x64Steam.exe`, `PathOfExile.exe`, and so on) that ships with the
-app and can be customised in Settings if needed. If it finds a matching process,
-it reads three things that Task Manager also shows you: the process name, the
-full path to the executable on disk, and when the process was started. It also
-reads the game window's position on screen so the overlay knows where to sit.
+### Two independent sources
 
-That's it. The app never reads what is happening *inside* the game process — no
-game state, no memory, no network traffic. It only asks Windows "is this process
-running, where is it on disk, and where is its window?" — the same questions
-Task Manager answers on the Details and Performance tabs.
+The app learns that the game is running from two completely separate places, and
+combines what they each know to build the "Game is running" card.
+
+**The operating system** — every second the app asks Windows the same questions
+that Task Manager answers on its Details tab: is a Path of Exile process running,
+what is the full path to its executable, what is its process ID, and roughly when
+did it start? The OS gives a precise start timestamp, but only at
+hours-and-minutes resolution (e.g. `14:30`), and with no calendar date attached.
+
+**Path of Exile's own log file (`Client.txt`)** — PoE writes a line to this file
+every time you enter a new area. The app watches this file in the background and
+records each session to a local database. When a "game started" event is in the
+database it carries a full timestamp with date and seconds (e.g.
+`2026-06-22 14:30:05`), plus the character name and class you were playing.
+
+Neither source alone gives the full picture. The OS knows the process is running
+but not who you are playing. `Client.txt` knows your character but only starts
+producing data once you enter a zone — and can't tell you the process ID or where
+the game is installed. Together they cover everything the card shows.
+
+### What the card shows and where each field comes from
+
+When you click the "Game is running" card to expand it, you see:
+
+| Field | Source |
+|-------|--------|
+| Executable name (in the header) | OS — `QueryFullProcessImageName` |
+| Timestamp (top-right corner) | OS — process creation time, `HH:mm` |
+| Character · Class | `Client.txt` database — most recent session start for this install |
+| Started (full date + time + seconds) | `Client.txt` database when available; OS time only as last resort |
+| PID | OS — process ID from `GetWindowThreadProcessId` |
+| Folder | OS — parent directory of the executable |
+
+### What happens if the game was already running before the app launched
+
+The OS will still report the process, so the card always appears. However, if
+no session-start event exists in the database for this particular instance of
+the game, the app cannot know the exact date the process started — only the time.
+In that case the "Started" field shows just the time (e.g. `14:30:22`) without a
+date, rather than guessing that it was today (which would be wrong for overnight
+sessions). Once you zone into a new area the `Client.txt` entry is written and
+the database is updated, but the card's "Started" field won't update retroactively
+for the current session.
 
 If the game is not running, nothing is read at all. If multiple instances are
-running (e.g. two separate Steam installs), each one gets its own entry.
+running (e.g. two separate Steam installs), each one gets its own card.
 
 The result is used for three things:
 
@@ -168,10 +200,54 @@ struct WindowState {
     QRect    rect;           // screen bounds (zero if minimised)
     QString  installDir;     // absolute path of the directory containing the exe
     QString  executableName; // bare filename, e.g. "PathOfExile_x64Steam.exe"
-    QString  startedAt;      // "HH:mm" local time — process creation time
+    QString  startedAt;      // "HH:mm" local time — process creation time from GetProcessTimes
     quint32  pid;
 };
 ```
+
+`startedAt` is hours and minutes only, with no calendar date. `GetProcessTimes`
+returns a `FILETIME` that could give full date+time precision, but only the time
+component is surfaced here because when the DB has a session record (the common
+case) it is used instead and provides full `"YYYY-MM-DD HH:MM:SS"` precision.
+The OS time is the compact fallback, not the primary source.
+
+### "Started" timestamp resolution — three tiers
+
+Source: `CurrentPage::applyCurrentPageData` / `findStartEvent` lambda.
+
+When building the "Game is running" card the app resolves the "Started" detail
+field through three tiers in order:
+
+**Tier 1 — most-recent DB session event (primary)**
+
+`QueryService::fetchCurrentPageData` returns up to the 10 most recent session
+events from the database. If the most recent event has `eventType = "start"`, it
+is used directly. This is the normal path: `Client.txt` was being watched when
+the game launched, a start record was written, and `occurredAt` gives
+`"YYYY-MM-DD HH:MM:SS"` with full date and seconds. Character name and class
+from this event are also shown in the expanded card.
+
+**Tier 2 — folder + time match (fallback)**
+
+If the most-recent event is not a "start" (e.g. the game restarted and the new
+start hasn't been recorded yet, or there are multiple installs and the most-recent
+event belongs to a different one), the app scans the same batch of 10 events
+looking for any `"start"` record where:
+
+- `installPath` begins with `g.installDir` (case-insensitive on Windows), linking
+  the event to the correct `Client.txt` file, and
+- the time component of `occurredAt` is within 60 seconds of the window's
+  reported `startedAt` time.
+
+If a match is found its `occurredAt` is used as the full started datetime.
+
+**Tier 3 — OS time only (last resort)**
+
+If neither DB path succeeds the app shows just the time string from
+`WindowState::startedAt` (or the detection timestamp stored in `m_detectedAt`,
+formatted `"HH:mm:ss"`), with no date prefix. Displaying a bare time rather than
+prepending today's date avoids silently showing a wrong date for processes that
+started before midnight.
 
 ### Auto-detection of install directories
 
