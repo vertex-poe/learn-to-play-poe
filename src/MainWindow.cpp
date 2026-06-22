@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "ChatPage.h"
+#include "CurrentPage.h"
 #include "Database.h"
 #include "DmPage.h"
 #include "PastPage.h"
@@ -44,14 +45,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_taskManager = new TaskManager(this);
 
-    m_log = new NotificationsPanel(this);
+    m_currentPage = new CurrentPage(this);
     m_taskPanel = new TaskPanel(m_taskManager, this);
-
-    auto *currentPage = new QWidget(this);
-    auto *currentLayout = new QVBoxLayout(currentPage);
-    currentLayout->setContentsMargins(0, 0, 0, 0);
-    currentLayout->setSpacing(0);
-    currentLayout->addWidget(m_log, 1);
 
     m_stack    = new QStackedWidget(this);
     m_pastPage = new PastPage(nullptr, this);
@@ -59,7 +54,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_dmPage   = new DmPage(nullptr, this);
 
     m_stack->addWidget(m_pastPage);    // Past
-    m_stack->addWidget(currentPage);   // Current
+    m_stack->addWidget(m_currentPage); // Current
     m_stack->addWidget(m_chatPage);    // Chats
     m_stack->addWidget(m_dmPage);      // DMs
 
@@ -142,6 +137,7 @@ MainWindow::MainWindow(QWidget *parent)
         qDebug() << "[startup] scheduleLogIngestion";
         scheduleLogIngestion();
         qDebug() << "[startup] scheduleLogIngestion done in" << startupTimer.elapsed() << "ms";
+        m_currentPage->setDatabase(m_db);
         m_pastPage->setDatabase(m_db);
         m_chatPage->setDatabase(m_db);
         m_chatPage->setShowGuildTags(m_config.showGuildTags);
@@ -295,6 +291,7 @@ void MainWindow::onPollTimer()
             // Game closed — drain any remaining log content then stop.
             stopLiveIngest();
             m_pastPage->markDirty();
+            m_currentPage->setDatabase(m_db);
         }
     }
 }
@@ -317,13 +314,13 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::log(const QString &message, const NotificationStyle &style)
 {
-    m_log->addNotification(message, style);
+    m_currentPage->addNotification(message, style);
 }
 
 void MainWindow::log(const QString &title, const QString &tag,
                      const QString &message, const NotificationStyle &style)
 {
-    m_log->addNotification(title, tag, message, style);
+    m_currentPage->addNotification(title, tag, message, style);
 }
 
 void MainWindow::scheduleLogIngestion()

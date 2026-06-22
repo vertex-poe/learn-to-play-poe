@@ -14,6 +14,8 @@ struct NotificationStyle {
     int    borderWidth{1};
 };
 
+class QVBoxLayout;
+
 class NotificationWidget : public QFrame
 {
     Q_OBJECT
@@ -23,9 +25,13 @@ public:
                                 const NotificationStyle &style = {},
                                 QWidget *parent = nullptr);
 
+    void setMessage(const QString &text);
+
 protected:
     void paintEvent(QPaintEvent *) override;
 
 private:
-    NotificationStyle m_style;
+    NotificationStyle  m_style;
+    QVBoxLayout       *m_outerLayout{};
+    QWidget           *m_bodyWidget{};
 };

@@ -13,6 +13,8 @@ qt_add_executable(l2p-poe1
     BackgroundWorker.h
     ChatPage.cpp
     ChatPage.h
+    CurrentPage.cpp
+    CurrentPage.h
     Database.cpp
     Database.h
     DatabaseHealth.cpp
@@ -41,8 +43,6 @@ qt_add_executable(l2p-poe1
     NavBar.h
     NotificationWidget.cpp
     NotificationWidget.h
-    NotificationsPanel.cpp
-    NotificationsPanel.h
     ScrollJumpButton.cpp
     ScrollJumpButton.h
     SettingsPage.cpp

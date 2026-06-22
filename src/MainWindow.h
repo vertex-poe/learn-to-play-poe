@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AppConfig.h"
-#include "NotificationsPanel.h"
+#include "NotificationWidget.h"
 
 #include <QMainWindow>
 #include <QPointer>
@@ -13,6 +13,7 @@ class QStackedWidget;
 
 class QMenu;
 class ChatPage;
+class CurrentPage;
 class DmPage;
 class NavBar;
 class PastPage;
@@ -40,6 +41,7 @@ public:
     void log(const QString &title, const QString &tag,
              const QString &message, const NotificationStyle &style = {});
 
+
 protected:
     void closeEvent(QCloseEvent *event) override;
 
@@ -65,7 +67,7 @@ private:
     AppConfig  m_config;
     Database  *m_db{};
 
-    NotificationsPanel *m_log{};
+    CurrentPage        *m_currentPage{};
     TaskManager        *m_taskManager{};
     TaskPanel          *m_taskPanel{};
     ChatPage           *m_chatPage{};

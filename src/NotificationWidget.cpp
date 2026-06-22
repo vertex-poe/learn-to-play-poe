@@ -156,9 +156,9 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
     tsLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     tsLabel->setAlignment(Qt::AlignRight | Qt::AlignTop);
 
-    auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(10, Theme::spacingSm, 10, Theme::spacingSm);
-    outer->setSpacing(Theme::spacingSm);
+    m_outerLayout = new QVBoxLayout(this);
+    m_outerLayout->setContentsMargins(10, Theme::spacingSm, 10, Theme::spacingSm);
+    m_outerLayout->setSpacing(Theme::spacingSm);
 
     auto *topRow = new QHBoxLayout;
     topRow->setSpacing(Theme::spacingSm);
@@ -197,8 +197,25 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
     }
 
     topRow->addWidget(tsLabel, 0);
-    outer->addLayout(topRow);
+    m_outerLayout->addLayout(topRow);
 
-    if (!title.isEmpty())
-        outer->addWidget(buildSegmentedRow(message, style.bodyColor, this));
+    if (!title.isEmpty() && !message.isEmpty()) {
+        m_bodyWidget = buildSegmentedRow(message, style.bodyColor, this);
+        m_outerLayout->addWidget(m_bodyWidget);
+    }
+}
+
+void NotificationWidget::setMessage(const QString &text)
+{
+    if (!m_outerLayout) return;
+    if (m_bodyWidget) {
+        m_outerLayout->removeWidget(m_bodyWidget);
+        delete m_bodyWidget;
+        m_bodyWidget = nullptr;
+    }
+    if (!text.isEmpty()) {
+        m_bodyWidget = buildSegmentedRow(text, m_style.bodyColor, this);
+        m_outerLayout->addWidget(m_bodyWidget);
+    }
+    updateGeometry();
 }

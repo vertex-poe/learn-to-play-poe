@@ -890,3 +890,41 @@ QList<Database::SessionEventRecord> Database::fetchSessionEvents(int limit) cons
     std::reverse(result.begin(), result.end());
     return result;
 }
+
+QList<Database::ZoneTransitionRecord> Database::fetchZoneTransitions(int limit, int offset) const
+{
+    QList<ZoneTransitionRecord> result;
+    if (!m_db) return result;
+
+    static const char *sql = R"(
+        SELECT COALESCE(a.display_name, a.code), a.level, ats.entered_at, ats.duration_secs
+        FROM area_time_spans ats
+        LEFT JOIN areas a ON ats.area_id = a.id
+        WHERE ats.session_id = (
+            SELECT id FROM sessions ORDER BY started_at DESC LIMIT 1
+        )
+        AND ats.area_id IS NOT NULL
+        ORDER BY ats.entered_at DESC
+        LIMIT ? OFFSET ?
+    )";
+
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+    sqlite3_bind_int(stmt, 1, limit > 0 ? limit : -1);
+    sqlite3_bind_int(stmt, 2, offset);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ZoneTransitionRecord r;
+        if (auto *p = sqlite3_column_text(stmt, 0))
+            r.areaName = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        r.areaLevel = sqlite3_column_type(stmt, 1) != SQLITE_NULL
+                      ? sqlite3_column_int(stmt, 1) : 0;
+        if (auto *p = sqlite3_column_text(stmt, 2))
+            r.enteredAt = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        r.durationSecs = sqlite3_column_type(stmt, 3) != SQLITE_NULL
+                         ? sqlite3_column_int(stmt, 3) : -1;
+        result.append(r);
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}

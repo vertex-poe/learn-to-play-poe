@@ -113,6 +113,17 @@ public:
     // limit > 0 returns only the most recent N events.
     QList<SessionEventRecord> fetchSessionEvents(int limit = 0) const;
 
+    struct ZoneTransitionRecord {
+        QString areaName;        // display_name, or code if display_name is absent
+        int     areaLevel{0};
+        QString enteredAt;       // "YYYY-MM-DD HH:MM:SS"
+        int     durationSecs{-1}; // -1 when the span is still open (current zone)
+    };
+
+    // Returns zone transitions for the most recent session, newest first.
+    // limit > 0 caps the result; offset skips that many rows (for pagination).
+    QList<ZoneTransitionRecord> fetchZoneTransitions(int limit = 50, int offset = 0) const;
+
 private:
     void applyPragmas();
     void initSchema();
