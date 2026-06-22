@@ -21,6 +21,7 @@ Everything here can be considered aspirational and will likely never see the lig
 ## Goal: Companion
 
 - [ ] Historical events panel: virtual scrolling via QListView + QAbstractItemModel + QStyledItemDelegate (replaces load-N-at-a-time approach; delegate ports existing custom-paint logic from NotificationWidget; enables millions of rows with no memory growth)
+- [ ] Pagination prev/next scroll feel: when prev/next 50 loads, the viewport should appear to stay put as content loads around you rather than snapping the first old record to the top of the screen; the button bar disappearing on load causes a visible scroll jump that should be absorbed so the experience feels like the page simply grew
 - [ ] Auto start on boot (Windows registry `HKCU\…\Run`; Linux `.desktop` autostart)
 - [ ] Companion mode: web API only, no overlay, no PoE install required
 

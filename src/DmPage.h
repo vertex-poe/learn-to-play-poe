@@ -66,6 +66,7 @@ private:
     int           m_windowOffset{0};
     int           m_scrollRestoreMax{-1};
     int           m_scrollRestoreValue{0};
+    int           m_scrollRestoreNthRecord{-1};
 
     ScrollJumpButton              *m_scrollDownBtn{};
     QStackedWidget                *m_view{};

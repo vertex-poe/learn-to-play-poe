@@ -24,6 +24,7 @@ public:
     explicit DateSeparator(const QString &date, QWidget *parent = nullptr)
         : QWidget(parent), m_date(date)
     {
+        setObjectName("separator");
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         QFont f = font();
         f.setPointSizeF(Theme::fontSm);
@@ -159,10 +160,12 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
         connect(btn, &QPushButton::clicked, this, [this] {
             m_scrollRestoreMax   = m_scroll->verticalScrollBar()->maximum();
             m_scrollRestoreValue = m_scroll->verticalScrollBar()->value();
-            if (m_limit < kMaxWindow)
+            if (m_limit < kMaxWindow) {
                 m_limit += kPageStep;
-            else
+            } else {
                 m_windowOffset += kPageStep;
+                m_scrollRestoreNthRecord = kPageStep;
+            }
             rebuild();
         });
         layout->addWidget(btn);
@@ -238,8 +241,24 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
     if (m_scrollRestoreMax >= 0) {
         const int prevMax   = m_scrollRestoreMax;
         const int prevValue = m_scrollRestoreValue;
-        m_scrollRestoreMax = -1;
-        QTimer::singleShot(0, this, [this, prevMax, prevValue] {
+        const int nthRecord = m_scrollRestoreNthRecord;
+        m_scrollRestoreMax       = -1;
+        m_scrollRestoreNthRecord = -1;
+        QTimer::singleShot(0, this, [this, prevMax, prevValue, nthRecord] {
+            if (nthRecord >= 0) {
+                int count = 0;
+                for (int i = 0; i < m_contentLayout->count(); ++i) {
+                    QLayoutItem *li = m_contentLayout->itemAt(i);
+                    QWidget *w = li ? li->widget() : nullptr;
+                    if (!w || qobject_cast<QPushButton*>(w)
+                            || w->objectName() == "separator") continue;
+                    if (count++ == nthRecord) {
+                        m_scroll->verticalScrollBar()->setValue(
+                            qMin(w->y(), m_scroll->verticalScrollBar()->maximum()));
+                        return;
+                    }
+                }
+            }
             const int delta = m_scroll->verticalScrollBar()->maximum() - prevMax;
             m_scroll->verticalScrollBar()->setValue(prevValue + delta);
         });
@@ -259,9 +278,10 @@ void PastPage::jumpToLiveView()
         scrollToBottom();
         return;
     }
-    m_windowOffset   = 0;
-    m_limit          = kInitialLimit;
-    m_scrollRestoreMax = -1;
+    m_windowOffset           = 0;
+    m_limit                  = kInitialLimit;
+    m_scrollRestoreMax       = -1;
+    m_scrollRestoreNthRecord = -1;
     rebuild();
 }
 

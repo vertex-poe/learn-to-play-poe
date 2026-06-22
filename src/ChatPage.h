@@ -63,6 +63,7 @@ private:
     int           m_windowOffset{0};
     int           m_scrollRestoreMax{-1};
     int           m_scrollRestoreValue{0};
+    int           m_scrollRestoreNthRecord{-1};
 
     QString m_fromDate;
     QString m_toDate;
