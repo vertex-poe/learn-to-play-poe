@@ -14,8 +14,9 @@ class QueryService : public QObject
     Q_OBJECT
 public:
     struct CurrentPageData {
-        QList<Database::SessionEventRecord>   sessionEvents;
-        QList<Database::ZoneTransitionRecord> zones;
+        QList<Database::SessionEventRecord>        sessionEvents;
+        QList<Database::ZoneTransitionRecord>      zones;
+        QList<Database::ClientScreenEventRecord>   clientScreenEvents;
     };
 
     explicit QueryService(const QString &dbPath, QObject *parent = nullptr);

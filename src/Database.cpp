@@ -710,3 +710,33 @@ QList<Database::ZoneTransitionRecord> Database::fetchZoneTransitions(int limit, 
              << "(limit=" << limit << "offset=" << offset << ")";
     return result;
 }
+
+QList<Database::ClientScreenEventRecord> Database::fetchClientScreenEvents() const
+{
+    QList<ClientScreenEventRecord> result;
+    if (!m_db) return result;
+    armQueryBudget();
+
+    static const char *sql = R"(
+        SELECT cse.event_type, cse.occurred_at
+        FROM client_screen_events cse
+        JOIN sessions s ON cse.install_id = s.install_id
+        WHERE s.ended_at IS NULL
+          AND s.id = (SELECT id FROM sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1)
+          AND cse.occurred_at >= s.started_at
+        ORDER BY cse.occurred_at DESC
+    )";
+
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ClientScreenEventRecord r;
+        if (auto *p = sqlite3_column_text(stmt, 0))
+            r.eventType  = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        if (auto *p = sqlite3_column_text(stmt, 1))
+            r.occurredAt = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        result.append(r);
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}

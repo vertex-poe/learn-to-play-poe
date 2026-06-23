@@ -144,6 +144,16 @@ public:
     // limit > 0 caps the result; offset skips that many rows (for pagination).
     QList<ZoneTransitionRecord> fetchZoneTransitions(int limit = 50, int offset = 0) const;
 
+    struct ClientScreenEventRecord
+    {
+        QString eventType;  // "login_screen" or "char_select"
+        QString occurredAt; // "YYYY-MM-DD HH:MM:SS"
+    };
+
+    // Returns client-screen events (login_screen / char_select) for the most
+    // recent open session, newest first.
+    QList<ClientScreenEventRecord> fetchClientScreenEvents() const;
+
 private:
     void applyPragmas();
     void initSchema();

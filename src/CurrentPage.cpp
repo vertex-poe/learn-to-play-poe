@@ -565,12 +565,43 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
   }
   else
   {
-    for (int i = zones.size() - 1; i >= 0; --i)
+    const auto &cse = data.clientScreenEvents; // newest-first
+    int zi = zones.size() - 1;                 // walk oldest→newest
+    int ci = cse.size() - 1;
+
+    while (zi >= 0 || ci >= 0)
     {
-      const auto &z = zones[i];
-      appendDbZone(makeZoneCard(z.areaName, z.areaCode, z.areaType, z.areaSubtype,
-                                z.areaLevel, z.enteredAt.mid(11, 5), z.durationSecs));
+      const bool haveZone   = zi >= 0;
+      const bool haveScreen = ci >= 0;
+      const bool takeZone   = haveZone && (!haveScreen || zones[zi].enteredAt <= cse[ci].occurredAt);
+
+      if (takeZone)
+      {
+        const auto &z = zones[zi];
+        appendDbZone(makeZoneCard(z.areaName, z.areaCode, z.areaType, z.areaSubtype,
+                                  z.areaLevel, z.enteredAt.mid(11, 5), z.durationSecs));
+        --zi;
+      }
+      else
+      {
+        const auto &ev = cse[ci];
+        const bool isLogin = ev.eventType == QLatin1String("login_screen");
+        auto *card = new NotificationWidget(
+            isLogin ? "Login screen" : "Character select",
+            {}, {}, ev.occurredAt.mid(11, 5),
+            sessionStyle(), m_content);
+        if (isLogin)
+          card->setLeadingIcon(QStringLiteral(":/icons/box-arrow-in-right.svg"),
+                               QColor(160, 130, 95), 20);
+        else
+          card->setLeadingIcon(QStringLiteral(":/icons/person-fill.svg"),
+                               QColor(160, 130, 95), 20);
+        card->setSource(docSource("Client.txt", "sources/zone-transition"));
+        appendDbZone(card);
+        --ci;
+      }
     }
+
     if (!zones.isEmpty() && zones[0].durationSecs < 0)
       m_prevZoneCard = m_dbZoneWidgets.last();
   }

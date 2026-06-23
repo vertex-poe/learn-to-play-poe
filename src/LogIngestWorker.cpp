@@ -1720,12 +1720,9 @@ void LogIngestWorker::start()
     }
 
     flushPassives();
-    // Only close the session in live mode (game ended or app closed while game was running).
-    // In batch mode, the session belongs to the game's lifetime, not the app's — leave it
-    // open so fetchZoneTransitions can find it.  closeOrphanSessions handles closure for
-    // installs where the game is no longer running.
-    if (m_liveMode.load(std::memory_order_relaxed))
-        closeSession(lastTs);
+    // Never close the session here — closeOrphanSessions handles closure at startup
+    // for installs where the game is no longer running.  Closing here would kill the
+    // open session whenever the user restarts the app while the game is still running.
     flushSource(file.pos());
     {
         const qint64 commitStart = wallClock.elapsed();
