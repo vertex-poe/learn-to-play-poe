@@ -79,6 +79,7 @@ private:
     QTimer                   *m_scrollSettleTimer{};
 
     NotificationWidget  *m_prevZoneCard{};
+    NotificationWidget  *m_prevAltTabCard{};
     QWidget             *m_sessionStartCard{};
     ScrollJumpButton    *m_scrollDownBtn{};
 };

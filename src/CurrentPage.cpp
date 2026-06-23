@@ -75,6 +75,20 @@ static NotificationStyle sessionStyle()
   return s;
 }
 
+static NotificationStyle clientScreenStyle()
+{
+  NotificationStyle s;
+  s.accentColor = QColor(160, 130, 95);
+  return s;
+}
+
+static NotificationStyle altTabStyle()
+{
+  NotificationStyle s;
+  s.accentColor = QColor(110, 110, 130);
+  return s;
+}
+
 CurrentPage::CurrentPage(QWidget *parent)
     : QWidget(parent)
 {
@@ -206,6 +220,7 @@ void CurrentPage::onLiveEvent(const LiveEvent &event, bool bulk)
   if (bulk)
   {
     m_prevZoneCard = nullptr;
+    m_prevAltTabCard = nullptr;
     m_dirty = true;
     if (isVisible() && m_queryService)
       rebuildDbZones();
@@ -248,11 +263,42 @@ void CurrentPage::onLiveEvent(const LiveEvent &event, bool bulk)
     appendLiveWidget(card);
     m_prevZoneCard = card;
   }
+  else if (event.type == LiveEventType::LoginScreen)
+  {
+    const QString ts = QDateTime::currentDateTime().toString("HH:mm");
+    auto *card = new NotificationWidget("Login screen", {}, {}, ts, clientScreenStyle(), m_content);
+    appendLiveWidget(card);
+    m_prevZoneCard = nullptr; // player left a zone; don't stamp it on the next area entry
+  }
+  else if (event.type == LiveEventType::CharSelect)
+  {
+    const QString ts = QDateTime::currentDateTime().toString("HH:mm");
+    auto *card = new NotificationWidget("Character select", {}, {}, ts, clientScreenStyle(), m_content);
+    appendLiveWidget(card);
+  }
   else if (event.type == LiveEventType::SessionStart)
   {
+    m_prevAltTabCard = nullptr;
     m_dirty = true;
     if (isVisible() && m_queryService)
       rebuildDbZones();
+  }
+  else if (event.type == LiveEventType::AltTabOut)
+  {
+    const QString ts = QDateTime::currentDateTime().toString("HH:mm");
+    auto *card = new NotificationWidget("Alt-Tab", {}, {}, ts, altTabStyle(), m_content);
+    appendLiveWidget(card);
+    m_prevAltTabCard = card;
+  }
+  else if (event.type == LiveEventType::AltTabBack)
+  {
+    if (m_prevAltTabCard)
+    {
+      const int dur = event.data.value("duration_secs").toInt();
+      if (dur > 0)
+        m_prevAltTabCard->setHeaderSuffix("\xc2\xb7 " + formatDuration(dur));
+      m_prevAltTabCard = nullptr;
+    }
   }
 }
 
@@ -305,6 +351,7 @@ void CurrentPage::rebuildDbZones()
   }
   m_dbZoneWidgets.clear();
   m_prevZoneCard = nullptr;
+  m_prevAltTabCard = nullptr;
   m_dbZoneOffset = 0;
 
   setLoadMoreVisible(false);

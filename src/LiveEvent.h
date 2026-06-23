@@ -25,6 +25,8 @@
 //   session_start:        (none)
 //   login_screen:         (none)
 //   char_select:          (none)
+//   alt_tab_out:          (none)  — [WINDOW] Lost focus
+//   alt_tab_back:         duration_secs — [WINDOW] Gained focus (or implied by player action)
 struct LiveEvent {
     QString     type;
     QString     timestamp; // "2026-06-03 14:23:45" from the log
@@ -51,4 +53,6 @@ namespace LiveEventType {
     inline constexpr const char* SessionStart       = "session_start";
     inline constexpr const char* LoginScreen        = "login_screen";
     inline constexpr const char* CharSelect         = "char_select";
+    inline constexpr const char* AltTabOut          = "alt_tab_out";
+    inline constexpr const char* AltTabBack         = "alt_tab_back";
 }

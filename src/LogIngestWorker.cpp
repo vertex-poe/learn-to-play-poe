@@ -486,6 +486,7 @@ void LogIngestWorker::start()
     QString sessionStartTs;
     qint64  sessionAfkSecs    = 0;
     QString afkOnTs;
+    QString altTabOutTs;
     qint64  sessionCharId     = -1;
     int     sessionCharLevel  = -1;
     qint64  sessionAreaId     = -1;
@@ -658,11 +659,14 @@ void LogIngestWorker::start()
 
     // ── main loop ────────────────────────────────────────────────────────────
 
+    // Client screen state machine — tracks where the player is in the UI flow.
+    // Area data (pendingCode/pendingLevel) is separate transient state for zone loading.
+    enum class LocState { Unknown, LoginScreen, AwaitingConnect, CharSelect, InZone };
+    LocState locState = LocState::Unknown;
+
     QString currentGuild;
     QString pendingCode;
     int     pendingLevel           = 0;
-    bool    pendingCharSelect      = false;
-    bool    pendingAsyncConnect    = false;
     bool    skipTriggerFollowup    = false;
 
     constexpr int kChunkSize    = 10'000;
@@ -672,6 +676,17 @@ void LogIngestWorker::start()
     bool          caughtUp      = false;
     int           chunkCommits  = 0;
     const qint64  ingestStart   = m_resumeOffset > 0 ? m_resumeOffset : 0;
+
+    // Emits AltTabBack with elapsed duration if the player is currently alt-tabbed.
+    // Called on explicit [WINDOW] Gained focus and on player-action events (zone
+    // transition, own whisper) that imply the player is back.
+    auto clearAltTab = [&](const QString &gainedTs) {
+        if (altTabOutTs.isEmpty()) return;
+        const qint64 dur = qMax(0LL, tsToSecs(gainedTs) - tsToSecs(altTabOutTs));
+        altTabOutTs.clear();
+        if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
+            emit liveEventParsed(LiveEvent{LiveEventType::AltTabBack, gainedTs, {{"duration_secs", dur}}});
+    };
 
     execSql(db, "BEGIN;");
 
@@ -723,6 +738,7 @@ void LogIngestWorker::start()
                 lastTs = ts;
 
                 flushPassives();
+                altTabOutTs.clear(); // don't carry alt-tab state across sessions
                 closeSession(prevTs);
 
                 sqlite3_bind_int64(sessionInsertStmt, 1, m_installId);
@@ -742,6 +758,9 @@ void LogIngestWorker::start()
                 sessionCharId    = -1;
                 sessionCharLevel = -1;
                 sessionAreaId    = -1;
+                locState         = LocState::Unknown;
+                pendingCode.clear();
+                pendingLevel     = 0;
 
                 openSpan(ts, -1);
 
@@ -818,6 +837,17 @@ void LogIngestWorker::start()
                 pendingPassives.totalPoints     = passivesTotalM.captured(1).toInt();
                 pendingPassives.allocatedPoints = passivesTotalM.captured(2).toInt();
                 continue;
+            }
+
+            // Window focus ([WINDOW] bracket tag)
+            if (hdr.captured(3) == QLatin1String("WINDOW")) {
+                if (message == QLatin1String("Lost focus")) {
+                    altTabOutTs = ts;
+                    if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
+                        emit liveEventParsed(LiveEvent{LiveEventType::AltTabOut, ts, {}});
+                } else if (message == QLatin1String("Gained focus")) {
+                    clearAltTab(ts);
+                }
             }
 
             // Guild
@@ -1370,12 +1400,14 @@ void LogIngestWorker::start()
                 sqlite3_step(whisperStmt);
                 insertEvent(tsBytes, "whisper");
                 sqlite3_reset(whisperStmt);
-                if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
+                if (caughtUp && m_liveMode.load(std::memory_order_relaxed)) {
+                    if (!isFrom) clearAltTab(ts); // sending a whisper = player is focused
                     emit liveEventParsed(LiveEvent{LiveEventType::Whisper, ts, {
                         {"direction", isFrom ? QString("from") : QString("to")},
                         {"player",    whisperM.captured(3)},
                         {"message",   whisperM.captured(4)}
                     }});
+                }
             }
 
             // Character death
@@ -1467,7 +1499,9 @@ void LogIngestWorker::start()
             }
 
             // Area entered (correlated with pending Generating line)
-            if (!pendingCode.isEmpty()) {
+            if (!pendingCode.isEmpty()
+                && locState != LocState::LoginScreen
+                && locState != LocState::AwaitingConnect) {
                 const auto entM = enteredRe.match(message);
                 if (entM.hasMatch()) {
                     const QByteArray codeBytes = pendingCode.toUtf8();
@@ -1505,8 +1539,10 @@ void LogIngestWorker::start()
                         // Close the previous span (char select or prior area) and open one for this area.
                         closeSpan(ts);
                         openSpan(ts, areaId);
+                        locState = LocState::InZone;
 
-                        if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
+                        if (caughtUp && m_liveMode.load(std::memory_order_relaxed)) {
+                            clearAltTab(ts);
                             emit liveEventParsed(LiveEvent{LiveEventType::AreaEntered, ts, {
                                 {"area_name",    entM.captured(1)},
                                 {"area_code",    pendingCode},
@@ -1514,6 +1550,7 @@ void LogIngestWorker::start()
                                 {"area_type",    areaType},
                                 {"area_subtype", areaSubtype}
                             }});
+                        }
                     }
 
                     pendingCode.clear();
@@ -1526,17 +1563,19 @@ void LogIngestWorker::start()
                 if (sceneM.hasMatch()) {
                     const QString sceneName = sceneM.captured(1);
                     if (sceneName == QLatin1String("(unknown)")) {
-                        // Login screen — record timestamp; next Async connecting is char select
+                        // Login screen — transition to LoginScreen state; abandon any in-flight zone load
                         sqlite3_bind_int64(clientScreenEventStmt, 1, m_installId);
                         sqlite3_bind_text (clientScreenEventStmt, 2, "login_screen", -1, SQLITE_STATIC);
                         sqlite3_bind_text (clientScreenEventStmt, 3, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
                         sqlite3_step(clientScreenEventStmt);
                         insertEvent(tsBytes, "client_screen");
                         sqlite3_reset(clientScreenEventStmt);
-                        pendingCharSelect = true;
+                        locState = LocState::LoginScreen;
+                        pendingCode.clear();
                         if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
                             emit liveEventParsed(LiveEvent{LiveEventType::LoginScreen, ts, {}});
-                    } else if (sceneName != QLatin1String("(null)") && pendingCode.isEmpty() && sessionId >= 0) {
+                    } else if (sceneName != QLatin1String("(null)") && pendingCode.isEmpty() && sessionId >= 0
+                               && locState != LocState::LoginScreen && locState != LocState::AwaitingConnect) {
                         // Fallback area transition when no Generating level preceded it
                         const QByteArray nameBytes = sceneName.toUtf8();
 
@@ -1563,25 +1602,27 @@ void LogIngestWorker::start()
 
                             closeSpan(ts);
                             openSpan(ts, areaId);
+                            locState = LocState::InZone;
 
-                            if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
+                            if (caughtUp && m_liveMode.load(std::memory_order_relaxed)) {
+                                clearAltTab(ts);
                                 emit liveEventParsed(LiveEvent{LiveEventType::AreaEntered, ts, {
                                     {"area_name",  sceneName},
                                     {"area_code",  sceneName},
                                     {"area_level", 0}
                                 }});
+                            }
                         }
                     }
                 }
             }
 
-            // Character select screen: Async connecting (while on login screen) then Connected confirms success
-            if (pendingCharSelect && message.contains(QLatin1String("Async connecting to ")))
-                pendingAsyncConnect = true;
+            // Character select screen: Async connecting (from LoginScreen) then Connected confirms arrival
+            if (locState == LocState::LoginScreen && message.contains(QLatin1String("Async connecting to ")))
+                locState = LocState::AwaitingConnect;
 
-            if (pendingAsyncConnect && message.contains(QLatin1String("Connected to "))) {
-                pendingCharSelect   = false;
-                pendingAsyncConnect = false;
+            if (locState == LocState::AwaitingConnect && message.contains(QLatin1String("Connected to "))) {
+                locState = LocState::CharSelect;
                 sqlite3_bind_int64(clientScreenEventStmt, 1, m_installId);
                 sqlite3_bind_text (clientScreenEventStmt, 2, "char_select", -1, SQLITE_STATIC);
                 sqlite3_bind_text (clientScreenEventStmt, 3, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
