@@ -22,7 +22,10 @@ struct AppConfig {
     }
 
     QStringList executableNames; // empty = use knownExes()
-    bool debugLog{false};
+    bool    debugLog{false};
+    QString userAgentLabel{"Chrome (win11)"};
+    QString customUserAgent;
+    bool    includeToolName{true};
     bool useGameOverlay{true};
     bool autoUpdate{true};
     bool autoStartOnBoot{false};
@@ -39,4 +42,5 @@ struct AppConfig {
     static AppConfig load();
     void save() const;
     static QString configPath();
+    QString effectiveUserAgent() const;
 };

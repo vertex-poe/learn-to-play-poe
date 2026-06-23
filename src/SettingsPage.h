@@ -6,6 +6,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QLineEdit;
 class ListEditor;
 class QLabel;
 class QListWidget;
@@ -56,8 +57,11 @@ private:
     // Chat page
     QCheckBox  *m_showGuildTags{};
 
-    // About page
+    // Debug page (only visible in debug builds)
     QCheckBox  *m_debugMode{};
+    QComboBox  *m_userAgent{};
+    QLineEdit  *m_customUserAgent{};
+    QCheckBox  *m_includeToolName{};
 
     // Alerts page
     QListWidget *m_alertsList{};

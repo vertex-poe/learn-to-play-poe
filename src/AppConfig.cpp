@@ -4,6 +4,44 @@
 #include <QDir>
 #include <QFile>
 
+namespace {
+struct UaEntry { const char *label; const char *ua; };
+static const UaEntry kUserAgents[] = {
+    {"Brave (win11)",
+     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"},
+    {"Chrome (win11)",
+     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"},
+    {"Edge (win11)",
+     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0"},
+    {"Firefox (win11)",
+     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0"},
+};
+} // namespace
+
+QString AppConfig::effectiveUserAgent() const
+{
+    QString ua;
+    if (userAgentLabel == QLatin1String("Custom")) {
+        ua = customUserAgent;
+    } else {
+        for (const auto &entry : kUserAgents) {
+            if (userAgentLabel == QLatin1String(entry.label)) {
+                ua = QLatin1String(entry.ua);
+                break;
+            }
+        }
+    }
+
+    if (includeToolName && !ua.isEmpty()) {
+        const QString token = QCoreApplication::applicationName().remove(u' ')
+                              + u'/'
+                              + QCoreApplication::applicationVersion();
+        ua += u' ' + token;
+    }
+
+    return ua;
+}
+
 #include <toml++/toml.hpp>
 
 #include <fstream>
@@ -39,6 +77,11 @@ AppConfig AppConfig::load()
             }
         }
         cfg.debugLog              = tbl["debug_log"].value_or(false);
+        if (auto v = tbl["user_agent_label"].value<std::string>())
+            cfg.userAgentLabel = QString::fromStdString(*v);
+        if (auto v = tbl["custom_user_agent"].value<std::string>())
+            cfg.customUserAgent = QString::fromStdString(*v);
+        cfg.includeToolName       = tbl["include_tool_name"].value_or(true);
         cfg.useGameOverlay        = tbl["use_game_overlay"].value_or(true);
         cfg.autoUpdate            = tbl["auto_update"].value_or(true);
         cfg.autoStartOnBoot       = tbl["auto_start_on_boot"].value_or(false);
@@ -119,6 +162,9 @@ void AppConfig::save() const
         exeArr.push_back(exe.toStdString());
     tbl.insert("executable_names", std::move(exeArr));
     tbl.insert("debug_log",               debugLog);
+    tbl.insert("user_agent_label",        userAgentLabel.toStdString());
+    tbl.insert("custom_user_agent",       customUserAgent.toStdString());
+    tbl.insert("include_tool_name",       includeToolName);
     tbl.insert("use_game_overlay",        useGameOverlay);
     tbl.insert("auto_update",             autoUpdate);
     tbl.insert("auto_start_on_boot",      autoStartOnBoot);

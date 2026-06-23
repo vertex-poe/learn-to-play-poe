@@ -4,6 +4,8 @@
 #include "ListEditor.h"
 
 #include <QCheckBox>
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QMessageBox>
 #include <QComboBox>
 #include <QCoreApplication>
@@ -21,6 +23,7 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QStandardItemModel>
 #include <QStackedWidget>
 #include <QSvgRenderer>
 #include <QVBoxLayout>
@@ -105,6 +108,18 @@ QString ruleDescription(const LiveEventRule &rule)
     const QString detail = msg.isEmpty() ? QString() : QStringLiteral(": \"%1\"").arg(msg);
     return QStringLiteral("When: %1  →  %2%3").arg(rule.label, action, detail);
 }
+
+struct UaEntry { const char *label; const char *ua; };
+static const UaEntry kUserAgents[] = {
+    {"Brave (win11)",
+     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"},
+    {"Chrome (win11)",
+     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"},
+    {"Edge (win11)",
+     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/149.0.0.0"},
+    {"Firefox (win11)",
+     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0"},
+};
 
 } // namespace
 
@@ -201,6 +216,9 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
             this, [this] { navigateTo(4, "Chat"); });
 
     addDivider();
+
+    connect(makeItemBtn("Debug"), &QPushButton::clicked,
+            this, [this] { navigateTo(7, "Debug"); });
 
     connect(makeItemBtn("About"),  &QPushButton::clicked,
             this, [this] { navigateTo(5, "About"); });
@@ -382,20 +400,27 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     aboutLayout->addWidget(copyrightLabel);
     aboutLayout->addWidget(makeSep());
 
-    m_debugMode = new QCheckBox("Enable debug mode", aboutContent);
+    auto *aboutDebugMode = new QCheckBox("Enable debug mode", aboutContent);
     {
-        QFont f = m_debugMode->font();
+        QFont f = aboutDebugMode->font();
         f.setPointSizeF(Theme::fontSm);
-        m_debugMode->setFont(f);
+        aboutDebugMode->setFont(f);
     }
-    m_debugMode->setStyleSheet(
+    aboutDebugMode->setStyleSheet(
         QStringLiteral("QCheckBox::indicator { width: %1px; height: %1px; }").arg(Theme::checkboxSm));
-    m_debugMode->setChecked(config.debugLog);
-    auto *debugRow = new QHBoxLayout;
-    debugRow->addStretch();
-    debugRow->addWidget(m_debugMode);
-    debugRow->addStretch();
-    aboutLayout->addLayout(debugRow);
+    aboutDebugMode->setChecked(config.debugLog);
+    auto *aboutDebugRow = new QHBoxLayout;
+    aboutDebugRow->addStretch();
+    aboutDebugRow->addWidget(aboutDebugMode);
+    aboutDebugRow->addStretch();
+    aboutLayout->addLayout(aboutDebugRow);
+    connect(aboutDebugMode, &QCheckBox::toggled, this, [this, aboutDebugMode](bool) {
+        m_debugMode->setChecked(aboutDebugMode->isChecked());
+    });
+    connect(m_debugMode, &QCheckBox::toggled, this, [aboutDebugMode](bool checked) {
+        if (aboutDebugMode->isChecked() != checked)
+            aboutDebugMode->setChecked(checked);
+    });
 
     aboutLayout->addStretch(1);
 
@@ -430,6 +455,76 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
 
     m_stack->addWidget(alertsContent); // index 6
 
+    // ---- Page 7: Debug ------------------------------------------------
+    auto *debugContent = new QWidget;
+    auto *debugForm    = new QFormLayout(debugContent);
+    debugForm->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
+
+    m_debugMode = new QCheckBox(debugContent);
+    m_debugMode->setChecked(config.debugLog);
+    debugForm->addRow("Debug logging:", m_debugMode);
+
+    m_userAgent = new QComboBox(debugContent);
+    m_userAgent->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_userAgent->addItem("Windows 11");
+    {
+        auto *uaModel = qobject_cast<QStandardItemModel *>(m_userAgent->model());
+        if (uaModel)
+            uaModel->item(0)->setEnabled(false);
+    }
+    for (const auto &entry : kUserAgents)
+        m_userAgent->addItem(entry.label);
+    m_userAgent->insertSeparator(m_userAgent->count());
+    m_userAgent->addItem("Custom");
+    {
+        int idx = m_userAgent->findText(config.userAgentLabel);
+        m_userAgent->setCurrentIndex(idx > 0 ? idx : 2); // default Chrome (win11)
+    }
+
+    m_customUserAgent = new QLineEdit(debugContent);
+    m_customUserAgent->setPlaceholderText("User-Agent string");
+    {
+        const bool isCustom = config.userAgentLabel == QLatin1String("Custom");
+        m_customUserAgent->setReadOnly(!isCustom);
+        m_customUserAgent->setText(isCustom ? config.customUserAgent : config.effectiveUserAgent());
+    }
+
+    const int iconPx = QFontMetrics(font()).height();
+    auto *copyBtn = new QPushButton(debugContent);
+    copyBtn->setFlat(true);
+    copyBtn->setFixedSize(iconPx + 8, iconPx + 8);
+    copyBtn->setIcon(QIcon(Theme::renderSvgIcon(
+        QStringLiteral(":/icons/clipboard-fill.svg"),
+        palette().buttonText().color(),
+        {iconPx, iconPx}, devicePixelRatioF())));
+    copyBtn->setIconSize({iconPx, iconPx});
+    copyBtn->setToolTip("Copy to clipboard");
+    connect(copyBtn, &QPushButton::clicked, this, [this]() {
+        QGuiApplication::clipboard()->setText(m_customUserAgent->text());
+    });
+
+    auto *uaComboRow = new QHBoxLayout;
+    uaComboRow->setContentsMargins(0, 0, 0, 0);
+    uaComboRow->addWidget(m_userAgent);
+    uaComboRow->addStretch();
+    debugForm->addRow("User agent:", uaComboRow);
+
+    auto *uaFieldRow = new QHBoxLayout;
+    uaFieldRow->setContentsMargins(0, 0, 0, 0);
+    uaFieldRow->addWidget(m_customUserAgent, 1);
+    uaFieldRow->addWidget(copyBtn);
+    debugForm->addRow(new QLabel(debugContent), uaFieldRow);
+
+    m_includeToolName = new QCheckBox(debugContent);
+    {
+        const bool isCustom = config.userAgentLabel == QLatin1String("Custom");
+        m_includeToolName->setChecked(!isCustom && config.includeToolName);
+        m_includeToolName->setEnabled(!isCustom);
+    }
+    debugForm->addRow("Include tool name:", m_includeToolName);
+
+    m_stack->addWidget(debugContent); // index 7
+
     // ---- Signal connections -------------------------------------------
     connect(m_autoDetect,     &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
     connect(m_installDirs,    &ListEditor::itemsChanged, this, &SettingsPage::saveAndEmit);
@@ -438,8 +533,22 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     connect(m_defaultTab,     &QComboBox::currentIndexChanged, this, [this](int) { saveAndEmit(); });
     connect(m_startMinimized, &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
     connect(m_minimizeToTray, &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
-    connect(m_showGuildTags,  &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
-    connect(m_debugMode,      &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
+    connect(m_showGuildTags,   &QCheckBox::toggled,            this, [this](bool) { saveAndEmit(); });
+    connect(m_debugMode,       &QCheckBox::toggled,            this, [this](bool) { saveAndEmit(); });
+    connect(m_userAgent, &QComboBox::currentIndexChanged, this, [this](int) {
+        const bool isCustom = m_userAgent->currentText() == QLatin1String("Custom");
+        m_customUserAgent->setReadOnly(!isCustom);
+        if (isCustom)
+            m_customUserAgent->setText(m_config.customUserAgent);
+        // Non-custom: let saveAndEmit set the text after updating the config label.
+        m_includeToolName->setEnabled(!isCustom);
+        m_includeToolName->blockSignals(true);
+        m_includeToolName->setChecked(!isCustom && m_config.includeToolName);
+        m_includeToolName->blockSignals(false);
+        saveAndEmit();
+    });
+    connect(m_customUserAgent, &QLineEdit::textEdited,         this, [this](const QString &) { saveAndEmit(); });
+    connect(m_includeToolName, &QCheckBox::toggled,            this, [this](bool) { saveAndEmit(); });
 }
 
 void SettingsPage::navigateTo(int pageIndex, const QString &title)
@@ -596,6 +705,14 @@ void SettingsPage::saveAndEmit()
     m_config.minimizeToTray  = m_minimizeToTray->isChecked();
     m_config.showGuildTags   = m_showGuildTags->isChecked();
     m_config.debugLog        = m_debugMode->isChecked();
+    if (m_userAgent->currentIndex() > 0)
+        m_config.userAgentLabel = m_userAgent->currentText();
+    if (m_userAgent->currentText() == QLatin1String("Custom"))
+        m_config.customUserAgent = m_customUserAgent->text();
+    if (m_userAgent->currentText() != QLatin1String("Custom"))
+        m_config.includeToolName = m_includeToolName->isChecked();
     m_config.save();
+    if (m_userAgent->currentText() != QLatin1String("Custom"))
+        m_customUserAgent->setText(m_config.effectiveUserAgent());
     emit configChanged();
 }
