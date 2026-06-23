@@ -10,6 +10,20 @@ CREATE TABLE IF NOT EXISTS installs (
 CREATE TABLE IF NOT EXISTS areas (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     code         TEXT    NOT NULL UNIQUE,
+    type         TEXT    CHECK(type IN (
+                     'Campaign',
+                     'Campaign — Act 1',  'Campaign — Act 2',  'Campaign — Act 3',
+                     'Campaign — Act 4',  'Campaign — Act 5',  'Campaign — Act 6',
+                     'Campaign — Act 7',  'Campaign — Act 8',  'Campaign — Act 9',
+                     'Campaign — Act 10',
+                     'Campaign — Act 1 — Vaal side area',   'Campaign — Act 2 — Vaal side area',
+                     'Campaign — Act 3 — Vaal side area',   'Campaign — Act 4 — Vaal side area',
+                     'Campaign — Act 5 — Vaal side area',   'Campaign — Act 6 — Vaal side area',
+                     'Campaign — Act 7 — Vaal side area',   'Campaign — Act 8 — Vaal side area',
+                     'Campaign — Act 9 — Vaal side area',   'Campaign — Act 10 — Vaal side area',
+                     'Map', 'Map — Vaal side area',
+                     'Hideout', 'Mechanic', 'Heist', 'Lab', 'Boss Arena', 'PvP'
+                 )),
     level        INTEGER,
     display_name TEXT
 );

@@ -1,0 +1,18 @@
+INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
+    ('1_1_town', 'Campaign — Act 1', 'Lioneye''s Watch'),
+    ('1_1_8', 'Campaign — Act 1', 'Prisoner''s Gate'),
+    ('1_1_11_2', 'Campaign — Act 1', 'The Cavern of Anger'),
+    ('1_1_11_1', 'Campaign — Act 1', 'The Cavern of Wrath'),
+    ('1_1_6', 'Campaign — Act 1', 'The Climb'),
+    ('1_1_2', 'Campaign — Act 1', 'The Coast'),
+    ('1_1_3a', 'Campaign — Act 1', 'The Fetid Pool'),
+    ('1_1_4_0', 'Campaign — Act 1', 'The Flooded Depths'),
+    ('1_1_5', 'Campaign — Act 1', 'The Ledge'),
+    ('1_1_7_1', 'Campaign — Act 1', 'The Lower Prison'),
+    ('1_1_3', 'Campaign — Act 1', 'The Mud Flats'),
+    ('1_1_9', 'Campaign — Act 1', 'The Ship Graveyard'),
+    ('1_1_9a', 'Campaign — Act 1', 'The Ship Graveyard Cave'),
+    ('1_1_4_1', 'Campaign — Act 1', 'The Submerged Passage'),
+    ('1_1_2a', 'Campaign — Act 1', 'The Tidal Island'),
+    ('1_1_1', 'Campaign — Act 1', 'The Twilight Strand'),
+    ('1_1_7_2', 'Campaign — Act 1', 'The Upper Prison');

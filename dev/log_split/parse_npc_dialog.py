@@ -7,9 +7,9 @@ dev/filtered_client/dialog.txt, generating a stable SHA-256 hash for each
 unique message.  Filters known player names using whispers and chat logs
 (also derived from Client.txt).
 
-Prerequisite: run dev/refilter_logs.py first to produce the filtered files.
+Prerequisite: run dev/log_split/refilter_logs.py first to produce the filtered files.
 
-Output: dev/npc_dialog_hashes.json  (gitignored — contains dialog text)
+Output: dev/log_split/filtered_client/npc_dialog_hashes.json  (gitignored — contains dialog text)
 """
 
 import hashlib
@@ -57,7 +57,7 @@ def main() -> None:
     if not DIALOG_FILE.exists():
         print(
             f"error: {DIALOG_FILE} does not exist\n"
-            f"Run dev/refilter_logs.py first to generate the dialog file.",
+            f"Run dev/log_split/refilter_logs.py first to generate the dialog file.",
             file=sys.stderr,
         )
         sys.exit(1)

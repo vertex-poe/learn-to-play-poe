@@ -1,0 +1,17 @@
+INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
+    ('2_7_5_map', 'Campaign — Act 7', 'Maligaro''s Sanctum'),
+    ('2_7_7', 'Campaign — Act 7', 'The Ashen Fields'),
+    ('2_7_town', 'Campaign — Act 7', 'The Bridge Encampment'),
+    ('2_7_1', 'Campaign — Act 7', 'The Broken Bridge'),
+    ('2_7_10', 'Campaign — Act 7', 'The Causeway'),
+    ('2_7_5_1', 'Campaign — Act 7', 'The Chamber of Sins Level 1'),
+    ('2_7_5_2', 'Campaign — Act 7', 'The Chamber of Sins Level 2'),
+    ('2_7_2', 'Campaign — Act 7', 'The Crossroads'),
+    ('2_7_4', 'Campaign — Act 7', 'The Crypt'),
+    ('2_7_6', 'Campaign — Act 7', 'The Den'),
+    ('2_7_9', 'Campaign — Act 7', 'The Dread Thicket'),
+    ('2_7_3', 'Campaign — Act 7', 'The Fellshrine Ruins'),
+    ('2_7_8', 'Campaign — Act 7', 'The Northern Forest'),
+    ('2_7_12_1', 'Campaign — Act 7', 'The Temple of Decay Level 1'),
+    ('2_7_12_2', 'Campaign — Act 7', 'The Temple of Decay Level 2'),
+    ('2_7_11', 'Campaign — Act 7', 'The Vaal City');

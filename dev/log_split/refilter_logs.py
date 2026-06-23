@@ -6,7 +6,7 @@ Concurrent log splitter using findstr. Extracts all categories in parallel
 (one findstr process per category, up to os.cpu_count() at a time), then
 creates the remainder with a single combined inverse pass.
 
-Usage: python dev/refilter_logs.py [path/to/Client.txt]
+Usage: python dev/log_split/refilter_logs.py [path/to/Client.txt]
 """
 
 import os

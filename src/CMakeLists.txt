@@ -61,6 +61,20 @@ qt_add_executable(l2p-poe1
     WindowTracker.h
 )
 
+file(GLOB SEED_INPUTS
+    "${CMAKE_SOURCE_DIR}/data/seed_base.sql"
+    "${CMAKE_SOURCE_DIR}/data/areas/*.sql"
+)
+
+add_custom_command(
+    OUTPUT "${CMAKE_SOURCE_DIR}/data/seed.sql"
+    COMMAND Python3::Interpreter "${CMAKE_SOURCE_DIR}/dev/build/combine_seed.py"
+    DEPENDS ${SEED_INPUTS} "${CMAKE_SOURCE_DIR}/dev/build/combine_seed.py"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Combining seed SQL files -> data/seed.sql"
+    VERBATIM
+)
+
 qt_add_resources(l2p-poe1 "dbdata"
     PREFIX "/db"
     BASE "${CMAKE_SOURCE_DIR}/data"

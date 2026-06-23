@@ -1,0 +1,18 @@
+INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
+    ('2_6_town', 'Campaign — Act 6', 'Lioneye''s Watch'),
+    ('2_6_8', 'Campaign — Act 6', 'Prisoner''s Gate'),
+    ('2_6_7_2', 'Campaign — Act 6', 'Shavronne''s Tower'),
+    ('2_6_14', 'Campaign — Act 6', 'The Beacon'),
+    ('2_6_15', 'Campaign — Act 6', 'The Brine King''s Reef'),
+    ('2_6_13', 'Campaign — Act 6', 'The Cavern of Anger'),
+    ('2_6_2', 'Campaign — Act 6', 'The Coast'),
+    ('2_6_5', 'Campaign — Act 6', 'The Karui Fortress'),
+    ('2_6_7_1', 'Campaign — Act 6', 'The Lower Prison'),
+    ('2_6_4', 'Campaign — Act 6', 'The Mud Flats'),
+    ('2_6_6', 'Campaign — Act 6', 'The Ridge'),
+    ('2_6_10', 'Campaign — Act 6', 'The Riverways'),
+    ('2_6_12', 'Campaign — Act 6', 'The Southern Forest'),
+    ('2_6_3', 'Campaign — Act 6', 'The Tidal Island'),
+    ('2_6_1', 'Campaign — Act 6', 'The Twilight Strand'),
+    ('2_6_9', 'Campaign — Act 6', 'The Western Forest'),
+    ('2_6_11', 'Campaign — Act 6', 'The Wetlands');

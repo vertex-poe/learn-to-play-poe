@@ -12,10 +12,12 @@ _live/
 .plans/
 
 _rust_archive
+__pycache__/
 *.db*
-dev/filtered_client.txt
-dev/filtered_client/
-dev/filtered_sql/
+data/seed.sql
+dev/log_split/filtered_client.txt
+dev/log_split/filtered_client/
+dev/log_split/filtered_sql/
 bin/
 logs/
 *.log
