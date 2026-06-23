@@ -12,3 +12,10 @@ INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
     ('1_5_1', 'Act 5', 'The Slave Pens'),
     ('1_5_4', 'Act 5', 'The Templar Courts'),
     ('1_5_4b', 'Act 5', 'The Torched Courts');
+
+UPDATE areas SET subtype = 'Town' WHERE code = '1_5_town';
+UPDATE areas SET subtype = 'nowp' WHERE code IN (
+    '1_5_2',   -- The Control Blocks
+    '1_5_6',   -- The Ossuary
+    '1_5_4b'   -- The Torched Courts
+);

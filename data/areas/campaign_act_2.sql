@@ -21,3 +21,15 @@ INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
     ('1_2_10', 'Act 2', 'The Weaver''s Chambers'),
     ('1_2_9', 'Act 2', 'The Western Forest'),
     ('1_2_12', 'Act 2', 'The Wetlands');
+
+UPDATE areas SET subtype = 'Town' WHERE code = '1_2_town';
+UPDATE areas SET subtype = 'nowp' WHERE code IN (
+    '1_2_2',    -- The Old Fields
+    '1_2_2a',   -- The Den
+    '1_2_15',   -- The Fellshrine Ruins
+    '1_2_10',   -- The Weaver's Chambers
+    '1_2_11',   -- The Vaal Ruins
+    '1_2_13',   -- The Dread Thicket
+    '1_2_5_2',  -- The Crypt Level 2
+    '1_2_6_2'   -- The Chamber of Sins Level 2
+);

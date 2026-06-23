@@ -9,7 +9,7 @@
 #include <QFile>
 #include <QHash>
 
-static constexpr int kDbVersion = 3;
+static constexpr int kDbVersion = 4;
 
 static void execSql(sqlite3 *db, const char *sql)
 {
@@ -376,10 +376,14 @@ QStringList Database::fetchChatDates(const QSet<QChar> &channels, bool includeDm
 
 void Database::migrate(int fromVersion)
 {
-    // No migration paths until public release. Delete the database file to reset.
-    qWarning("[DB] stale schema version %d, expected %d — delete the database to start fresh",
-             fromVersion, kDbVersion);
-    setUserVersion(m_db, kDbVersion);
+    // Add version blocks here as needed, e.g.:
+    // if (fromVersion == 1) { ...; setUserVersion(m_db, 2); fromVersion = 2; }
+
+    if (fromVersion < kDbVersion) {
+        qWarning("[DB] stale schema version %d, expected %d — delete the database to start fresh",
+                 fromVersion, kDbVersion);
+        setUserVersion(m_db, kDbVersion);
+    }
 }
 
 Database::InstallState Database::upsertInstall(const QString &installPath)
@@ -649,7 +653,7 @@ QList<Database::ZoneTransitionRecord> Database::fetchZoneTransitions(int limit, 
     armQueryBudget();
 
     static const char *sql = R"(
-        SELECT COALESCE(a.display_name, a.code), a.type, a.level, ats.entered_at, ats.duration_secs
+        SELECT COALESCE(a.display_name, a.code), a.code, a.type, a.subtype, a.level, ats.entered_at, ats.duration_secs
         FROM area_time_spans ats
         LEFT JOIN areas a ON ats.area_id = a.id
         WHERE ats.session_id = (
@@ -670,13 +674,17 @@ QList<Database::ZoneTransitionRecord> Database::fetchZoneTransitions(int limit, 
         if (auto *p = sqlite3_column_text(stmt, 0))
             r.areaName = QString::fromUtf8(reinterpret_cast<const char *>(p));
         if (auto *p = sqlite3_column_text(stmt, 1))
+            r.areaCode = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        if (auto *p = sqlite3_column_text(stmt, 2))
             r.areaType = QString::fromUtf8(reinterpret_cast<const char *>(p));
-        r.areaLevel = sqlite3_column_type(stmt, 2) != SQLITE_NULL
-                      ? sqlite3_column_int(stmt, 2) : 0;
         if (auto *p = sqlite3_column_text(stmt, 3))
+            r.areaSubtype = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        r.areaLevel = sqlite3_column_type(stmt, 4) != SQLITE_NULL
+                      ? sqlite3_column_int(stmt, 4) : 0;
+        if (auto *p = sqlite3_column_text(stmt, 5))
             r.enteredAt = QString::fromUtf8(reinterpret_cast<const char *>(p));
-        r.durationSecs = sqlite3_column_type(stmt, 4) != SQLITE_NULL
-                         ? sqlite3_column_int(stmt, 4) : -1;
+        r.durationSecs = sqlite3_column_type(stmt, 6) != SQLITE_NULL
+                         ? sqlite3_column_int(stmt, 6) : -1;
         result.append(r);
     }
     sqlite3_finalize(stmt);

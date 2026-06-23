@@ -1,6 +1,9 @@
 #pragma once
 
 #include <QColor>
+#include <QPixmap>
+#include <QSize>
+#include <QString>
 
 class QApplication;
 
@@ -72,5 +75,11 @@ inline constexpr int scrollBarWidth  = 8;
 inline constexpr int scrollHandleMin = 24;
 
 void apply(QApplication &app);
+
+// Renders svgPath into a DPR-aware pixmap tinted with color.
+// Must pass devicePixelRatioF() from the calling widget — the lr-rect
+// workaround for Qt 5.15+ fractional-DPR overflow lives here and nowhere else.
+QPixmap renderSvgIcon(const QString &svgPath, const QColor &color,
+                      QSize logicalSize, qreal dpr);
 
 } // namespace Theme

@@ -16,7 +16,6 @@
 #include <QLocale>
 #include <QPainter>
 #include <QPushButton>
-#include <QSvgRenderer>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -161,14 +160,7 @@ protected:
                 : QStringLiteral(":/icons/chevron-bar-right.svg");
             const int pad      = 6;
             const int iconSize = kBadgeW - pad * 2;
-            const qreal dpr    = devicePixelRatioF();
-            QPixmap pix(qRound(iconSize * dpr), qRound(iconSize * dpr));
-            pix.setDevicePixelRatio(dpr);
-            pix.fill(Qt::transparent);
-            { QPainter gp(&pix); QSvgRenderer(svgPath).render(&gp); }
-            { QPainter cp(&pix);
-              cp.setCompositionMode(QPainter::CompositionMode_SourceIn);
-              cp.fillRect(pix.rect(), Qt::white); }
+            const QPixmap pix  = Theme::renderSvgIcon(svgPath, Qt::white, {iconSize, iconSize}, devicePixelRatioF());
             p.drawPixmap(kBarW + kBadgePadL + pad, kPadV + pad, pix);
         } else {
             p.setFont(boldF);

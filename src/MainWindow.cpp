@@ -422,6 +422,7 @@ void MainWindow::onTaskUpdated(int id)
                          << (r.status == TaskStatus::Monitoring ? "→ Monitoring" : "→ Finished");
                 setStatusContent(QString());   // let idle message take over
                 m_pastPage->markDirty();
+                m_currentPage->markDirty();
             } else {
                 setStatusContent(QStringLiteral("%1 · %2").arg(t, r.name));
             }

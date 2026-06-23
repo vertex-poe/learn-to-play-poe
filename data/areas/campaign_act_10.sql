@@ -11,3 +11,12 @@ INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
     ('2_10_2', 'Act 10', 'The Ravaged Square'),
     ('2_10_8', 'Act 10', 'The Reliquary'),
     ('2_10_3', 'Act 10', 'The Torched Courts');
+
+UPDATE areas SET subtype = 'Town' WHERE code = '2_10_town';
+UPDATE areas SET subtype = 'nowp' WHERE code IN (
+    '2_10_1',  -- The Cathedral Rooftop
+    '2_10_9',  -- The Ossuary
+    '2_10_5',  -- The Canals
+    '2_10_6',  -- The Feeding Trough
+    '2_10_3'   -- The Torched Courts
+);

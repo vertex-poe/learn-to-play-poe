@@ -38,3 +38,5 @@ INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
     ('Synthesis_MapGuardian3', 'Mechanic', 'Twisted Distant Memory'),
     ('ExpeditionUtzaalOutskirts', 'Mechanic', 'Utzaal Outskirts'),
     ('ClassicTreasury_Cosmic', 'Mechanic', 'Voidborn Reliquary');
+
+UPDATE areas SET subtype = 'Town' WHERE code = '2_11_endgame_town';

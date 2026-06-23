@@ -17,3 +17,14 @@ INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
     ('2_7_12_1', 'Act 7', 'The Temple of Decay Level 1'),
     ('2_7_12_2', 'Act 7', 'The Temple of Decay Level 2'),
     ('2_7_11', 'Act 7', 'The Vaal City');
+
+UPDATE areas SET subtype = 'Town' WHERE code = '2_7_town';
+UPDATE areas SET subtype = 'nowp' WHERE code IN (
+    '2_7_1',    -- The Broken Bridge
+    '2_7_3',    -- The Fellshrine Ruins
+    '2_7_5_map', -- Maligaro's Sanctum
+    '2_7_9',    -- The Dread Thicket
+    '2_7_12_1', -- The Temple of Decay Level 1
+    '2_7_12_2', -- The Temple of Decay Level 2
+    '2_7_5_2'   -- The Chamber of Sins Level 2
+);

@@ -46,7 +46,8 @@ private:
                               const QList<WindowState> &runningGames,
                               const QMap<quint32, QString> &detectedAt,
                               int distFromBottom);
-    NotificationWidget *makeZoneCard(const QString &areaName, const QString &areaType,
+    NotificationWidget *makeZoneCard(const QString &areaName, const QString &areaCode,
+                                     const QString &areaType, const QString &areaSubtype,
                                      int areaLevel, const QString &timestamp, int durationSecs);
     void appendDbZone(NotificationWidget *card);
     void setLoadMoreVisible(bool visible);

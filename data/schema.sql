@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS installs (
 CREATE TABLE IF NOT EXISTS areas (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     code         TEXT    NOT NULL UNIQUE,
+    subtype      TEXT,
     type         TEXT    CHECK(type IN (
-                     'Campaign',
                      'Act 1',  'Act 2',  'Act 3',
                      'Act 4',  'Act 5',  'Act 6',
                      'Act 7',  'Act 8',  'Act 9',

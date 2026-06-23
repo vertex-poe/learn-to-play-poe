@@ -4,7 +4,6 @@
 #include <QEnterEvent>
 #include <QPainter>
 #include <QPen>
-#include <QSvgRenderer>
 
 ScrollJumpButton::ScrollJumpButton(QWidget *parent)
     : QPushButton(parent)
@@ -46,18 +45,8 @@ void ScrollJumpButton::paintEvent(QPaintEvent *)
 
     const int pad = 12;
     const int iconSize = width() - pad * 2;
-    const qreal dpr = devicePixelRatioF();
-    const int pw = qRound(iconSize * dpr);
-    const QRectF lr(0, 0, qreal(pw) / dpr, qreal(pw) / dpr);
-    QPixmap pix(pw, pw);
-    pix.setDevicePixelRatio(dpr);
-    pix.fill(Qt::transparent);
-    const QString iconPath = m_skipMode
-        ? QStringLiteral(":/icons/chevron-bar-down.svg")
-        : QStringLiteral(":/icons/arrow-down.svg");
-    { QPainter gp(&pix); QSvgRenderer(iconPath).render(&gp, lr); }
-    { QPainter cp(&pix);
-      cp.setCompositionMode(QPainter::CompositionMode_SourceIn);
-      cp.fillRect(lr, Theme::textPrimary); }
-    p.drawPixmap(QRect(pad, pad, iconSize, iconSize), pix, QRect(0, 0, pw, pw));
+    const QString iconPath = m_skipMode ? QStringLiteral(":/icons/chevron-bar-down.svg")
+                                        : QStringLiteral(":/icons/arrow-down.svg");
+    const QPixmap pix = Theme::renderSvgIcon(iconPath, Theme::textPrimary, {iconSize, iconSize}, devicePixelRatioF());
+    p.drawPixmap(QRect(pad, pad, iconSize, iconSize), pix, QRect(0, 0, pix.width(), pix.height()));
 }

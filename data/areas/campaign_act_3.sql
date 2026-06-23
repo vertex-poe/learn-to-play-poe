@@ -20,3 +20,13 @@ INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
     ('1_3_8_1', 'Act 3', 'The Solaris Temple Level 1'),
     ('1_3_8_2', 'Act 3', 'The Solaris Temple Level 2'),
     ('1_3_18_2', 'Act 3', 'The Upper Sceptre of God');
+
+UPDATE areas SET subtype = 'Town' WHERE code = '1_3_town';
+-- Note: Solaris Temple Level 2 (1_3_8_2) is the only _2+ campaign zone with a waypoint; subtype left NULL.
+UPDATE areas SET subtype = 'nowp' WHERE code IN (
+    '1_3_2',    -- The Slums
+    '1_3_6',    -- The Catacombs
+    '1_3_14_2', -- The Lunaris Temple Level 2
+    '1_3_17_2', -- The Archives
+    '1_3_18_2'  -- The Upper Sceptre of God
+);

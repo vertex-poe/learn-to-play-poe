@@ -131,8 +131,10 @@ public:
 
     struct ZoneTransitionRecord
     {
-        QString areaName; // display_name, or code if display_name is absent
-        QString areaType; // areas.type (e.g. "Map", "Act 1"), or empty
+        QString areaName;    // display_name, or code if display_name is absent
+        QString areaCode;    // areas.code
+        QString areaType;    // areas.type (e.g. "Map", "Act 1"), or empty
+        QString areaSubtype; // areas.subtype (e.g. "Town"), or empty
         int areaLevel{0};
         QString enteredAt;    // "YYYY-MM-DD HH:MM:SS"
         int durationSecs{-1}; // -1 when the span is still open (current zone)

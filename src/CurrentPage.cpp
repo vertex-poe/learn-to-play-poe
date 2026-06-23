@@ -174,9 +174,11 @@ void CurrentPage::onLiveEvent(const LiveEvent &event, bool bulk)
     }
 
     if (event.type == LiveEventType::AreaEntered) {
-        const QString areaName  = event.data.value("area_name").toString();
-        const QString areaType  = event.data.value("area_type").toString();
-        const int     areaLevel = event.data.value("area_level").toInt();
+        const QString areaName    = event.data.value("area_name").toString();
+        const QString areaCode    = event.data.value("area_code").toString();
+        const QString areaType    = event.data.value("area_type").toString();
+        const QString areaSubtype = event.data.value("area_subtype").toString();
+        const int     areaLevel   = event.data.value("area_level").toInt();
 
         // Stamp the previous zone's card with the time spent there. The ingest worker
         // closes span N-1 before emitting AreaEntered for span N, so the two most
@@ -199,7 +201,7 @@ void CurrentPage::onLiveEvent(const LiveEvent &event, bool bulk)
         }
 
         const QString ts = QDateTime::currentDateTime().toString("HH:mm");
-        auto *card = makeZoneCard(areaName, areaType, areaLevel, ts, -1);
+        auto *card = makeZoneCard(areaName, areaCode, areaType, areaSubtype, areaLevel, ts, -1);
         appendLiveWidget(card);
         m_prevZoneCard = card;
 
@@ -390,7 +392,7 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
 
             if (takeZone) {
                 const auto &z = zones[zi];
-                auto *card = makeZoneCard(z.areaName, z.areaType,
+                auto *card = makeZoneCard(z.areaName, z.areaCode, z.areaType, z.areaSubtype,
                                           z.areaLevel, z.enteredAt.mid(11, 5), z.durationSecs);
                 m_contentLayout->addWidget(card);
                 m_dbZoneWidgets.append(card);
@@ -426,7 +428,7 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
     } else {
         for (int i = zones.size() - 1; i >= 0; --i) {
             const auto &z = zones[i];
-            appendDbZone(makeZoneCard(z.areaName, z.areaType,
+            appendDbZone(makeZoneCard(z.areaName, z.areaCode, z.areaType, z.areaSubtype,
                                       z.areaLevel, z.enteredAt.mid(11, 5), z.durationSecs));
         }
         if (!zones.isEmpty() && zones[0].durationSecs < 0)
@@ -461,7 +463,7 @@ void CurrentPage::onLoadMore()
             const int insertPos = btnIdx >= 0 ? btnIdx + 1 : basePos;
             for (const auto &z : zones) {
                 const QString ts = z.enteredAt.mid(11, 5);
-                auto *card = makeZoneCard(z.areaName, z.areaType, z.areaLevel, ts, z.durationSecs);
+                auto *card = makeZoneCard(z.areaName, z.areaCode, z.areaType, z.areaSubtype, z.areaLevel, ts, z.durationSecs);
                 m_contentLayout->insertWidget(insertPos, card);
                 m_dbZoneWidgets.append(card);
             }
@@ -481,20 +483,53 @@ void CurrentPage::onLoadMore()
 // Helpers
 // ---------------------------------------------------------------------------
 
-NotificationWidget *CurrentPage::makeZoneCard(const QString &areaName, const QString &areaType,
+NotificationWidget *CurrentPage::makeZoneCard(const QString &areaName, const QString &areaCode,
+                                               const QString &areaType, const QString &areaSubtype,
                                                int areaLevel, const QString &timestamp,
                                                int durationSecs)
 {
     const bool showTag = areaLevel > 0
-                         && areaType != QLatin1String("Hideout")
-                         && areaType != QLatin1String("Mechanic");
+                         && areaType    != QLatin1String("Hideout")
+                         && areaType    != QLatin1String("Mechanic")
+                         && areaSubtype != QLatin1String("Town");
     const QString tag = showTag ? QStringLiteral("lv %1").arg(areaLevel) : QString{};
     if (!areaType.isEmpty()) {
-        auto *card = new NotificationWidget(areaType + ":", {}, {}, timestamp, zoneStyle(), m_content);
+        const QString typeLabel = areaSubtype.isEmpty()
+            ? areaType + ":"
+            : areaType + " \xc2\xb7 " + areaSubtype + ":";
+        auto *card = new NotificationWidget(typeLabel, {}, {}, timestamp, zoneStyle(), m_content);
         card->setAreaName(areaName);
         card->setHeaderSuffix(durationSecs > 0 ? "entered. \xc2\xb7 " + formatDuration(durationSecs) : "entered.");
         if (!tag.isEmpty())
             card->appendTopRowTag(tag);
+        static const QHash<QString, QString> kMechanicIcons = {
+            {"ChayulaLeague",          ":/icons/tree-fill.svg"},
+            {"Delve_Main",             ":/icons/minecart-loaded.svg"},
+            {"KalguuranSettlersLeague", ":/icons/coin.svg"},
+            {"Labyrinth_Airlock",       ":/icons/qr-code.svg"},
+            {"SanctumFoyer_Fellshrine", ":/icons/door-open-fill.svg"},
+            {"SanctumCellar",           ":/icons/bullseye.svg"},
+            {"SanctumNave",             ":/icons/bullseye.svg"},
+            {"SanctumCrypt",            ":/icons/bullseye.svg"},
+            {"SanctumVaults",           ":/icons/bullseye.svg"},
+            {"Menagerie_Hub",          ":/icons/bug-fill.svg"},
+            {"HeistHub",               ":/icons/safe2-fill.svg"},
+        };
+        const QColor accent = zoneStyle().accentColor;
+        if (areaSubtype == QLatin1String("Town"))
+            card->setLeadingIcon(QStringLiteral(":/icons/shop.svg"), accent, 20);
+        else if (areaType == QLatin1String("Hideout"))
+            card->setLeadingIcon(QStringLiteral(":/icons/house-fill.svg"), accent, 20);
+        else if (areaType == QLatin1String("Map"))
+            card->setLeadingIcon(QStringLiteral(":/icons/map-fill.svg"), accent, 20);
+        else if (areaType == QLatin1String("Heist"))
+            card->setLeadingIcon(QStringLiteral(":/icons/alarm-fill.svg"), accent, 20);
+        else if (areaType.startsWith(QLatin1String("Act")) && areaSubtype == QLatin1String("nowp"))
+            card->setLeadingIcon(QStringLiteral(":/icons/geo.svg"), accent, 20);
+        else if (areaType.startsWith(QLatin1String("Act")) && areaSubtype.isEmpty())
+            card->setLeadingIcon(QStringLiteral(":/icons/geo-fill.svg"), accent, 20);
+        else if (auto it = kMechanicIcons.find(areaCode); it != kMechanicIcons.end())
+            card->setLeadingIcon(*it, accent, 20);
         card->setSource(docSource("Client.txt", "sources/zone-transition"));
         return card;
     }

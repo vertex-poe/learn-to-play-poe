@@ -16,7 +16,6 @@
 #include <QMap>
 #include <QPainter>
 #include <QPushButton>
-#include <QSvgRenderer>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -169,17 +168,9 @@ protected:
 
             int textX = bx + kPad;
             if (out) {
-                const qreal dpr = devicePixelRatioF();
-                const int pw = qRound(nh * dpr);
-                const QRectF lr(0, 0, qreal(pw) / dpr, qreal(pw) / dpr);
-                QPixmap pix(pw, pw);
-                pix.setDevicePixelRatio(dpr);
-                pix.fill(Qt::transparent);
-                { QPainter gp(&pix); QSvgRenderer(QStringLiteral(":/icons/chevron-bar-right.svg")).render(&gp, lr); }
-                { QPainter cp(&pix);
-                  cp.setCompositionMode(QPainter::CompositionMode_SourceIn);
-                  cp.fillRect(lr, fg); }
-                p.drawPixmap(QRect(textX, y, nh, nh), pix, QRect(0, 0, pw, pw));
+                const QPixmap pix = Theme::renderSvgIcon(
+                    QStringLiteral(":/icons/chevron-bar-right.svg"), fg, {nh, nh}, devicePixelRatioF());
+                p.drawPixmap(QRect(textX, y, nh, nh), pix, QRect(0, 0, pix.width(), pix.height()));
                 textX += nh + 4;
             }
 

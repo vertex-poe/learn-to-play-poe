@@ -9,7 +9,6 @@
 #include <QPainter>
 #include <QPen>
 #include <QRegularExpression>
-#include <QSvgRenderer>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -135,10 +134,11 @@ QWidget *buildSegmentedRow(const QString &text, const QColor &color, QWidget *pa
 class SourceIconWidget : public QWidget
 {
 public:
-    explicit SourceIconWidget(const QColor &color, QWidget *parent = nullptr)
-        : QWidget(parent), m_color(color)
+    explicit SourceIconWidget(const QString &svgPath, const QColor &color,
+                              int size = 14, QWidget *parent = nullptr)
+        : QWidget(parent), m_svgPath(svgPath), m_color(color)
     {
-        setFixedSize(14, 14);
+        setFixedSize(size, size);
         setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     }
 
@@ -158,25 +158,13 @@ protected:
 
     void paintEvent(QPaintEvent *) override
     {
-        const qreal dpr = devicePixelRatioF();
-        const int pw = qRound(width()  * dpr);
-        const int ph = qRound(height() * dpr);
-        // lr is the pixmap's extent in logical coordinates (Qt 5.15+ paints to QPixmap
-        // in logical coords; without an explicit rect render() uses pix.width() as a
-        // logical value, which overflows the physical buffer at fractional DPR).
-        const QRectF lr(0, 0, qreal(pw) / dpr, qreal(ph) / dpr);
-        QPixmap pix(pw, ph);
-        pix.setDevicePixelRatio(dpr);
-        pix.fill(Qt::transparent);
-        { QPainter gp(&pix); QSvgRenderer(QStringLiteral(":/icons/info-circle.svg")).render(&gp, lr); }
-        { QPainter cp(&pix);
-          cp.setCompositionMode(QPainter::CompositionMode_SourceIn);
-          cp.fillRect(lr, m_color); }
+        const QPixmap pix = Theme::renderSvgIcon(m_svgPath, m_color, size(), devicePixelRatioF());
         QPainter p(this);
-        p.drawPixmap(QRect(QPoint(0, 0), size()), pix, QRect(0, 0, pw, ph));
+        p.drawPixmap(0, 0, pix);
     }
 
 private:
+    QString m_svgPath;
     QColor  m_color;
     QString m_url;
 };
@@ -275,7 +263,7 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
     m_expandIndicator->setVisible(false);
     m_topRow->addWidget(m_expandIndicator, 0);
 
-    m_sourceIcon = new SourceIconWidget(style.timestampColor, this);
+    m_sourceIcon = new SourceIconWidget(QStringLiteral(":/icons/info-circle.svg"), style.timestampColor, 14, this);
     m_sourceIcon->setVisible(false);
     m_topRow->addWidget(m_sourceIcon, 0, Qt::AlignVCenter);
 
@@ -433,6 +421,14 @@ void NotificationWidget::setAreaName(const QString &name)
     lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     const int idx = m_leftLayout->indexOf(m_headerSuffixLabel);
     m_leftLayout->insertWidget(idx, lbl, 0, Qt::AlignVCenter);
+}
+
+void NotificationWidget::setLeadingIcon(const QString &svgPath, const QColor &color, int size)
+{
+    if (!m_leftLayout || svgPath.isEmpty()) return;
+    auto *icon = new SourceIconWidget(svgPath, color, size, this);
+    m_leftLayout->insertWidget(0, icon, 0, Qt::AlignVCenter);
+    m_leadingIcon = icon;
 }
 
 void NotificationWidget::appendTopRowTag(const QString &tag)

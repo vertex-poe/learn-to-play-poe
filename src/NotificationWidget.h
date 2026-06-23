@@ -35,6 +35,7 @@ public:
 
     void setMessage(const QString &text);
     void setHeaderSuffix(const QString &text);
+    void setLeadingIcon(const QString &svgPath, const QColor &color, int size = 14);
     void setSource(const DocSource &source);
     void setDetailRows(const QList<QPair<QString, QString>> &rows);
     void setAreaName(const QString &name);
@@ -52,6 +53,7 @@ private:
     QWidget           *m_bodyWidget{};
     QLabel            *m_headerSuffixLabel{};
     QLabel            *m_expandIndicator{};
+    QWidget           *m_leadingIcon{};
     QWidget           *m_sourceIcon{};
     QWidget           *m_separator{};
     QWidget           *m_detailWidget{};

@@ -3,10 +3,28 @@
 
 #include <QApplication>
 #include <QFont>
+#include <QPainter>
 #include <QPalette>
 #include <QStyleFactory>
+#include <QSvgRenderer>
 
 namespace Theme {
+
+QPixmap renderSvgIcon(const QString &svgPath, const QColor &color,
+                      QSize logicalSize, qreal dpr)
+{
+    const int pw = qRound(logicalSize.width()  * dpr);
+    const int ph = qRound(logicalSize.height() * dpr);
+    const QRectF lr(0, 0, qreal(pw) / dpr, qreal(ph) / dpr);
+    QPixmap pix(pw, ph);
+    pix.setDevicePixelRatio(dpr);
+    pix.fill(Qt::transparent);
+    { QPainter gp(&pix); QSvgRenderer(svgPath).render(&gp, lr); }
+    { QPainter cp(&pix);
+      cp.setCompositionMode(QPainter::CompositionMode_SourceIn);
+      cp.fillRect(lr, color); }
+    return pix;
+}
 
 void apply(QApplication &app)
 {

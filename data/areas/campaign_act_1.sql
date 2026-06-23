@@ -18,3 +18,16 @@ INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
     ('1_1_2a', 'Act 1', 'The Tidal Island'),
     ('1_1_1', 'Act 1', 'The Twilight Strand'),
     ('1_1_7_2', 'Act 1', 'The Upper Prison');
+
+UPDATE areas SET subtype = 'Town' WHERE code = '1_1_town';
+UPDATE areas SET subtype = 'nowp' WHERE code IN (
+    '1_1_1',    -- The Twilight Strand
+    '1_1_2a',   -- The Tidal Island
+    '1_1_3',    -- The Mud Flats
+    '1_1_3a',   -- The Fetid Pool
+    '1_1_4_0',  -- The Flooded Depths
+    '1_1_9',    -- The Ship Graveyard
+    '1_1_9a',   -- The Ship Graveyard Cave
+    '1_1_7_2',  -- The Upper Prison
+    '1_1_11_2'  -- The Cavern of Anger
+);
