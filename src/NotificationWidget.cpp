@@ -1,6 +1,7 @@
 #include "NotificationWidget.h"
 #include "Theme.h"
 
+#include <QDesktopServices>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -8,6 +9,8 @@
 #include <QPainter>
 #include <QPen>
 #include <QRegularExpression>
+#include <QSvgRenderer>
+#include <QUrl>
 #include <QVBoxLayout>
 
 namespace {
@@ -129,6 +132,49 @@ QWidget *buildSegmentedRow(const QString &text, const QColor &color, QWidget *pa
     return row;
 }
 
+class SourceIconWidget : public QWidget
+{
+public:
+    explicit SourceIconWidget(const QColor &color, QWidget *parent = nullptr)
+        : QWidget(parent), m_color(color)
+    {
+        setFixedSize(14, 14);
+        setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    }
+
+    void setUrl(const QString &url)
+    {
+        m_url = url;
+        setCursor(url.isEmpty() ? Qt::ArrowCursor : Qt::PointingHandCursor);
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent *e) override
+    {
+        if (!m_url.isEmpty())
+            QDesktopServices::openUrl(QUrl(m_url));
+        QWidget::mousePressEvent(e);
+    }
+
+    void paintEvent(QPaintEvent *) override
+    {
+        const qreal dpr = devicePixelRatioF();
+        QPixmap pix(qRound(width() * dpr), qRound(height() * dpr));
+        pix.setDevicePixelRatio(dpr);
+        pix.fill(Qt::transparent);
+        { QPainter gp(&pix); QSvgRenderer(QStringLiteral(":/icons/info-circle.svg")).render(&gp); }
+        { QPainter cp(&pix);
+          cp.setCompositionMode(QPainter::CompositionMode_SourceIn);
+          cp.fillRect(pix.rect(), m_color); }
+        QPainter p(this);
+        p.drawPixmap(0, 0, pix);
+    }
+
+private:
+    QColor  m_color;
+    QString m_url;
+};
+
 } // namespace
 
 void NotificationWidget::paintEvent(QPaintEvent *)
@@ -220,6 +266,10 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
     m_expandIndicator->setVisible(false);
     topRow->addWidget(m_expandIndicator, 0);
 
+    m_sourceIcon = new SourceIconWidget(style.timestampColor, this);
+    m_sourceIcon->setVisible(false);
+    topRow->addWidget(m_sourceIcon, 0, Qt::AlignVCenter);
+
     topRow->addWidget(tsLabel, 0);
 
     m_outerLayout->addLayout(topRow);
@@ -250,6 +300,14 @@ void NotificationWidget::setHeaderSuffix(const QString &text)
     if (!m_headerSuffixLabel) return;
     m_headerSuffixLabel->setText(text);
     m_headerSuffixLabel->setVisible(!text.isEmpty());
+}
+
+void NotificationWidget::setSource(const DocSource &source)
+{
+    if (!m_sourceIcon) return;
+    m_sourceIcon->setToolTip("Source: " + source.label);
+    static_cast<SourceIconWidget *>(m_sourceIcon)->setUrl(source.url);
+    m_sourceIcon->setVisible(!source.label.isEmpty());
 }
 
 void NotificationWidget::setDetailRows(const QList<QPair<QString, QString>> &rows)

@@ -8,6 +8,7 @@ qt_add_executable(l2p-poe1
     Cli.cpp
     Cli.h
     DialogHash.h
+    Docs.h
     AppStyle.cpp
     AppStyle.h
     BackgroundWorker.h
@@ -77,6 +78,7 @@ qt_add_resources(l2p-poe1 "svgicons"
         "${CMAKE_SOURCE_DIR}/assets/icons/chevron-bar-left.svg"
         "${CMAKE_SOURCE_DIR}/assets/icons/chevron-bar-right.svg"
         "${CMAKE_SOURCE_DIR}/assets/icons/chevron-bar-down.svg"
+        "${CMAKE_SOURCE_DIR}/assets/icons/info-circle.svg"
 )
 
 qt_add_resources(l2p-poe1 "brandsvg"
@@ -85,6 +87,15 @@ qt_add_resources(l2p-poe1 "brandsvg"
     FILES
         "${CMAKE_SOURCE_DIR}/assets/vertex-industries/vertex-icon.svg"
 )
+
+add_custom_target(validate_doc_urls
+    COMMAND ${CMAKE_COMMAND}
+        -D "SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/cmake/ValidateDocUrls.cmake"
+    COMMENT "Validating docsSiteUrl paths"
+    VERBATIM
+)
+add_dependencies(l2p-poe1 validate_doc_urls)
 
 if (WIN32)
     target_sources(l2p-poe1 PRIVATE WindowTrackerWindows.cpp OverlayKeepalive.cpp OverlayKeepalive.h l2p-poe1.rc)

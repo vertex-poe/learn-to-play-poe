@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Docs.h"
+
 #include <QColor>
 #include <QFrame>
 #include <QList>
@@ -32,6 +34,7 @@ public:
 
     void setMessage(const QString &text);
     void setHeaderSuffix(const QString &text);
+    void setSource(const DocSource &source);
     void setDetailRows(const QList<QPair<QString, QString>> &rows);
 
 protected:
@@ -44,6 +47,7 @@ private:
     QWidget           *m_bodyWidget{};
     QLabel            *m_headerSuffixLabel{};
     QLabel            *m_expandIndicator{};
+    QWidget           *m_sourceIcon{};
     QWidget           *m_separator{};
     QWidget           *m_detailWidget{};
     bool               m_expanded{false};

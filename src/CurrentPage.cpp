@@ -1,5 +1,6 @@
 #include "CurrentPage.h"
 #include "Database.h"
+#include "Docs.h"
 #include "LiveEvent.h"
 #include "LiveEventBus.h"
 #include "QueryService.h"
@@ -317,6 +318,7 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
             auto *card = new NotificationWidget(
                 "Game is running", {}, {}, ts, sessionStyle(), container);
             card->setHeaderSuffix("\xc2\xb7 " + g.executableName);
+            card->setSource(docSource("OS, Client.txt", "sources/game-running"));
 
             QList<QPair<QString, QString>> details;
             const auto *ev = findStartEvent(g, detected);
@@ -343,6 +345,7 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
                 auto *card = new NotificationWidget(
                     "Game is running", {}, {}, ts, sessionStyle(), container);
                 card->setHeaderSuffix("\xc2\xb7 " + g.executableName);
+                card->setSource(docSource("OS, Client.txt", "sources/game-running"));
                 QList<QPair<QString, QString>> details;
                 const auto *ev = findStartEvent(g, detected);
                 details.append({"Started", ev ? ev->occurredAt
@@ -394,6 +397,7 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
                     sessionStyle(), m_content);
                 if (!ev.charName.isEmpty())
                     card->setHeaderSuffix("\xc2\xb7 " + ev.charName);
+                card->setSource(docSource("Client.txt", "sources/game-started"));
                 QList<QPair<QString, QString>> details;
                 details.append({"Time", ev.occurredAt});
                 if (!ev.charName.isEmpty()) {
@@ -478,6 +482,7 @@ NotificationWidget *CurrentPage::makeZoneCard(const QString &areaName, int areaL
     auto *card = new NotificationWidget(areaName, tag, {}, timestamp, zoneStyle(), m_content);
     if (durationSecs > 0)
         card->setHeaderSuffix("\xc2\xb7 " + formatDuration(durationSecs));
+    card->setSource(docSource("Client.txt", "sources/zone-transition"));
     return card;
 }
 

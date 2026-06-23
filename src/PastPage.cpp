@@ -1,5 +1,6 @@
 #include "PastPage.h"
 #include "Database.h"
+#include "Docs.h"
 #include "LiveEvent.h"
 #include "QueryService.h"
 #include "LiveEventBus.h"
@@ -199,6 +200,7 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
                     "Game started", {}, {}, timeLabel, style, content);
                 if (!ev.charName.isEmpty())
                     card->setHeaderSuffix("\xc2\xb7 " + ev.charName);
+                card->setSource(docSource("Client.txt", "sources/game-started"));
                 QList<QPair<QString, QString>> details;
                 details.append({"Time", ev.occurredAt});
                 if (!ev.charName.isEmpty()) {
@@ -222,6 +224,7 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
                     card->setHeaderSuffix("\xc2\xb7 " + active);
                 else if (!total.isEmpty())
                     card->setHeaderSuffix("\xc2\xb7 " + total);
+                card->setSource(docSource("Client.txt", "sources/game-stopped"));
                 QList<QPair<QString, QString>> details;
                 details.append({"Time", ev.occurredAt});
                 if (!active.isEmpty())
