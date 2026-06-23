@@ -10,6 +10,7 @@
 #include "Theme.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QFrame>
 #include <QPushButton>
 #include <QScrollArea>
@@ -363,8 +364,12 @@ void CurrentPage::rebuildDbZones()
   const int sessionLimit = runningGames.size() == 1  ? 10
                            : runningGames.size() > 1 ? 50
                                                      : 0;
+  const int zoneLimit = runningGames.isEmpty() ? 0 : kDbZoneLimit;
 
-  m_queryService->fetchCurrentPageData(sessionLimit, kDbZoneLimit,
+  qDebug() << "[current] rebuildDbZones games=" << runningGames.size()
+           << "sessionLimit=" << sessionLimit << "zoneLimit=" << zoneLimit;
+
+  m_queryService->fetchCurrentPageData(sessionLimit, zoneLimit,
                                        [this, distFromBottom, runningGames, detectedAt](QueryService::CurrentPageData data)
                                        {
                                          m_rebuildInFlight = false;
@@ -381,6 +386,10 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
 {
   const auto &sessionEvents = data.sessionEvents;
   const auto &zones = data.zones;
+
+  qDebug() << "[current] applyCurrentPageData zones=" << zones.size()
+           << "sessionEvents=" << sessionEvents.size()
+           << "running=" << runningGames.size();
 
   // --- Session-running card(s) at the top ---
   if (!runningGames.isEmpty())

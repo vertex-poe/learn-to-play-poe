@@ -657,7 +657,7 @@ QList<Database::ZoneTransitionRecord> Database::fetchZoneTransitions(int limit, 
         FROM area_time_spans ats
         LEFT JOIN areas a ON ats.area_id = a.id
         WHERE ats.session_id = (
-            SELECT id FROM sessions ORDER BY started_at DESC LIMIT 1
+            SELECT id FROM sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1
         )
         AND ats.area_id IS NOT NULL
         ORDER BY ats.entered_at DESC
