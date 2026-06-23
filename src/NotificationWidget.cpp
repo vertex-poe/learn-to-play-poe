@@ -208,14 +208,14 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
     m_outerLayout->setContentsMargins(10, Theme::spacingSm, 10, Theme::spacingSm);
     m_outerLayout->setSpacing(Theme::spacingSm);
 
-    auto *topRow = new QHBoxLayout;
-    topRow->setSpacing(Theme::spacingSm);
+    m_topRow = new QHBoxLayout;
+    m_topRow->setSpacing(Theme::spacingSm);
 
     if (!title.isEmpty()) {
-        auto *left       = new QWidget(this);
-        auto *leftLayout = new QHBoxLayout(left);
-        leftLayout->setContentsMargins(0, 0, 0, 0);
-        leftLayout->setSpacing(6);
+        auto *left = new QWidget(this);
+        m_leftLayout = new QHBoxLayout(left);
+        m_leftLayout->setContentsMargins(0, 0, 0, 0);
+        m_leftLayout->setSpacing(6);
 
         auto *titleLabel = new QLabel(title, left);
         {
@@ -228,14 +228,14 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
             titleLabel->setFont(f);
         }
         titleLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-        leftLayout->addWidget(titleLabel, 0, Qt::AlignVCenter);
+        m_leftLayout->addWidget(titleLabel, 0, Qt::AlignVCenter);
 
         if (!tag.isEmpty()) {
             auto *tagLabel = new TagLabel(tag, style.accentColor, left);
             QFont tagFont = tagLabel->font();
             tagFont.setPointSizeF(Theme::fontXs);
             tagLabel->setFont(tagFont);
-            leftLayout->addWidget(tagLabel, 0, Qt::AlignVCenter);
+            m_leftLayout->addWidget(tagLabel, 0, Qt::AlignVCenter);
         }
 
         m_headerSuffixLabel = new QLabel(left);
@@ -243,14 +243,17 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
             QPalette pal = m_headerSuffixLabel->palette();
             pal.setColor(QPalette::WindowText, style.bodyColor);
             m_headerSuffixLabel->setPalette(pal);
+            QFont f = m_headerSuffixLabel->font();
+            f.setPointSizeF(Theme::fontBase);
+            m_headerSuffixLabel->setFont(f);
         }
         m_headerSuffixLabel->setVisible(false);
-        leftLayout->addWidget(m_headerSuffixLabel, 0, Qt::AlignVCenter);
+        m_leftLayout->addWidget(m_headerSuffixLabel, 0, Qt::AlignVCenter);
 
-        leftLayout->addStretch();
-        topRow->addWidget(left, 1);
+        m_leftLayout->addStretch();
+        m_topRow->addWidget(left, 1);
     } else {
-        topRow->addWidget(buildSegmentedRow(message, style.textColor, this), 1);
+        m_topRow->addWidget(buildSegmentedRow(message, style.textColor, this), 1);
     }
 
     m_expandIndicator = new QLabel(QString(QChar(0x25B8)), this); // ▸
@@ -264,15 +267,15 @@ NotificationWidget::NotificationWidget(const QString &title, const QString &tag,
     }
     m_expandIndicator->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_expandIndicator->setVisible(false);
-    topRow->addWidget(m_expandIndicator, 0);
+    m_topRow->addWidget(m_expandIndicator, 0);
 
     m_sourceIcon = new SourceIconWidget(style.timestampColor, this);
     m_sourceIcon->setVisible(false);
-    topRow->addWidget(m_sourceIcon, 0, Qt::AlignVCenter);
+    m_topRow->addWidget(m_sourceIcon, 0, Qt::AlignVCenter);
 
-    topRow->addWidget(tsLabel, 0);
+    m_topRow->addWidget(tsLabel, 0);
 
-    m_outerLayout->addLayout(topRow);
+    m_outerLayout->addLayout(m_topRow);
 
     if (!title.isEmpty() && !message.isEmpty()) {
         m_bodyWidget = buildSegmentedRow(message, style.bodyColor, this);
@@ -406,4 +409,33 @@ void NotificationWidget::mousePressEvent(QMouseEvent *e)
         updateGeometry();
     }
     QFrame::mousePressEvent(e);
+}
+
+void NotificationWidget::setAreaName(const QString &name)
+{
+    if (!m_leftLayout || name.isEmpty()) return;
+    auto *lbl = new QLabel(name, this);
+    {
+        QPalette pal = lbl->palette();
+        pal.setColor(QPalette::WindowText, QColor(215, 215, 215));
+        lbl->setPalette(pal);
+        QFont f = lbl->font();
+        f.setPointSizeF(Theme::fontXl);
+        f.setBold(true);
+        lbl->setFont(f);
+    }
+    lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    const int idx = m_leftLayout->indexOf(m_headerSuffixLabel);
+    m_leftLayout->insertWidget(idx, lbl, 0, Qt::AlignVCenter);
+}
+
+void NotificationWidget::appendTopRowTag(const QString &tag)
+{
+    if (!m_topRow || tag.isEmpty()) return;
+    auto *tagLabel = new TagLabel(tag, m_style.accentColor, this);
+    QFont f = tagLabel->font();
+    f.setPointSizeF(Theme::fontXs);
+    tagLabel->setFont(f);
+    const int idx = m_topRow->indexOf(m_sourceIcon);
+    m_topRow->insertWidget(idx, tagLabel, 0, Qt::AlignVCenter);
 }

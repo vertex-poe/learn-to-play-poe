@@ -649,7 +649,7 @@ QList<Database::ZoneTransitionRecord> Database::fetchZoneTransitions(int limit, 
     armQueryBudget();
 
     static const char *sql = R"(
-        SELECT COALESCE(a.display_name, a.code), a.level, ats.entered_at, ats.duration_secs
+        SELECT COALESCE(a.display_name, a.code), a.type, a.level, ats.entered_at, ats.duration_secs
         FROM area_time_spans ats
         LEFT JOIN areas a ON ats.area_id = a.id
         WHERE ats.session_id = (
@@ -669,12 +669,14 @@ QList<Database::ZoneTransitionRecord> Database::fetchZoneTransitions(int limit, 
         ZoneTransitionRecord r;
         if (auto *p = sqlite3_column_text(stmt, 0))
             r.areaName = QString::fromUtf8(reinterpret_cast<const char *>(p));
-        r.areaLevel = sqlite3_column_type(stmt, 1) != SQLITE_NULL
-                      ? sqlite3_column_int(stmt, 1) : 0;
-        if (auto *p = sqlite3_column_text(stmt, 2))
+        if (auto *p = sqlite3_column_text(stmt, 1))
+            r.areaType = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        r.areaLevel = sqlite3_column_type(stmt, 2) != SQLITE_NULL
+                      ? sqlite3_column_int(stmt, 2) : 0;
+        if (auto *p = sqlite3_column_text(stmt, 3))
             r.enteredAt = QString::fromUtf8(reinterpret_cast<const char *>(p));
-        r.durationSecs = sqlite3_column_type(stmt, 3) != SQLITE_NULL
-                         ? sqlite3_column_int(stmt, 3) : -1;
+        r.durationSecs = sqlite3_column_type(stmt, 4) != SQLITE_NULL
+                         ? sqlite3_column_int(stmt, 4) : -1;
         result.append(r);
     }
     sqlite3_finalize(stmt);

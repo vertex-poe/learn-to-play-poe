@@ -121,9 +121,10 @@ public:
     int closeOrphanSessions(const QStringList &runningInstallPaths);
 
     struct ZoneTransitionRecord {
-        QString areaName;        // display_name, or code if display_name is absent
+        QString areaName;         // display_name, or code if display_name is absent
+        QString areaType;         // areas.type (e.g. "Map", "Campaign — Act 1"), or empty
         int     areaLevel{0};
-        QString enteredAt;       // "YYYY-MM-DD HH:MM:SS"
+        QString enteredAt;        // "YYYY-MM-DD HH:MM:SS"
         int     durationSecs{-1}; // -1 when the span is still open (current zone)
     };
 

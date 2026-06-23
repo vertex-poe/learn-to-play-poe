@@ -7,7 +7,7 @@
 // LiveEvent carries parsed game log events through the pub/sub bus during live mode.
 //
 // Data map keys by event type:
-//   area_entered:         area_name, area_code, area_level
+//   area_entered:         area_name, area_code, area_level, area_type (empty if unknown)
 //   level_up:             character, char_class, level
 //   character_death:      character
 //   afk_on:               (none)

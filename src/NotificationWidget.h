@@ -19,6 +19,7 @@ struct NotificationStyle {
     int    borderWidth{1};
 };
 
+class QHBoxLayout;
 class QLabel;
 class QMouseEvent;
 class QVBoxLayout;
@@ -36,6 +37,8 @@ public:
     void setHeaderSuffix(const QString &text);
     void setSource(const DocSource &source);
     void setDetailRows(const QList<QPair<QString, QString>> &rows);
+    void setAreaName(const QString &name);
+    void appendTopRowTag(const QString &tag);
 
 protected:
     void paintEvent(QPaintEvent *) override;
@@ -43,6 +46,8 @@ protected:
 
 private:
     NotificationStyle  m_style;
+    QHBoxLayout       *m_topRow{};
+    QHBoxLayout       *m_leftLayout{};
     QVBoxLayout       *m_outerLayout{};
     QWidget           *m_bodyWidget{};
     QLabel            *m_headerSuffixLabel{};

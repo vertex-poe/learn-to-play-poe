@@ -175,6 +175,7 @@ void CurrentPage::onLiveEvent(const LiveEvent &event, bool bulk)
 
     if (event.type == LiveEventType::AreaEntered) {
         const QString areaName  = event.data.value("area_name").toString();
+        const QString areaType  = event.data.value("area_type").toString();
         const int     areaLevel = event.data.value("area_level").toInt();
 
         // Stamp the previous zone's card with the time spent there. The ingest worker
@@ -187,13 +188,18 @@ void CurrentPage::onLiveEvent(const LiveEvent &event, bool bulk)
                     // m_prevZoneCard may have changed by the time this fires; use
                     // the captured pointer (still valid — still in m_dbZoneWidgets or
                     // m_liveEventWidgets) to stamp it directly.
-                    if (zones.size() >= 2 && zones[1].durationSecs > 0)
-                        prevCard->setHeaderSuffix("\xc2\xb7 " + formatDuration(zones[1].durationSecs));
+                    if (zones.size() >= 2 && zones[1].durationSecs > 0) {
+                        const QString dur = "\xc2\xb7 " + formatDuration(zones[1].durationSecs);
+                        if (zones[1].areaType.isEmpty())
+                            prevCard->setHeaderSuffix(dur);
+                        else
+                            prevCard->setHeaderSuffix("entered. " + dur);
+                    }
                 });
         }
 
         const QString ts = QDateTime::currentDateTime().toString("HH:mm");
-        auto *card = makeZoneCard(areaName, areaLevel, ts, -1);
+        auto *card = makeZoneCard(areaName, areaType, areaLevel, ts, -1);
         appendLiveWidget(card);
         m_prevZoneCard = card;
 
@@ -384,8 +390,8 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
 
             if (takeZone) {
                 const auto &z = zones[zi];
-                auto *card = makeZoneCard(z.areaName, z.areaLevel,
-                                          z.enteredAt.mid(11, 5), z.durationSecs);
+                auto *card = makeZoneCard(z.areaName, z.areaType,
+                                          z.areaLevel, z.enteredAt.mid(11, 5), z.durationSecs);
                 m_contentLayout->addWidget(card);
                 m_dbZoneWidgets.append(card);
                 lastZoneCard = card;
@@ -420,8 +426,8 @@ void CurrentPage::applyCurrentPageData(const QueryService::CurrentPageData &data
     } else {
         for (int i = zones.size() - 1; i >= 0; --i) {
             const auto &z = zones[i];
-            appendDbZone(makeZoneCard(z.areaName, z.areaLevel,
-                                      z.enteredAt.mid(11, 5), z.durationSecs));
+            appendDbZone(makeZoneCard(z.areaName, z.areaType,
+                                      z.areaLevel, z.enteredAt.mid(11, 5), z.durationSecs));
         }
         if (!zones.isEmpty() && zones[0].durationSecs < 0)
             m_prevZoneCard = m_dbZoneWidgets.last();
@@ -455,7 +461,7 @@ void CurrentPage::onLoadMore()
             const int insertPos = btnIdx >= 0 ? btnIdx + 1 : basePos;
             for (const auto &z : zones) {
                 const QString ts = z.enteredAt.mid(11, 5);
-                auto *card = makeZoneCard(z.areaName, z.areaLevel, ts, z.durationSecs);
+                auto *card = makeZoneCard(z.areaName, z.areaType, z.areaLevel, ts, z.durationSecs);
                 m_contentLayout->insertWidget(insertPos, card);
                 m_dbZoneWidgets.append(card);
             }
@@ -475,10 +481,20 @@ void CurrentPage::onLoadMore()
 // Helpers
 // ---------------------------------------------------------------------------
 
-NotificationWidget *CurrentPage::makeZoneCard(const QString &areaName, int areaLevel,
-                                               const QString &timestamp, int durationSecs)
+NotificationWidget *CurrentPage::makeZoneCard(const QString &areaName, const QString &areaType,
+                                               int areaLevel, const QString &timestamp,
+                                               int durationSecs)
 {
     const QString tag = areaLevel > 0 ? QStringLiteral("lv %1").arg(areaLevel) : QString{};
+    if (!areaType.isEmpty()) {
+        auto *card = new NotificationWidget(areaType + ":", {}, {}, timestamp, zoneStyle(), m_content);
+        card->setAreaName(areaName);
+        card->setHeaderSuffix(durationSecs > 0 ? "entered. \xc2\xb7 " + formatDuration(durationSecs) : "entered.");
+        if (!tag.isEmpty())
+            card->appendTopRowTag(tag);
+        card->setSource(docSource("Client.txt", "sources/zone-transition"));
+        return card;
+    }
     auto *card = new NotificationWidget(areaName, tag, {}, timestamp, zoneStyle(), m_content);
     if (durationSecs > 0)
         card->setHeaderSuffix("\xc2\xb7 " + formatDuration(durationSecs));

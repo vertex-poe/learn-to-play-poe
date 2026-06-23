@@ -260,7 +260,7 @@ void LogIngestWorker::start()
         "INSERT OR IGNORE INTO areas(code, level, display_name) VALUES(?,0,?);",
         -1, &areaInsertIgnoreStmt, nullptr);
     sqlite3_prepare_v2(db,
-        "SELECT id FROM areas WHERE code=?;",
+        "SELECT id, type FROM areas WHERE code=?;",
         -1, &areaSelectStmt, nullptr);
     sqlite3_prepare_v2(db,
         "INSERT OR IGNORE INTO area_moves(install_id, area_id, entered_at) VALUES(?,?,?);",
@@ -1475,8 +1475,12 @@ void LogIngestWorker::start()
 
                     sqlite3_bind_text(areaSelectStmt, 1, codeBytes.constData(), codeBytes.size(), SQLITE_STATIC);
                     qint64 areaId = -1;
-                    if (sqlite3_step(areaSelectStmt) == SQLITE_ROW)
+                    QString areaType;
+                    if (sqlite3_step(areaSelectStmt) == SQLITE_ROW) {
                         areaId = sqlite3_column_int64(areaSelectStmt, 0);
+                        if (auto *p = sqlite3_column_text(areaSelectStmt, 1))
+                            areaType = QString::fromUtf8(reinterpret_cast<const char *>(p));
+                    }
                     sqlite3_reset(areaSelectStmt);
 
                     if (areaId >= 0) {
@@ -1497,7 +1501,8 @@ void LogIngestWorker::start()
                             emit liveEventParsed(LiveEvent{LiveEventType::AreaEntered, ts, {
                                 {"area_name",  entM.captured(1)},
                                 {"area_code",  pendingCode},
-                                {"area_level", pendingLevel}
+                                {"area_level", pendingLevel},
+                                {"area_type",  areaType}
                             }});
                     }
 
