@@ -49,7 +49,7 @@ Follow [ROADMAP.md](ROADMAP.md) for progress toward the initial public build.
 
 ## Documentation
 
-We explain most of our [`docs/decisions/`](big decisions) — start with [ADR-004: Game–Addon Interaction Principles](docs/decisions/004-game-addon-interaction-principles.md), which sets out our commitment to respecting player agency and GGG's intent. We also cover the reasoning behind our features in [dedicated rationale documents](docs/rationale/), like our commitment to delivering balanced [community chat improvements](docs/rationale/chat.md). Upcoming aspirational work is tracked in [ROADMAP.md](ROADMAP.md).
+We explain most of our [`docs/decisions/`](big decisions) — start with [ADR-004: Game–Addon Interaction Principles](docs/decisions/004-game-addon-interaction-principles.md), which sets out our commitment to respecting player agency and GGG's intent. We also cover the reasoning behind our features in [dedicated rationale documents](docs/rationales/), like our commitment to delivering balanced [community chat improvements](docs/rationales/chat.md). Upcoming aspirational work is tracked in [ROADMAP.md](ROADMAP.md).
 
 ---
 

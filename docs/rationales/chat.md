@@ -1,6 +1,6 @@
-<!-- docs/rationale/chat.md (markdown) -->
+<!-- docs/rationales/chat.md (markdown) -->
 
-<`!-- docs/rationale/chat.md (markdown) -->
+<`!-- docs/rationales/chat.md (markdown) -->
 
 `# Chat & Direct Messages — Feature Rationale
 

@@ -12,9 +12,9 @@
 
 ### Feature rationale
 
-[`docs/rationale/`](docs/rationale/) holds longer-form rationale for features where the *why* is not obvious from the code. These are more discursive than ADRs — they describe the problem space and the reasoning behind specific design choices.
+[`docs/rationales/`](docs/rationales/) holds longer-form rationale for features where the *why* is not obvious from the code. These are more discursive than ADRs — they describe the problem space and the reasoning behind specific design choices.
 
-[Chat & Direct Messages](docs/rationale/chat.md) is the most substantive: it explains why a chat log viewer exists, the three-tier feature arc (log viewer → in-game overlay → tab-out send client), and how the shift of trade traffic to the Merchant Tab made whisper history more legible and therefore more worth building for.
+[Chat & Direct Messages](docs/rationales/chat.md) is the most substantive: it explains why a chat log viewer exists, the three-tier feature arc (log viewer → in-game overlay → tab-out send client), and how the shift of trade traffic to the Merchant Tab made whisper history more legible and therefore more worth building for.
 
 ## How it works
 

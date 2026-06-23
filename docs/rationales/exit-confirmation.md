@@ -1,4 +1,4 @@
-<!-- docs/rationale/exit-confirmation.md (markdown) -->
+<!-- docs/rationales/exit-confirmation.md (markdown) -->
 
 # Exit Confirmation — Feature Rationale
 
