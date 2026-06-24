@@ -443,10 +443,36 @@ ChatPage::ChatPage(QWidget *parent)
     m_view->addWidget(m_scroll);
     m_view->addWidget(m_filterPanel);
 
+    // ---- Chat / DMs segment strip -------------------------------------------
+    auto *segRow = new QWidget(this);
+    auto *segBox = new QHBoxLayout(segRow);
+    segBox->setContentsMargins(Theme::spacingSm, Theme::spacingXs, Theme::spacingXs, Theme::spacingXs);
+    segBox->setSpacing(0);
+
+    auto *chatBtn = new QPushButton("Chat", segRow);
+    chatBtn->setFlat(true);
+    QFont boldF = chatBtn->font();
+    boldF.setBold(true);
+    chatBtn->setFont(boldF);
+
+    auto *dmsBtn = new QPushButton("DMs", segRow);
+    dmsBtn->setFlat(true);
+    connect(dmsBtn, &QPushButton::clicked, this, &ChatPage::viewDmsRequested);
+
+    segBox->addWidget(chatBtn);
+    segBox->addWidget(dmsBtn);
+    segBox->addStretch(1);
+
+    auto *segSep = new QFrame(this);
+    segSep->setFrameShape(QFrame::HLine);
+    segSep->setFrameShadow(QFrame::Sunken);
+
     // ---- Main layout --------------------------------------------------------
     auto *vbox = new QVBoxLayout(this);
     vbox->setContentsMargins(0, Theme::spacingXs, 0, 0);
     vbox->setSpacing(0);
+    vbox->addWidget(segRow);
+    vbox->addWidget(segSep);
     vbox->addWidget(cbRow);
     vbox->addWidget(sep);
     vbox->addWidget(m_view, 1);

@@ -55,9 +55,22 @@ private slots:
     void onTaskUpdated(int id);
     void onTabChanged(int index);
     void onGearClicked();
+    void onSearchClicked();
     void onOrphanSessionsClosed(int count);
 
 private:
+    enum Tab {
+        TabGuide    = 0,
+        TabChats,
+        TabStash,
+        TabProfile,
+        TabLog,
+        TabSettings,
+        TabSearch,
+        TabCurrent,
+        TabDms,
+    };
+
     void showWindow();
     void setupTray();
     void scheduleLogIngestion();

@@ -215,59 +215,88 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
         label->setAlignment(Qt::AlignCenter);
         layout->addWidget(label);
     } else {
+        // Pair each "start" with the following "stop" into a single session card.
+        // Unpaired stops (window-boundary orphans) are rendered alone.
+        struct Session {
+            Database::SessionEventRecord start;
+            Database::SessionEventRecord stop;
+            bool hasStart{false};
+            bool hasStopped{false};
+        };
+        QList<Session> sessions;
+        for (int i = 0; i < events.size(); ++i) {
+            if (events[i].eventType == "start") {
+                Session s;
+                s.start    = events[i];
+                s.hasStart = true;
+                if (i + 1 < events.size() && events[i + 1].eventType == "stop") {
+                    s.stop       = events[++i];
+                    s.hasStopped = true;
+                }
+                sessions.append(s);
+            } else {
+                Session s;
+                s.stop       = events[i];
+                s.hasStopped = true;
+                sessions.append(s);
+            }
+        }
+
         const QString today = QDate::currentDate().toString(Qt::ISODate);
         QString lastDate;
 
-        for (const auto &ev : events) {
-            const QString date = ev.occurredAt.left(10);
+        for (const auto &s : sessions) {
+            const QString &anchor    = s.hasStart ? s.start.occurredAt : s.stop.occurredAt;
+            const QString  date      = anchor.left(10);
+            const QString  timeLabel = (date == today) ? anchor.mid(11, 5) : anchor.left(16);
+
             if (date != lastDate) {
                 lastDate = date;
                 layout->addWidget(new DateSeparator(date, content));
             }
-            const QString timeLabel = (date == today)
-                ? ev.occurredAt.mid(11, 5)
-                : ev.occurredAt.left(16);
 
-            if (ev.eventType == "start") {
-                NotificationStyle style;
-                style.accentColor = {80, 180, 80};
-                auto *card = new NotificationWidget(
-                    "Game started", {}, {}, timeLabel, style, content);
-                if (!ev.charName.isEmpty())
-                    card->setHeaderSuffix("\xc2\xb7 " + ev.charName);
-                card->setSource(docSource("Client.txt", "sources/game-started"));
-                QList<QPair<QString, QString>> details;
-                details.append({"Time", ev.occurredAt});
-                if (!ev.charName.isEmpty()) {
-                    QString charInfo = ev.charName;
-                    if (!ev.charClass.isEmpty())
-                        charInfo += " \xc2\xb7 " + ev.charClass;
-                    details.append({"Character", charInfo});
-                }
-                if (!ev.installPath.isEmpty())
-                    details.append({"Install", ev.installPath});
-                card->setDetailRows(details);
-                layout->addWidget(card);
-            } else {
-                NotificationStyle style;
-                style.accentColor = {130, 130, 130};
-                const QString active = formatDuration(ev.activeSecs);
-                const QString total  = formatDuration(ev.totalSecs);
-                auto *card = new NotificationWidget(
-                    "Game stopped", {}, {}, timeLabel, style, content);
-                if (!active.isEmpty())
-                    card->setHeaderSuffix("\xc2\xb7 " + active);
-                else if (!total.isEmpty())
-                    card->setHeaderSuffix("\xc2\xb7 " + total);
-                card->setSource(docSource("Client.txt", "sources/game-stopped"));
-                QList<QPair<QString, QString>> details;
-                details.append({"Time", ev.occurredAt});
-                if (!active.isEmpty())
-                    details.append({"Active", active});
-                if (!total.isEmpty())
-                    details.append({"Total", total});
-                card->setDetailRows(details);
-                layout->addWidget(card);
+            NotificationStyle style;
+            style.accentColor = s.hasStopped ? QColor{130, 130, 130} : QColor{80, 180, 80};
+
+            const QString active = formatDuration(s.hasStopped ? s.stop.activeSecs : -1);
+            const QString total  = formatDuration(s.hasStopped ? s.stop.totalSecs  : -1);
+
+            auto *card = new NotificationWidget("Session", {}, {}, timeLabel, style, content);
+
+            // Header suffix: duration then character
+            QString suffix;
+            if (!active.isEmpty())       suffix = active;
+            else if (!total.isEmpty())   suffix = total;
+            if (!s.start.charName.isEmpty()) {
+                if (!suffix.isEmpty()) suffix += " \xc2\xb7 ";
+                suffix += s.start.charName;
+            }
+            if (!suffix.isEmpty())
+                card->setHeaderSuffix("\xc2\xb7 " + suffix);
+
+            QList<QPair<QString, QString>> details;
+            if (s.hasStart)   details.append({"Started",  s.start.occurredAt});
+            if (s.hasStopped) details.append({"Ended",    s.stop.occurredAt});
+            if (!active.isEmpty()) details.append({"Active", active});
+            if (!total.isEmpty())  details.append({"Total",  total});
+            if (!s.start.charName.isEmpty()) {
+                QString charInfo = s.start.charName;
+                if (!s.start.charClass.isEmpty())
+                    charInfo += " \xc2\xb7 " + s.start.charClass;
+                details.append({"Character", charInfo});
+            }
+            if (!s.start.installPath.isEmpty())
+                details.append({"Install", s.start.installPath});
+            card->setDetailRows(details);
+
+            card->setSource(docSource("Client.txt", "sources/game-started"));
+            layout->addWidget(card);
+
+            if (s.hasStart && !s.hasStopped) {
+                auto *btn = new QPushButton("Open current session \xe2\x86\x92", content);
+                btn->setFlat(true);
+                connect(btn, &QPushButton::clicked, this, &PastPage::viewCurrentRequested);
+                layout->addWidget(btn);
             }
         }
     }

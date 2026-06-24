@@ -28,6 +28,9 @@ public:
     void setShowGuildTags(bool show);
     void reload();
 
+signals:
+    void viewDmsRequested();
+
 public slots:
     void onLiveChat(const LiveEvent &event, bool bulk);
 

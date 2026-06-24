@@ -19,6 +19,9 @@ public:
     void setQueryService(QueryService *qs);
     void markDirty();
 
+signals:
+    void viewCurrentRequested();
+
 protected:
     void showEvent(QShowEvent *e) override;
     void resizeEvent(QResizeEvent *e) override;

@@ -119,6 +119,7 @@ qt_add_resources(l2p-poe1 "svgicons"
         "${CMAKE_SOURCE_DIR}/assets/icons/box-arrow-in-right.svg"
         "${CMAKE_SOURCE_DIR}/assets/icons/person-fill.svg"
         "${CMAKE_SOURCE_DIR}/assets/icons/clipboard-fill.svg"
+        "${CMAKE_SOURCE_DIR}/assets/icons/search.svg"
 )
 
 qt_add_resources(l2p-poe1 "brandsvg"

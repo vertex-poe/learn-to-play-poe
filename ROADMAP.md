@@ -6,6 +6,12 @@ Everything here can be considered aspirational and will likely never see the lig
 
 ## Goal: Basic Features
 
+- [ ] Log screen UI: flesh out the session list — richer session cards (zone count, notable events, loot highlights), expandable inline detail, filtering by character/date/duration, and visual distinction between ongoing and completed sessions
+- [ ] Guide screen: context-sensitive help panel designed for a side monitor; content auto-changes based on detected in-game activity (zone, boss, league mechanic); surfaces relevant tips, mechanics explanations, and checklists without the player having to search
+- [ ] Stash screen: search and browse stash items across all tabs; identify gear upgrades already in the stash; surface crafting opportunities on existing items to close the gap to an upgrade; character gear review against current build
+- [ ] Profile screen: account overview and splash screen; tracks goals (player-defined targets), accomplishments (unofficial achievements derived from session history), and a summary of playtime, characters, and milestones
+- [ ] Universal Search: a single search bar that queries across all screens (sessions, stash, chat, DMs, goals, accomplishments) and surfaces ranked results; accessible via the search icon in the top navbar
+
 ## Goal: Public release
 
 - [ ] Public release (first public build shipped to users)

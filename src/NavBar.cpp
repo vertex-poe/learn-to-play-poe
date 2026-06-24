@@ -14,10 +14,11 @@ void NavBar::setCurrentIndex(int index)
 {
     if (index < 0 || index >= m_labels.size())
         return;
-    if (index == m_current && !m_gearActive)
+    if (index == m_current && !m_gearActive && !m_searchActive)
         return;
     m_current = index;
     m_gearActive = false;
+    m_searchActive = false;
     update();
     emit currentChanged(index);
 }
@@ -27,6 +28,18 @@ void NavBar::setGearActive(bool active)
     if (m_gearActive == active)
         return;
     m_gearActive = active;
+    if (active)
+        m_searchActive = false;
+    update();
+}
+
+void NavBar::setSearchActive(bool active)
+{
+    if (m_searchActive == active)
+        return;
+    m_searchActive = active;
+    if (active)
+        m_gearActive = false;
     update();
 }
 
@@ -46,10 +59,12 @@ void NavBar::paintEvent(QPaintEvent *)
     const int n = m_labels.size();
     if (n == 0) return;
 
-    const int tabAreaW = w - k_gearWidth;
+    const int tabAreaX = k_listWidth;
+    const int tabAreaW = w - k_listWidth - k_gearWidth;
     const int colW     = tabAreaW / n;
     const int separatorH = 3;
     const int underlineH = 8;
+    const int cellH      = h - separatorH;
 
     p.fillRect(rect(), palette().window());
 
@@ -60,10 +75,10 @@ void NavBar::paintEvent(QPaintEvent *)
     f.setPointSizeF(Theme::font2xl);
 
     for (int i = 0; i < n; ++i) {
-        const int x  = i * colW;
-        const int cw = (i == n - 1) ? tabAreaW - x : colW;
-        const QRect cell(x, 0, cw, h - separatorH);
-        const bool active = (i == m_current) && !m_gearActive;
+        const int x  = tabAreaX + i * colW;
+        const int cw = (i == n - 1) ? tabAreaX + tabAreaW - x : colW;
+        const QRect cell(x, 0, cw, cellH);
+        const bool active = (i == m_current) && !m_gearActive && !m_searchActive;
 
         f.setBold(active);
         p.setFont(f);
@@ -77,36 +92,54 @@ void NavBar::paintEvent(QPaintEvent *)
         }
     }
 
-    // Gear icon
-    const QColor gearColor = m_gearActive ? palette().windowText().color()
-                                          : palette().placeholderText().color();
-    const int cellH   = h - separatorH;
-    const int iconSize = QFontMetrics(f).height() - 6;
-    const int iconX    = tabAreaW + (k_gearWidth - iconSize) / 2;
-    const int iconY    = (cellH - iconSize) / 2;
+    const qreal dpr      = devicePixelRatioF();
+    const int   iconSize = QFontMetrics(f).height() - 6;
+    const int   iconY    = (cellH - iconSize) / 2;
 
-    const qreal dpr = devicePixelRatioF();
-    const QString gearSvg = m_gearActive ? QStringLiteral(":/icons/gear-fill.svg")
+    // List (hamburger) icon — far left
+    {
+        const QColor col = m_searchActive ? palette().windowText().color()
+                                        : palette().placeholderText().color();
+        const int iconX = (k_listWidth - iconSize) / 2;
+        const QPixmap pix = Theme::renderSvgIcon(
+            QStringLiteral(":/icons/search.svg"), col, {iconSize, iconSize}, dpr);
+        p.drawPixmap(QRect(iconX, iconY, iconSize, iconSize), pix,
+                     QRect(0, 0, pix.width(), pix.height()));
+        if (m_searchActive)
+            p.fillRect(0, h - separatorH - underlineH, k_listWidth, underlineH,
+                       palette().highlight().color());
+    }
+
+    // Gear icon — far right
+    {
+        const QColor col = m_gearActive ? palette().windowText().color()
+                                        : palette().placeholderText().color();
+        const int iconX = w - k_gearWidth + (k_gearWidth - iconSize) / 2;
+        const QString svg = m_gearActive ? QStringLiteral(":/icons/gear-fill.svg")
                                          : QStringLiteral(":/icons/gear.svg");
-    const QPixmap gearPix = Theme::renderSvgIcon(gearSvg, gearColor, {iconSize, iconSize}, dpr);
-    p.drawPixmap(QRect(iconX, iconY, iconSize, iconSize), gearPix, QRect(0, 0, gearPix.width(), gearPix.height()));
-
-    if (m_gearActive) {
-        p.fillRect(tabAreaW, h - separatorH - underlineH, k_gearWidth, underlineH,
-                   palette().highlight().color());
+        const QPixmap pix = Theme::renderSvgIcon(svg, col, {iconSize, iconSize}, dpr);
+        p.drawPixmap(QRect(iconX, iconY, iconSize, iconSize), pix,
+                     QRect(0, 0, pix.width(), pix.height()));
+        if (m_gearActive)
+            p.fillRect(w - k_gearWidth, h - separatorH - underlineH, k_gearWidth, underlineH,
+                       palette().highlight().color());
     }
 }
 
 void NavBar::mousePressEvent(QMouseEvent *event)
 {
     const int x = static_cast<int>(event->position().x());
+    if (x < k_listWidth) {
+        emit searchClicked();
+        return;
+    }
     if (x >= width() - k_gearWidth) {
         emit settingsClicked();
         return;
     }
     const int n = m_labels.size();
     if (n == 0) return;
-    const int tabAreaW = width() - k_gearWidth;
-    const int col = qBound(0, x * n / tabAreaW, n - 1);
+    const int tabAreaW = width() - k_listWidth - k_gearWidth;
+    const int col = qBound(0, (x - k_listWidth) * n / tabAreaW, n - 1);
     setCurrentIndex(col);
 }

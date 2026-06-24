@@ -37,6 +37,16 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+static QWidget *makePlaceholder(const QString &text, QWidget *parent)
+{
+    auto *w      = new QWidget(parent);
+    auto *lbl    = new QLabel(text, w);
+    auto *layout = new QVBoxLayout(w);
+    lbl->setAlignment(Qt::AlignCenter);
+    layout->addWidget(lbl);
+    return w;
+}
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
@@ -57,16 +67,18 @@ MainWindow::MainWindow(QWidget *parent)
     m_chatPage = new ChatPage(this);
     m_dmPage   = new DmPage(this);
 
-    m_stack->addWidget(m_pastPage);    // Past
-    m_stack->addWidget(m_currentPage); // Current
-    m_stack->addWidget(m_chatPage);    // Chats
-    m_stack->addWidget(m_dmPage);      // DMs
+    m_stack->addWidget(makePlaceholder("Coming soon", this)); // TabGuide
+    m_stack->addWidget(m_chatPage);                          // TabChats
+    m_stack->addWidget(makePlaceholder("Coming soon", this)); // TabStash
+    m_stack->addWidget(makePlaceholder("Coming soon", this)); // TabProfile
+    m_stack->addWidget(m_pastPage);                          // TabLog
 
-    m_navBar = new NavBar({"Past", "Current", "Chats", "DMs"}, this);
-    m_navBar->setCurrentIndex(1);
-    m_stack->setCurrentIndex(1);
+    m_navBar = new NavBar({"Guide", "Chat", "Stash", "Profile", "Log"}, this);
+    m_navBar->setCurrentIndex(TabGuide);
+    m_stack->setCurrentIndex(TabGuide);
     connect(m_navBar, &NavBar::currentChanged, this, &MainWindow::onTabChanged);
     connect(m_navBar, &NavBar::settingsClicked, this, &MainWindow::onGearClicked);
+    connect(m_navBar, &NavBar::searchClicked, this, &MainWindow::onSearchClicked);
 
     auto *container = new QWidget(this);
     auto *vbox = new QVBoxLayout(container);
@@ -80,12 +92,21 @@ MainWindow::MainWindow(QWidget *parent)
     qDebug() << "[startup] UI built in" << startupTimer.elapsed() << "ms";
     m_config = AppConfig::load();
     qDebug() << "[startup] config loaded in" << startupTimer.elapsed() << "ms";
-    m_navBar->setCurrentIndex(qBound(0, m_config.defaultTab, 3));
+    m_navBar->setCurrentIndex(qBound(int(TabGuide), m_config.defaultTab, int(TabLog)));
 
     m_settingsPage = new SettingsPage(m_config, this);
-    m_stack->addWidget(m_settingsPage); // Settings - index 4
+    m_stack->addWidget(m_settingsPage); // TabSettings
     connect(m_settingsPage, &SettingsPage::configChanged,
             this, &MainWindow::onConfigChanged);
+
+    m_stack->addWidget(makePlaceholder("Coming soon", this)); // TabSearch
+    m_stack->addWidget(m_currentPage);                        // TabCurrent
+    m_stack->addWidget(m_dmPage);                             // TabDms
+
+    connect(m_pastPage, &PastPage::viewCurrentRequested,
+            this, [this] { m_stack->setCurrentIndex(TabCurrent); });
+    connect(m_chatPage, &ChatPage::viewDmsRequested,
+            this, [this] { m_stack->setCurrentIndex(TabDms); });
 
     // Restore saved window geometry; if the saved screen no longer exists, keep
     // the saved size but let the OS decide placement.
@@ -199,21 +220,34 @@ void MainWindow::showSettings()
 {
     showWindow();
     m_navBar->setGearActive(true);
-    m_stack->setCurrentIndex(4);
+    m_stack->setCurrentIndex(TabSettings);
 }
 
 void MainWindow::onTabChanged(int index)
 {
     m_navBar->setGearActive(false);
+    m_navBar->setSearchActive(false);
     m_stack->setCurrentIndex(index);
 }
 
 void MainWindow::onGearClicked()
 {
-    if (m_stack->currentIndex() == 4)
+    if (m_stack->currentIndex() == TabSettings)
         onTabChanged(m_navBar->currentIndex());
     else
         showSettings();
+}
+
+void MainWindow::onSearchClicked()
+{
+    if (m_stack->currentIndex() == TabSearch) {
+        m_navBar->setSearchActive(false);
+        m_stack->setCurrentIndex(m_navBar->currentIndex());
+    } else {
+        showWindow();
+        m_navBar->setSearchActive(true);
+        m_stack->setCurrentIndex(TabSearch);
+    }
 }
 
 void MainWindow::onConfigChanged()
