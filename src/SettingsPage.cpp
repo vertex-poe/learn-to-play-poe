@@ -198,13 +198,6 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
 
     m_stack->addWidget(categoryPage); // index 0
 
-    connect(makeItemBtn("Exit App", false), &QPushButton::clicked, this, [this]() {
-        const auto reply = QMessageBox::question(this, "Exit", "Really exit?",
-                                                 QMessageBox::Yes | QMessageBox::Cancel,
-                                                 QMessageBox::Yes);
-        if (reply == QMessageBox::Yes)
-            qApp->quit();
-    });
     connect(makeItemBtn("Alerts"), &QPushButton::clicked,
             this, [this] { navigateTo(6, "Alerts"); });
 
@@ -228,6 +221,14 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
 
     connect(makeItemBtn("About"),  &QPushButton::clicked,
             this, [this] { navigateTo(5, "About"); });
+
+    connect(makeItemBtn("Exit App", false), &QPushButton::clicked, this, [this]() {
+        const auto reply = QMessageBox::question(this, "Exit", "Really exit?",
+                                                 QMessageBox::Yes | QMessageBox::Cancel,
+                                                 QMessageBox::Yes);
+        if (reply == QMessageBox::Yes)
+            qApp->quit();
+    });
 
     categoryLayout->addStretch(1);
 
