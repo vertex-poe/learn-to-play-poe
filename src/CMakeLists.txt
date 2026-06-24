@@ -1,5 +1,15 @@
 find_package(tomlplusplus CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
+include(FetchContent)
+set(BUILD_WITH_QT6          ON  CACHE BOOL "" FORCE)
+set(BUILD_TRANSLATIONS      OFF CACHE BOOL "" FORCE)
+set(BUILD_TEST_APPLICATION  OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(qtkeychain
+    GIT_REPOSITORY https://github.com/frankosterfeld/qtkeychain.git
+    GIT_TAG        0.14.3
+)
+FetchContent_MakeAvailable(qtkeychain)
+FetchContent_GetProperties(qtkeychain SOURCE_DIR _qtkeychain_src BINARY_DIR _qtkeychain_bin)
 
 qt_add_executable(l2p-poe1
     main.cpp
@@ -50,6 +60,10 @@ qt_add_executable(l2p-poe1
     NotificationWidget.h
     ScrollJumpButton.cpp
     ScrollJumpButton.h
+    PoeAccountStore.cpp
+    PoeAccountStore.h
+    PoeLoginWindow.cpp
+    PoeLoginWindow.h
     SettingsPage.cpp
     SettingsPage.h
     TaskManager.cpp
@@ -151,12 +165,16 @@ elseif (UNIX)
     target_link_libraries(l2p-poe1 PRIVATE X11::X11)
 endif()
 
+target_include_directories(l2p-poe1 PRIVATE ${_qtkeychain_src} ${_qtkeychain_bin})
+
 target_link_libraries(l2p-poe1 PRIVATE
     Qt6::Core
     Qt6::Svg
     Qt6::Widgets
+    Qt6::WebEngineWidgets
     tomlplusplus::tomlplusplus
     unofficial::sqlite3::sqlite3
+    qt6keychain
 )
 
 # --- Install / deploy ---

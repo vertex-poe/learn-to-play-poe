@@ -44,6 +44,25 @@
       }
     },
     {
+      "name": "windows-msvc",
+      "displayName": "Windows MSVC + vcpkg",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/dist/${presetName}",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "F:/Dev/Qt/6.11.1/msvc2022_64",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG": "${sourceDir}/build/${presetName}/src"
+      }
+    },
+    {
       "name": "ci",
       "displayName": "CI (MinGW)",
       "inherits": "release",
@@ -68,6 +87,11 @@
       "configurePreset": "windows-mingw"
     },
     {
+      "name": "windows-msvc",
+      "configurePreset": "windows-msvc",
+      "configuration": "Debug"
+    },
+    {
       "name": "ci",
       "configurePreset": "ci"
     }
@@ -81,6 +105,12 @@
     {
       "name": "windows-mingw",
       "configurePreset": "windows-mingw",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-msvc",
+      "configurePreset": "windows-msvc",
+      "configuration": "Debug",
       "output": { "outputOnFailure": true }
     },
     {

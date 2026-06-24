@@ -3,7 +3,7 @@
 
 set windows-shell := ["pwsh", "-NoLogo", "-Command"]
 
-default_preset := if os() == "windows" { "windows-mingw" } else { "debug" }
+default_preset := if os() == "windows" { "windows-msvc" } else { "debug" }
 
 default:
     @just --list

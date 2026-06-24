@@ -2,6 +2,8 @@
 #include "AppConfig.h"
 #include "Theme.h"
 #include "ListEditor.h"
+#include "PoeAccountStore.h"
+#include "PoeLoginWindow.h"
 
 #include <QCheckBox>
 #include <QClipboard>
@@ -127,6 +129,8 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     : QWidget(parent)
     , m_config(config)
 {
+    m_accountStore = new PoeAccountStore(this);
+
     // ---- Header -------------------------------------------------------
     m_backBtn = new QPushButton("← Back", this);
     m_backBtn->setFlat(true);
@@ -206,6 +210,8 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
 
     addDivider();
 
+    connect(makeItemBtn("Accounts"), &QPushButton::clicked,
+            this, [this] { navigateTo(8, "Accounts"); });
     connect(makeItemBtn("Game"),    &QPushButton::clicked,
             this, [this] { navigateTo(1, "Game"); });
     connect(makeItemBtn("Overlay"), &QPushButton::clicked,
@@ -524,6 +530,23 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     debugForm->addRow("Include tool name:", m_includeToolName);
 
     m_stack->addWidget(debugContent); // index 7
+
+    // ---- Page 8: Accounts ---------------------------------------------
+    auto *accountsContent = new QWidget;
+    auto *accountsForm    = new QFormLayout(accountsContent);
+    accountsForm->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
+
+    auto *loginBtn = new QPushButton("Login", accountsContent);
+    loginBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    connect(loginBtn, &QPushButton::clicked, this, [this]() {
+        auto *win = new PoeLoginWindow(m_config, this);
+        win->setAttribute(Qt::WA_DeleteOnClose);
+        connect(win, &PoeLoginWindow::sessionCaptured,
+                m_accountStore, &PoeAccountStore::writeSession);
+    });
+
+    accountsForm->addRow("PathOfExile.com Account:", loginBtn);
+    m_stack->addWidget(accountsContent); // index 8
 
     // ---- Signal connections -------------------------------------------
     connect(m_autoDetect,     &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });

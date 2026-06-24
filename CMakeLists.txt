@@ -7,7 +7,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Svg Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Svg Widgets Test WebEngineWidgets)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 enable_testing()

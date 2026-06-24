@@ -12,6 +12,7 @@ class QLabel;
 class QListWidget;
 class QPushButton;
 class QStackedWidget;
+class PoeAccountStore;
 struct LiveEventRule;
 
 class SettingsPage : public QWidget
@@ -65,4 +66,7 @@ private:
 
     // Alerts page
     QListWidget *m_alertsList{};
+
+    // Accounts page
+    PoeAccountStore *m_accountStore{};
 };
