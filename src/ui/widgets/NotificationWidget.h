@@ -40,6 +40,8 @@ public:
     void setDetailRows(const QList<QPair<QString, QString>> &rows);
     void setAreaName(const QString &name);
     void appendTopRowTag(const QString &tag);
+    // Inserts w into the top row between the expand indicator and the source icon.
+    void setActionWidget(QWidget *w);
 
 protected:
     void paintEvent(QPaintEvent *) override;

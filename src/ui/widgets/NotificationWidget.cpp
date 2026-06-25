@@ -441,3 +441,10 @@ void NotificationWidget::appendTopRowTag(const QString &tag)
     const int idx = m_topRow->indexOf(m_sourceIcon);
     m_topRow->insertWidget(idx, tagLabel, 0, Qt::AlignVCenter);
 }
+
+void NotificationWidget::setActionWidget(QWidget *w)
+{
+    if (!m_topRow || !w) return;
+    const int idx = m_topRow->indexOf(m_sourceIcon);
+    m_topRow->insertWidget(idx >= 0 ? idx : m_topRow->count(), w, 0, Qt::AlignVCenter);
+}

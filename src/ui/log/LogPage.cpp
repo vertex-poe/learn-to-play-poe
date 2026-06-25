@@ -262,14 +262,25 @@ void LogPage::applySessions(const QList<Database::SessionRecord> &sessions)
             card->setDetailRows(details);
 
             card->setSource(docSource("Client.txt", "sources/game-started"));
-            layout->addWidget(card);
 
-            if (running) {
-                auto *btn = new QPushButton("Open current session \xe2\x86\x92", content);
-                btn->setFlat(true);
-                connect(btn, &QPushButton::clicked, this, &LogPage::viewCurrentRequested);
-                layout->addWidget(btn);
+            auto *viewBtn = new QPushButton("View", card);
+            viewBtn->setFlat(true);
+            {
+                QFont f = viewBtn->font();
+                f.setPointSizeF(Theme::fontSm);
+                viewBtn->setFont(f);
+                viewBtn->setStyleSheet(QStringLiteral(
+                    "QPushButton { padding-left: %1px; padding-right: %1px; padding-top: %2px; padding-bottom: %2px; }")
+                    .arg(Theme::buttonPaddingH)
+                    .arg(Theme::spacingXs));
             }
+            const qint64 sessionId = running ? -1 : s.id;
+            const QString startedAt = s.startedAt;
+            connect(viewBtn, &QPushButton::clicked, this, [this, sessionId, startedAt] {
+                emit viewSessionRequested(sessionId, startedAt);
+            });
+            card->setActionWidget(viewBtn);
+            layout->addWidget(card);
         }
     }
 

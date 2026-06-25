@@ -2,7 +2,7 @@
 #include "util/ScopedBudget.h"
 #include "ui/chat/ChatPage.h"
 #include "workers/CloseOrphanSessionsWorker.h"
-#include "ui/log/CurrentPage.h"
+#include "ui/log/SessionViewPage.h"
 #include "db/Database.h"
 #include "ui/chat/DmPage.h"
 #include "ui/log/LogPage.h"
@@ -59,7 +59,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_taskManager = new TaskManager(this);
 
-    m_currentPage = new CurrentPage(this);
+    m_sessionViewPage = new SessionViewPage(this);
     m_taskPanel = new TaskPanel(m_taskManager, this);
 
     m_stack    = new QStackedWidget(this);
@@ -77,6 +77,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_navBar->setCurrentIndex(TabGuide);
     m_stack->setCurrentIndex(TabGuide);
     connect(m_navBar, &NavBar::currentChanged,  this, &MainWindow::onTabChanged);
+    connect(m_navBar, &NavBar::tabReselected,   this, [this](int index) {
+        m_stack->setCurrentIndex(index);
+    });
     connect(m_navBar, &NavBar::settingsClicked, this, &MainWindow::onGearClicked);
     connect(m_navBar, &NavBar::searchClicked,   this, &MainWindow::onSearchClicked);
 
@@ -99,7 +102,7 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onConfigChanged);
 
     m_stack->addWidget(makePlaceholder("Coming soon", this)); // TabSearch
-    m_stack->addWidget(m_currentPage);                        // TabCurrent
+    m_stack->addWidget(m_sessionViewPage);                     // TabCurrent
     m_stack->addWidget(m_dmPage);                             // TabDms
 
     // Restore default tab. DMs and Current are sub-pages (not navbar tabs), so
@@ -113,8 +116,13 @@ MainWindow::MainWindow(QWidget *parent)
             m_stack->setCurrentIndex(stackIdx[dt]);
     }
 
-    connect(m_logPage, &LogPage::viewCurrentRequested,
-            this, [this] { m_stack->setCurrentIndex(TabCurrent); });
+    connect(m_logPage, &LogPage::viewSessionRequested,
+            this, [this](qint64 sessionId, const QString &startedAt) {
+                m_sessionViewPage->viewSession(sessionId, startedAt);
+                m_stack->setCurrentIndex(TabCurrent);
+            });
+    connect(m_sessionViewPage, &SessionViewPage::backRequested,
+            this, [this] { m_stack->setCurrentIndex(TabLog); });
     connect(m_chatPage, &ChatPage::viewDmsRequested,
             this, [this] { m_stack->setCurrentIndex(TabDms); });
 
@@ -173,7 +181,7 @@ MainWindow::MainWindow(QWidget *parent)
         scheduleLogIngestion();
         qDebug() << "[startup] scheduleLogIngestion done in" << startupTimer.elapsed() << "ms";
         m_queryService = new QueryService(m_db->path(), this);
-        m_currentPage->setQueryService(m_queryService);
+        m_sessionViewPage->setQueryService(m_queryService);
         m_logPage->setQueryService(m_queryService);
         m_chatPage->setQueryService(m_queryService);
         m_chatPage->setShowGuildTags(m_config.showGuildTags);
@@ -296,7 +304,7 @@ void MainWindow::onPollTimer()
             if (!s.installDir.isEmpty())
                 m_runningInstallDirs << s.installDir;
         refreshStatusBar();
-        m_currentPage->setRunningGames(states);
+        m_sessionViewPage->setRunningGames(states);
     }
 
     // Overlay — track the first detected window's rect.
@@ -337,7 +345,7 @@ void MainWindow::onPollTimer()
             // Game closed — drain any remaining log content then stop.
             stopLiveIngest();
             m_logPage->markDirty();
-            m_currentPage->markDirty();
+            m_sessionViewPage->markDirty();
         }
 
         // Close sessions for installs where the game is no longer running.
@@ -405,13 +413,13 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::log(const QString &message, const NotificationStyle &style)
 {
-    m_currentPage->addNotification(message, style);
+    m_sessionViewPage->addNotification(message, style);
 }
 
 void MainWindow::log(const QString &title, const QString &tag,
                      const QString &message, const NotificationStyle &style)
 {
-    m_currentPage->addNotification(title, tag, message, style);
+    m_sessionViewPage->addNotification(title, tag, message, style);
 }
 
 void MainWindow::scheduleLogIngestion()
@@ -466,7 +474,7 @@ void MainWindow::onTaskUpdated(int id)
                          << (r.status == TaskStatus::Monitoring ? "→ Monitoring" : "→ Finished");
                 setStatusContent(QString());   // let idle message take over
                 m_logPage->markDirty();
-                m_currentPage->markDirty();
+                m_sessionViewPage->markDirty();
             } else {
                 setStatusContent(QStringLiteral("%1 · %2").arg(t, r.name));
             }

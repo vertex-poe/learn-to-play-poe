@@ -14,7 +14,7 @@ class QStackedWidget;
 
 class QMenu;
 class ChatPage;
-class CurrentPage;
+class SessionViewPage;
 class DmPage;
 class NavBar;
 class LogPage;
@@ -84,7 +84,7 @@ private:
     Database     *m_db{};
     QueryService *m_queryService{};
 
-    CurrentPage        *m_currentPage{};
+    SessionViewPage    *m_sessionViewPage{};
     TaskManager        *m_taskManager{};
     TaskPanel          *m_taskPanel{};
     ChatPage           *m_chatPage{};

@@ -20,7 +20,7 @@ public:
     void markDirty();
 
 signals:
-    void viewCurrentRequested();
+    void viewSessionRequested(qint64 sessionId, const QString &startedAt);
 
 protected:
     void showEvent(QShowEvent *e) override;

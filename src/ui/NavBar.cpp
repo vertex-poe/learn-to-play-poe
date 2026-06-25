@@ -141,5 +141,9 @@ void NavBar::mousePressEvent(QMouseEvent *event)
     if (n == 0) return;
     const int tabAreaW = width() - k_listWidth - k_gearWidth;
     const int col = qBound(0, (x - k_listWidth) * n / tabAreaW, n - 1);
+    if (col == m_current && !m_gearActive && !m_searchActive) {
+        emit tabReselected(col);
+        return;
+    }
     setCurrentIndex(col);
 }

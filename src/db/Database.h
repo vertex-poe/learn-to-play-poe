@@ -146,6 +146,9 @@ public:
     // limit > 0 caps the result; offset skips that many rows (for pagination).
     QList<ZoneTransitionRecord> fetchZoneTransitions(int limit = 50, int offset = 0) const;
 
+    // Returns zone transitions for a specific session by ID, newest first.
+    QList<ZoneTransitionRecord> fetchZoneTransitions(int limit, int offset, qint64 sessionId) const;
+
     struct ClientScreenEventRecord
     {
         QString eventType;  // "login_screen" or "char_select"
@@ -155,6 +158,9 @@ public:
     // Returns client-screen events (login_screen / char_select) for the most
     // recent open session, newest first.
     QList<ClientScreenEventRecord> fetchClientScreenEvents() const;
+
+    // Returns client-screen events for a specific session by ID, newest first.
+    QList<ClientScreenEventRecord> fetchClientScreenEvents(qint64 sessionId) const;
 
     struct AfkRecord
     {
@@ -167,6 +173,9 @@ public:
     // limit > 0 caps the result.
     QList<AfkRecord> fetchAfkRecords(int limit = 0) const;
 
+    // Returns AFK intervals for a specific session by ID, newest first.
+    QList<AfkRecord> fetchAfkRecords(int limit, qint64 sessionId) const;
+
     struct AltTabRecord
     {
         QString outAt;        // "YYYY-MM-DD HH:MM:SS"
@@ -177,6 +186,9 @@ public:
     // Returns alt-tab intervals for the most recent open session, newest first.
     // limit > 0 caps the result.
     QList<AltTabRecord> fetchAltTabRecords(int limit = 0) const;
+
+    // Returns alt-tab intervals for a specific session by ID, newest first.
+    QList<AltTabRecord> fetchAltTabRecords(int limit, qint64 sessionId) const;
 
 private:
     void applyPragmas();

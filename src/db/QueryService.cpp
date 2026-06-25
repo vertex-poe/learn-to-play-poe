@@ -62,6 +62,25 @@ void QueryService::fetchCurrentPageData(int sessionEventLimit, int zoneLimit,
         }, Qt::QueuedConnection);
 }
 
+void QueryService::fetchSessionPageData(qint64 sessionId, int zoneLimit,
+    std::function<void(CurrentPageData)> cb)
+{
+    QPointer<QueryService> self(this);
+    auto *worker = m_worker;
+    QMetaObject::invokeMethod(worker,
+        [worker, qs = this, self, sessionId, zoneLimit, cb = std::move(cb)]() mutable {
+            CurrentPageData data;
+            data.zones = worker->db().fetchZoneTransitions(zoneLimit, 0, sessionId);
+            data.clientScreenEvents = worker->db().fetchClientScreenEvents(sessionId);
+            data.afkRecords = worker->db().fetchAfkRecords(zoneLimit, sessionId);
+            data.altTabRecords = worker->db().fetchAltTabRecords(zoneLimit, sessionId);
+            QMetaObject::invokeMethod(qs,
+                [self, data = std::move(data), cb = std::move(cb)]() mutable {
+                    if (self) cb(std::move(data));
+                }, Qt::QueuedConnection);
+        }, Qt::QueuedConnection);
+}
+
 void QueryService::fetchZoneTransitions(int limit, int offset,
     std::function<void(QList<Database::ZoneTransitionRecord>)> cb)
 {
@@ -70,6 +89,21 @@ void QueryService::fetchZoneTransitions(int limit, int offset,
     QMetaObject::invokeMethod(worker,
         [worker, qs = this, self, limit, offset, cb = std::move(cb)]() mutable {
             auto result = worker->db().fetchZoneTransitions(limit, offset);
+            QMetaObject::invokeMethod(qs,
+                [self, result = std::move(result), cb = std::move(cb)]() mutable {
+                    if (self) cb(std::move(result));
+                }, Qt::QueuedConnection);
+        }, Qt::QueuedConnection);
+}
+
+void QueryService::fetchZoneTransitionsForSession(qint64 sessionId, int limit, int offset,
+    std::function<void(QList<Database::ZoneTransitionRecord>)> cb)
+{
+    QPointer<QueryService> self(this);
+    auto *worker = m_worker;
+    QMetaObject::invokeMethod(worker,
+        [worker, qs = this, self, sessionId, limit, offset, cb = std::move(cb)]() mutable {
+            auto result = worker->db().fetchZoneTransitions(limit, offset, sessionId);
             QMetaObject::invokeMethod(qs,
                 [self, result = std::move(result), cb = std::move(cb)]() mutable {
                     if (self) cb(std::move(result));

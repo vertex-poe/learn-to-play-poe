@@ -71,6 +71,7 @@ inline constexpr int checkboxBase = 20;  // paired with fontBase  (AppStyle defa
 // --- Geometry ---
 inline constexpr int borderRadius    = 3;
 inline constexpr int buttonRadius    = 4;
+inline constexpr int buttonPaddingH  = 6;  // horizontal padding for inline flat buttons
 inline constexpr int scrollBarWidth  = 8;
 inline constexpr int scrollHandleMin = 24;
 

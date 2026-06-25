@@ -708,6 +708,50 @@ QList<Database::ZoneTransitionRecord> Database::fetchZoneTransitions(int limit, 
     return result;
 }
 
+QList<Database::ZoneTransitionRecord> Database::fetchZoneTransitions(int limit, int offset, qint64 sessionId) const
+{
+    QList<ZoneTransitionRecord> result;
+    if (!m_db) return result;
+    armQueryBudget();
+
+    static const char *sql = R"(
+        SELECT COALESCE(a.display_name, a.code), a.code, a.type, a.subtype, a.level, ats.entered_at, ats.duration_secs
+        FROM area_time_spans ats
+        LEFT JOIN areas a ON ats.area_id = a.id
+        WHERE ats.session_id = ?
+        AND ats.area_id IS NOT NULL
+        ORDER BY ats.entered_at DESC
+        LIMIT ? OFFSET ?
+    )";
+
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+    sqlite3_bind_int64(stmt, 1, sessionId);
+    sqlite3_bind_int(stmt, 2, limit > 0 ? limit : -1);
+    sqlite3_bind_int(stmt, 3, offset);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ZoneTransitionRecord r;
+        if (auto *p = sqlite3_column_text(stmt, 0))
+            r.areaName = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        if (auto *p = sqlite3_column_text(stmt, 1))
+            r.areaCode = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        if (auto *p = sqlite3_column_text(stmt, 2))
+            r.areaType = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        if (auto *p = sqlite3_column_text(stmt, 3))
+            r.areaSubtype = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        r.areaLevel = sqlite3_column_type(stmt, 4) != SQLITE_NULL
+                      ? sqlite3_column_int(stmt, 4) : 0;
+        if (auto *p = sqlite3_column_text(stmt, 5))
+            r.enteredAt = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        r.durationSecs = sqlite3_column_type(stmt, 6) != SQLITE_NULL
+                         ? sqlite3_column_int(stmt, 6) : -1;
+        result.append(r);
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
 QList<Database::AltTabRecord> Database::fetchAltTabRecords(int limit) const
 {
     QList<AltTabRecord> result;
@@ -728,6 +772,40 @@ QList<Database::AltTabRecord> Database::fetchAltTabRecords(int limit) const
     sqlite3_stmt *stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
     sqlite3_bind_int(stmt, 1, limit > 0 ? limit : -1);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        AltTabRecord r;
+        if (auto *p = sqlite3_column_text(stmt, 0))
+            r.outAt = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        if (auto *p = sqlite3_column_text(stmt, 1))
+            r.inAt  = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        r.durationSecs = sqlite3_column_type(stmt, 2) != SQLITE_NULL
+                         ? sqlite3_column_int(stmt, 2) : -1;
+        result.append(r);
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+QList<Database::AltTabRecord> Database::fetchAltTabRecords(int limit, qint64 sessionId) const
+{
+    QList<AltTabRecord> result;
+    if (!m_db) return result;
+    armQueryBudget();
+
+    static const char *sql = R"(
+        SELECT out_at, in_at,
+               CAST((strftime('%s', in_at) - strftime('%s', out_at)) AS INTEGER)
+        FROM session_alt_tabs
+        WHERE session_id = ?
+        ORDER BY out_at DESC
+        LIMIT ?
+    )";
+
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+    sqlite3_bind_int64(stmt, 1, sessionId);
+    sqlite3_bind_int(stmt, 2, limit > 0 ? limit : -1);
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         AltTabRecord r;
@@ -773,6 +851,37 @@ QList<Database::ClientScreenEventRecord> Database::fetchClientScreenEvents() con
     return result;
 }
 
+QList<Database::ClientScreenEventRecord> Database::fetchClientScreenEvents(qint64 sessionId) const
+{
+    QList<ClientScreenEventRecord> result;
+    if (!m_db) return result;
+    armQueryBudget();
+
+    static const char *sql = R"(
+        SELECT cse.event_type, cse.occurred_at
+        FROM client_screen_events cse
+        JOIN sessions s ON cse.install_id = s.install_id
+        WHERE s.id = ?
+          AND cse.occurred_at >= s.started_at
+          AND (s.ended_at IS NULL OR cse.occurred_at <= s.ended_at)
+        ORDER BY cse.occurred_at DESC
+    )";
+
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+    sqlite3_bind_int64(stmt, 1, sessionId);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ClientScreenEventRecord r;
+        if (auto *p = sqlite3_column_text(stmt, 0))
+            r.eventType  = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        if (auto *p = sqlite3_column_text(stmt, 1))
+            r.occurredAt = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        result.append(r);
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
 QList<Database::AfkRecord> Database::fetchAfkRecords(int limit) const
 {
     QList<AfkRecord> result;
@@ -793,6 +902,40 @@ QList<Database::AfkRecord> Database::fetchAfkRecords(int limit) const
     sqlite3_stmt *stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
     sqlite3_bind_int(stmt, 1, limit > 0 ? limit : -1);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        AfkRecord r;
+        if (auto *p = sqlite3_column_text(stmt, 0))
+            r.afkOnAt = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        if (auto *p = sqlite3_column_text(stmt, 1))
+            r.afkOffAt = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        r.durationSecs = sqlite3_column_type(stmt, 2) != SQLITE_NULL
+                         ? sqlite3_column_int(stmt, 2) : -1;
+        result.append(r);
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+QList<Database::AfkRecord> Database::fetchAfkRecords(int limit, qint64 sessionId) const
+{
+    QList<AfkRecord> result;
+    if (!m_db) return result;
+    armQueryBudget();
+
+    static const char *sql = R"(
+        SELECT afk_on_at, afk_off_at,
+               CAST((strftime('%s', afk_off_at) - strftime('%s', afk_on_at)) AS INTEGER)
+        FROM session_afk
+        WHERE session_id = ?
+        ORDER BY afk_on_at DESC
+        LIMIT ?
+    )";
+
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return result;
+    sqlite3_bind_int64(stmt, 1, sessionId);
+    sqlite3_bind_int(stmt, 2, limit > 0 ? limit : -1);
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         AfkRecord r;

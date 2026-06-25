@@ -18,6 +18,7 @@ public:
 
 signals:
     void currentChanged(int index);
+    void tabReselected(int index);
     void settingsClicked();
     void searchClicked();
 

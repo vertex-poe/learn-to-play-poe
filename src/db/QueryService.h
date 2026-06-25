@@ -31,7 +31,14 @@ public:
     void fetchCurrentPageData(int sessionEventLimit, int zoneLimit,
         std::function<void(CurrentPageData)> cb);
 
+    // Fetches all event data for a specific historical session by ID.
+    void fetchSessionPageData(qint64 sessionId, int zoneLimit,
+        std::function<void(CurrentPageData)> cb);
+
     void fetchZoneTransitions(int limit, int offset,
+        std::function<void(QList<Database::ZoneTransitionRecord>)> cb);
+
+    void fetchZoneTransitionsForSession(qint64 sessionId, int limit, int offset,
         std::function<void(QList<Database::ZoneTransitionRecord>)> cb);
 
     void fetchSessions(int limit, int offset,
