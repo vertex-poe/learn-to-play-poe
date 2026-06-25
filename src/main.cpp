@@ -1,7 +1,7 @@
-#include "AppConfig.h"
-#include "Cli.h"
-#include "MainWindow.h"
-#include "Theme.h"
+#include "core/AppConfig.h"
+#include "core/Cli.h"
+#include "core/MainWindow.h"
+#include "ui/Theme.h"
 
 #include <QApplication>
 #include <QDateTime>

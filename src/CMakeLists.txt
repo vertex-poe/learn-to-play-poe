@@ -13,66 +13,71 @@ FetchContent_GetProperties(qtkeychain SOURCE_DIR _qtkeychain_src BINARY_DIR _qtk
 
 qt_add_executable(l2p-poe1
     main.cpp
-    AppConfig.cpp
-    AppConfig.h
-    Cli.cpp
-    Cli.h
-    DialogHash.h
-    Docs.h
-    AppStyle.cpp
-    AppStyle.h
-    BackgroundWorker.h
-    ChatPage.cpp
-    ChatPage.h
-    CloseOrphanSessionsWorker.cpp
-    CloseOrphanSessionsWorker.h
-    QueryService.cpp
-    QueryService.h
-    CurrentPage.cpp
-    CurrentPage.h
-    Database.cpp
-    Database.h
-    DatabaseHealth.cpp
-    DatabaseHealth.h
-    DatabaseHealthWorker.cpp
-    DatabaseHealthWorker.h
-    GameOverlay.cpp
-    GameOverlay.h
-    ListEditor.cpp
-    ListEditor.h
-    LiveEvent.h
-    LiveEventBus.cpp
-    LiveEventBus.h
-    LiveEventRule.h
-    LiveEventRuleEngine.cpp
-    LiveEventRuleEngine.h
-    LogIngestWorker.cpp
-    LogIngestWorker.h
-    DmPage.cpp
-    DmPage.h
-    MainWindow.cpp
-    PastPage.cpp
-    PastPage.h
-    MainWindow.h
-    NavBar.cpp
-    NavBar.h
-    NotificationWidget.cpp
-    NotificationWidget.h
-    ScrollJumpButton.cpp
-    ScrollJumpButton.h
-    PoeAccountStore.cpp
-    PoeAccountStore.h
-    PoeLoginWindow.cpp
-    PoeLoginWindow.h
-    SettingsPage.cpp
-    SettingsPage.h
-    TaskManager.cpp
-    TaskManager.h
-    TaskPanel.cpp
-    TaskPanel.h
-    Theme.cpp
-    Theme.h
-    WindowTracker.h
+    core/AppConfig.cpp
+    core/AppConfig.h
+    core/Cli.cpp
+    core/Cli.h
+    core/MainWindow.cpp
+    core/MainWindow.h
+    db/Database.cpp
+    db/Database.h
+    db/DatabaseHealth.cpp
+    db/DatabaseHealth.h
+    db/DatabaseHealthWorker.cpp
+    db/DatabaseHealthWorker.h
+    db/QueryService.cpp
+    db/QueryService.h
+    events/LiveEvent.h
+    events/LiveEventBus.cpp
+    events/LiveEventBus.h
+    events/LiveEventRule.h
+    events/LiveEventRuleEngine.cpp
+    events/LiveEventRuleEngine.h
+    workers/BackgroundWorker.h
+    workers/CloseOrphanSessionsWorker.cpp
+    workers/CloseOrphanSessionsWorker.h
+    workers/LogIngestWorker.cpp
+    workers/LogIngestWorker.h
+    workers/TaskManager.cpp
+    workers/TaskManager.h
+    platform/WindowTracker.h
+    util/DialogHash.h
+    util/Docs.h
+    util/PoeAccountStore.cpp
+    util/PoeAccountStore.h
+    util/ScopedBudget.h
+    ui/AppStyle.cpp
+    ui/AppStyle.h
+    ui/overlay/GameOverlay.cpp
+    ui/overlay/GameOverlay.h
+    ui/NavBar.cpp
+    ui/NavBar.h
+    ui/TaskPanel.cpp
+    ui/TaskPanel.h
+    ui/Theme.cpp
+    ui/Theme.h
+    ui/chat/ChatPage.cpp
+    ui/chat/ChatPage.h
+    ui/chat/DmPage.cpp
+    ui/chat/DmPage.h
+    ui/log/CurrentPage.cpp
+    ui/log/CurrentPage.h
+    ui/log/PastPage.cpp
+    ui/log/PastPage.h
+    ui/settings/PoeLoginWindow.cpp
+    ui/settings/PoeLoginWindow.h
+    ui/settings/SettingsDialog.cpp
+    ui/settings/SettingsDialog.h
+    ui/settings/SettingsPage.cpp
+    ui/settings/SettingsPage.h
+    ui/widgets/ListEditor.cpp
+    ui/widgets/ListEditor.h
+    ui/widgets/NotificationWidget.cpp
+    ui/widgets/NotificationWidget.h
+    ui/widgets/NotificationsPanel.cpp
+    ui/widgets/NotificationsPanel.h
+    ui/widgets/ScrollJumpButton.cpp
+    ui/widgets/ScrollJumpButton.h
 )
 
 file(GLOB SEED_INPUTS
@@ -152,15 +157,17 @@ add_custom_target(validate_doc_urls
 )
 add_dependencies(l2p-poe1 validate_doc_urls)
 
+target_include_directories(l2p-poe1 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
 if (WIN32)
-    target_sources(l2p-poe1 PRIVATE WindowTrackerWindows.cpp OverlayKeepalive.cpp OverlayKeepalive.h l2p-poe1.rc)
+    target_sources(l2p-poe1 PRIVATE platform/WindowTrackerWindows.cpp platform/OverlayKeepalive.cpp platform/OverlayKeepalive.h platform/l2p-poe1.rc)
     target_link_libraries(l2p-poe1 PRIVATE psapi dbghelp)
     if (MSVC)
         # Disable the auto-generated manifest; we embed our own via the RC file.
         target_link_options(l2p-poe1 PRIVATE "/MANIFEST:NO")
     endif()
 elseif (UNIX)
-    target_sources(l2p-poe1 PRIVATE WindowTrackerLinux.cpp)
+    target_sources(l2p-poe1 PRIVATE platform/WindowTrackerLinux.cpp)
     find_package(X11 REQUIRED)
     target_link_libraries(l2p-poe1 PRIVATE X11::X11)
 endif()
