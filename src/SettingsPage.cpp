@@ -1,5 +1,6 @@
 #include "SettingsPage.h"
 #include "AppConfig.h"
+#include "Docs.h"
 #include "Theme.h"
 #include "ListEditor.h"
 #include "PoeAccountStore.h"
@@ -7,6 +8,10 @@
 
 #include <QCheckBox>
 #include <QClipboard>
+#include <QDesktopServices>
+#include <QRegularExpression>
+#include <QTimer>
+#include <QWebEngineProfile>
 #include <QGuiApplication>
 #include <QMessageBox>
 #include <QComboBox>
@@ -216,7 +221,9 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
 
     addDivider();
 
-    connect(makeItemBtn("Debug"), &QPushButton::clicked,
+    m_debugCategoryBtn = makeItemBtn("Debug");
+    m_debugCategoryBtn->setVisible(config.debugMode);
+    connect(m_debugCategoryBtn, &QPushButton::clicked,
             this, [this] { navigateTo(7, "Debug"); });
 
     connect(makeItemBtn("About"),  &QPushButton::clicked,
@@ -415,18 +422,15 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     }
     aboutDebugMode->setStyleSheet(
         QStringLiteral("QCheckBox::indicator { width: %1px; height: %1px; }").arg(Theme::checkboxSm));
-    aboutDebugMode->setChecked(config.debugLog);
+    aboutDebugMode->setChecked(config.debugMode);
     auto *aboutDebugRow = new QHBoxLayout;
     aboutDebugRow->addStretch();
     aboutDebugRow->addWidget(aboutDebugMode);
     aboutDebugRow->addStretch();
     aboutLayout->addLayout(aboutDebugRow);
     connect(aboutDebugMode, &QCheckBox::toggled, this, [this, aboutDebugMode](bool) {
-        m_debugMode->setChecked(aboutDebugMode->isChecked());
-    });
-    connect(m_debugMode, &QCheckBox::toggled, this, [aboutDebugMode](bool checked) {
-        if (aboutDebugMode->isChecked() != checked)
-            aboutDebugMode->setChecked(checked);
+        m_config.debugMode = aboutDebugMode->isChecked();
+        saveAndEmit();
     });
 
     aboutLayout->addStretch(1);
@@ -467,33 +471,42 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     auto *debugForm    = new QFormLayout(debugContent);
     debugForm->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
 
-    m_debugMode = new QCheckBox(debugContent);
-    m_debugMode->setChecked(config.debugLog);
-    debugForm->addRow("Debug logging:", m_debugMode);
+    m_debugLog = new QCheckBox(debugContent);
+    m_debugLog->setChecked(config.debugLog);
+    debugForm->addRow("Debug logging:", m_debugLog);
 
     m_userAgent = new QComboBox(debugContent);
     m_userAgent->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_userAgent->addItem("Auto (Chromium)");
+    m_userAgent->insertSeparator(m_userAgent->count());
     m_userAgent->addItem("Windows 11");
     {
         auto *uaModel = qobject_cast<QStandardItemModel *>(m_userAgent->model());
         if (uaModel)
-            uaModel->item(0)->setEnabled(false);
+            uaModel->item(m_userAgent->count() - 1)->setEnabled(false);
     }
     for (const auto &entry : kUserAgents)
         m_userAgent->addItem(entry.label);
     m_userAgent->insertSeparator(m_userAgent->count());
     m_userAgent->addItem("Custom");
     {
-        int idx = m_userAgent->findText(config.userAgentLabel);
-        m_userAgent->setCurrentIndex(idx > 0 ? idx : 2); // default Chrome (win11)
+        int idx = m_userAgent->findText(config.debugLegacyUserAgent);
+        m_userAgent->setCurrentIndex(idx >= 0 ? idx : 0); // default Auto (Chromium)
     }
 
     m_customUserAgent = new QLineEdit(debugContent);
-    m_customUserAgent->setPlaceholderText("User-Agent string");
     {
-        const bool isCustom = config.userAgentLabel == QLatin1String("Custom");
+        const bool isCustom = config.debugLegacyUserAgent == QLatin1String("Custom");
+        const bool isAuto   = config.debugLegacyUserAgent == QLatin1String("Auto (Chromium)")
+                              || config.debugLegacyUserAgent.isEmpty();
         m_customUserAgent->setReadOnly(!isCustom);
-        m_customUserAgent->setText(isCustom ? config.customUserAgent : config.effectiveUserAgent());
+        if (isAuto) {
+            m_customUserAgent->setPlaceholderText("Native Chromium UA");
+        } else {
+            m_customUserAgent->setPlaceholderText("User-Agent string");
+            m_customUserAgent->setText(isCustom ? config.debugLegacyUserAgentCustom
+                                                : config.effectiveUserAgent());
+        }
     }
 
     const int iconPx = QFontMetrics(font()).height();
@@ -510,6 +523,35 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
         QGuiApplication::clipboard()->setText(m_customUserAgent->text());
     });
 
+    {
+        auto *sectionLabel = new QLabel("Official Legacy POE API", debugContent);
+        QFont f = sectionLabel->font();
+        f.setBold(true);
+        sectionLabel->setFont(f);
+
+        const int px = QFontMetrics(font()).height();
+        auto *infoBtn = new QPushButton(debugContent);
+        infoBtn->setFlat(true);
+        infoBtn->setFixedSize(px + 8, px + 8);
+        infoBtn->setIcon(QIcon(Theme::renderSvgIcon(
+            QStringLiteral(":/icons/info-circle.svg"),
+            palette().buttonText().color(),
+            {px, px}, devicePixelRatioF())));
+        infoBtn->setIconSize({px, px});
+        infoBtn->setToolTip("Encrypted Session Token");
+        connect(infoBtn, &QPushButton::clicked, this, []() {
+            QDesktopServices::openUrl(
+                QUrl(docSource("", "rationales/legacy-api").url));
+        });
+
+        auto *sectionRow = new QHBoxLayout;
+        sectionRow->setContentsMargins(0, 0, 0, 0);
+        sectionRow->addWidget(sectionLabel);
+        sectionRow->addWidget(infoBtn);
+        sectionRow->addStretch();
+        debugForm->addRow(sectionRow);
+    }
+
     auto *uaComboRow = new QHBoxLayout;
     uaComboRow->setContentsMargins(0, 0, 0, 0);
     uaComboRow->addWidget(m_userAgent);
@@ -524,11 +566,19 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
 
     m_includeToolName = new QCheckBox(debugContent);
     {
-        const bool isCustom = config.userAgentLabel == QLatin1String("Custom");
-        m_includeToolName->setChecked(!isCustom && config.includeToolName);
+        const bool isCustom = config.debugLegacyUserAgent == QLatin1String("Custom");
+        m_includeToolName->setChecked(!isCustom && config.debugLegacyUserAgentApp);
         m_includeToolName->setEnabled(!isCustom);
     }
     debugForm->addRow("Include tool name:", m_includeToolName);
+
+    m_includeQtToken = new QCheckBox(debugContent);
+    {
+        const bool isCustom = config.debugLegacyUserAgent == QLatin1String("Custom");
+        m_includeQtToken->setEnabled(!isCustom);
+        m_includeQtToken->setChecked(!isCustom && config.debugUserAgentQt);
+    }
+    debugForm->addRow("Include QtWebEngine token:", m_includeQtToken);
 
     m_stack->addWidget(debugContent); // index 7
 
@@ -537,16 +587,89 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     auto *accountsForm    = new QFormLayout(accountsContent);
     accountsForm->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
 
-    auto *loginBtn = new QPushButton("Login", accountsContent);
-    loginBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    connect(loginBtn, &QPushButton::clicked, this, [this]() {
-        auto *win = new PoeLoginWindow(m_config, this);
-        win->setAttribute(Qt::WA_DeleteOnClose);
-        connect(win, &PoeLoginWindow::sessionCaptured,
-                m_accountStore, &PoeAccountStore::writeSession);
+    m_accountsActionBtn = new QPushButton(accountsContent);
+    m_accountsActionBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_accountsActionBtn->setText("Checking...");
+    m_accountsActionBtn->setEnabled(false);
+    connect(m_accountsActionBtn, &QPushButton::clicked, this, [this]() {
+        if (m_hasSession) {
+            auto *win = new PoeLoginWindow(m_config, this, PoeLoginWindow::Mode::Browse);
+            connect(win, &QObject::destroyed, this, [this]() {
+                m_hasSession = false;
+                m_accountStore->deleteSession();
+                updateAccountButton();
+            });
+            win->show();
+        } else {
+            auto *win = new PoeLoginWindow(m_config, this);
+            connect(win, &PoeLoginWindow::sessionCaptured,
+                    m_accountStore, &PoeAccountStore::writeSession);
+        }
     });
 
-    accountsForm->addRow("PathOfExile.com Account:", loginBtn);
+    {
+        auto *sectionLabel = new QLabel("Official Legacy POE API", accountsContent);
+        QFont f = sectionLabel->font();
+        f.setBold(true);
+        sectionLabel->setFont(f);
+        accountsForm->addRow(sectionLabel);
+    }
+
+    {
+        const int px = QFontMetrics(font()).height();
+        auto *infoBtn = new QPushButton(accountsContent);
+        infoBtn->setFlat(true);
+        infoBtn->setFixedSize(px + 8, px + 8);
+        infoBtn->setIcon(QIcon(Theme::renderSvgIcon(
+            QStringLiteral(":/icons/info-circle.svg"),
+            palette().buttonText().color(),
+            {px, px}, devicePixelRatioF())));
+        infoBtn->setIconSize({px, px});
+        infoBtn->setToolTip("Encrypted Session Token");
+        connect(infoBtn, &QPushButton::clicked, this, []() {
+            QDesktopServices::openUrl(
+                QUrl(docSource("", "rationales/legacy-api").url));
+        });
+
+        auto *accountsActionRow = new QHBoxLayout;
+        accountsActionRow->setContentsMargins(0, 0, 0, 0);
+        accountsActionRow->addWidget(m_accountsActionBtn);
+        accountsActionRow->addWidget(infoBtn);
+        accountsActionRow->addStretch();
+        accountsForm->addRow("PathOfExile.com Account:", accountsActionRow);
+    }
+
+    m_accountsUaLabel = new QLabel("User agent:", accountsContent);
+    m_accountsUaDisplay = new QLineEdit(accountsContent);
+    m_accountsUaDisplay->setReadOnly(true);
+    m_accountsUaDisplay->setPlaceholderText("Native Chromium UA");
+    // Populated by the deferred native UA fetch; empty shows placeholder until then.
+
+    {
+        const int px = QFontMetrics(font()).height();
+        m_accountsUaCopyBtn = new QPushButton(accountsContent);
+        m_accountsUaCopyBtn->setFlat(true);
+        m_accountsUaCopyBtn->setFixedSize(px + 8, px + 8);
+        m_accountsUaCopyBtn->setIcon(QIcon(Theme::renderSvgIcon(
+            QStringLiteral(":/icons/clipboard-fill.svg"),
+            palette().buttonText().color(),
+            {px, px}, devicePixelRatioF())));
+        m_accountsUaCopyBtn->setIconSize({px, px});
+        m_accountsUaCopyBtn->setToolTip("Copy to clipboard");
+        connect(m_accountsUaCopyBtn, &QPushButton::clicked, this, [this]() {
+            QGuiApplication::clipboard()->setText(m_accountsUaDisplay->text());
+        });
+    }
+
+    auto *accountsUaRow = new QHBoxLayout;
+    accountsUaRow->setContentsMargins(0, 0, 0, 0);
+    accountsUaRow->addWidget(m_accountsUaDisplay, 1);
+    accountsUaRow->addWidget(m_accountsUaCopyBtn);
+    accountsForm->addRow(m_accountsUaLabel, accountsUaRow);
+    m_accountsUaLabel->setVisible(m_config.debugMode);
+    m_accountsUaDisplay->setVisible(m_config.debugMode);
+    m_accountsUaCopyBtn->setVisible(m_config.debugMode);
+
     m_stack->addWidget(accountsContent); // index 8
 
     // ---- Signal connections -------------------------------------------
@@ -558,21 +681,63 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     connect(m_startMinimized, &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
     connect(m_minimizeToTray, &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
     connect(m_showGuildTags,   &QCheckBox::toggled,            this, [this](bool) { saveAndEmit(); });
-    connect(m_debugMode,       &QCheckBox::toggled,            this, [this](bool) { saveAndEmit(); });
+    connect(m_debugLog,        &QCheckBox::toggled,            this, [this](bool) { saveAndEmit(); });
     connect(m_userAgent, &QComboBox::currentIndexChanged, this, [this](int) {
         const bool isCustom = m_userAgent->currentText() == QLatin1String("Custom");
+        const bool isAuto   = m_userAgent->currentText() == QLatin1String("Auto (Chromium)");
         m_customUserAgent->setReadOnly(!isCustom);
-        if (isCustom)
-            m_customUserAgent->setText(m_config.customUserAgent);
-        // Non-custom: let saveAndEmit set the text after updating the config label.
+        if (isAuto) {
+            refreshAutoUADisplay();
+        } else {
+            m_customUserAgent->setPlaceholderText("User-Agent string");
+            if (isCustom)
+                m_customUserAgent->setText(m_config.debugLegacyUserAgentCustom);
+            // For presets, let saveAndEmit refresh the display after updating config.
+        }
         m_includeToolName->setEnabled(!isCustom);
         m_includeToolName->blockSignals(true);
-        m_includeToolName->setChecked(!isCustom && m_config.includeToolName);
+        m_includeToolName->setChecked(!isCustom && m_config.debugLegacyUserAgentApp);
         m_includeToolName->blockSignals(false);
+        m_includeQtToken->setEnabled(!isCustom);
+        m_includeQtToken->blockSignals(true);
+        m_includeQtToken->setChecked(!isCustom && m_config.debugUserAgentQt);
+        m_includeQtToken->blockSignals(false);
         saveAndEmit();
     });
     connect(m_customUserAgent, &QLineEdit::textEdited,         this, [this](const QString &) { saveAndEmit(); });
     connect(m_includeToolName, &QCheckBox::toggled,            this, [this](bool) { saveAndEmit(); });
+    connect(m_includeQtToken,    &QCheckBox::toggled,            this, [this](bool) { saveAndEmit(); });
+
+    connect(m_accountStore, &PoeAccountStore::sessionRead, this,
+            [this](const QString &poesessid) {
+        m_hasSession = !poesessid.isEmpty();
+        updateAccountButton();
+    });
+    connect(m_accountStore, &PoeAccountStore::sessionWritten, this,
+            [this](bool ok) {
+        if (ok) { m_hasSession = true; updateAccountButton(); }
+    });
+
+    m_accountStore->readSession();
+
+    // Fetch the native Chromium UA once without blocking the constructor.
+    // defaultProfile() initialises WebEngine on first call; deferring one tick
+    // ensures the window paints before that work begins.
+    QTimer::singleShot(0, this, [this]() {
+        m_nativeChromiumUA = QWebEngineProfile::defaultProfile()->httpUserAgent();
+        refreshAutoUADisplay();
+    });
+
+    connect(this, &SettingsPage::configChanged, this, [this]() {
+        const bool debug = m_config.debugMode;
+        m_debugCategoryBtn->setVisible(debug);
+        m_accountsUaLabel->setVisible(debug);
+        m_accountsUaDisplay->setVisible(debug);
+        m_accountsUaCopyBtn->setVisible(debug);
+        const QString displayUa = m_config.debugLegacyUserAgent == QLatin1String("Auto (Chromium)")
+                                  ? autoChromiumUA() : m_config.effectiveUserAgent();
+        m_accountsUaDisplay->setText(displayUa);
+    });
 }
 
 void SettingsPage::navigateTo(int pageIndex, const QString &title)
@@ -711,6 +876,48 @@ bool SettingsPage::alertsEditRuleDialog(LiveEventRule &rule)
     return true;
 }
 
+QString SettingsPage::autoChromiumUA() const
+{
+    if (m_nativeChromiumUA.isEmpty())
+        return {};
+    static const QRegularExpression kQtToken(QStringLiteral(R"(QtWebEngine/[\d.]+ )"));
+    QString ua = m_nativeChromiumUA;
+    if (!m_config.debugUserAgentQt)
+        ua.remove(kQtToken);
+    ua = ua.trimmed();
+    if (m_config.debugLegacyUserAgentApp) {
+        const QString token = QCoreApplication::applicationName().remove(u' ')
+                              + u'/'
+                              + QCoreApplication::applicationVersion();
+        ua += u' ' + token;
+    }
+    return ua;
+}
+
+void SettingsPage::refreshAutoUADisplay()
+{
+    const QString ua = autoChromiumUA();
+
+    if (m_userAgent->currentText() == QLatin1String("Auto (Chromium)")) {
+        if (ua.isEmpty()) {
+            m_customUserAgent->setPlaceholderText("Native Chromium UA");
+            m_customUserAgent->clear();
+        } else {
+            m_customUserAgent->setPlaceholderText({});
+            m_customUserAgent->setText(ua);
+        }
+    }
+
+    // Accounts page always shows the resolved auto UA (read-only, debug-only).
+    m_accountsUaDisplay->setText(ua);
+}
+
+void SettingsPage::updateAccountButton()
+{
+    m_accountsActionBtn->setText(m_hasSession ? "Logout" : "Login");
+    m_accountsActionBtn->setEnabled(true);
+}
+
 void SettingsPage::saveAndEmit()
 {
     m_config.autoDetectInstallDir = m_autoDetect->isChecked();
@@ -728,15 +935,19 @@ void SettingsPage::saveAndEmit()
     m_config.startMinimized  = m_startMinimized->isChecked();
     m_config.minimizeToTray  = m_minimizeToTray->isChecked();
     m_config.showGuildTags   = m_showGuildTags->isChecked();
-    m_config.debugLog        = m_debugMode->isChecked();
-    if (m_userAgent->currentIndex() > 0)
-        m_config.userAgentLabel = m_userAgent->currentText();
+    m_config.debugLog       = m_debugLog->isChecked();
+    m_config.debugLegacyUserAgent = m_userAgent->currentText();
     if (m_userAgent->currentText() == QLatin1String("Custom"))
-        m_config.customUserAgent = m_customUserAgent->text();
+        m_config.debugLegacyUserAgentCustom = m_customUserAgent->text();
     if (m_userAgent->currentText() != QLatin1String("Custom"))
-        m_config.includeToolName = m_includeToolName->isChecked();
+        m_config.debugLegacyUserAgentApp = m_includeToolName->isChecked();
+    if (m_userAgent->currentText() != QLatin1String("Custom"))
+        m_config.debugUserAgentQt = m_includeQtToken->isChecked();
     m_config.save();
-    if (m_userAgent->currentText() != QLatin1String("Custom"))
+    // Refresh the UA display.
+    if (m_userAgent->currentText() == QLatin1String("Auto (Chromium)"))
+        refreshAutoUADisplay();
+    else if (m_userAgent->currentText() != QLatin1String("Custom"))
         m_customUserAgent->setText(m_config.effectiveUserAgent());
     emit configChanged();
 }

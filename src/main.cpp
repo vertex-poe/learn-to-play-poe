@@ -125,6 +125,11 @@ int main(int argc, char *argv[])
     if (cliResult != -1)
         return cliResult;
 
+    // Must be set before QApplication so QtWebEngineProcess.exe inherits the flag.
+    // This removes Chromium's automation-mode markers (navigator.webdriver etc.)
+    // at the engine level, which is more robust than patching them in JavaScript.
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-blink-features=AutomationControlled");
+
     QApplication app(argc, argv);
     app.setApplicationName("Learn to Play PoE1");
     app.setApplicationVersion("0.1.0");

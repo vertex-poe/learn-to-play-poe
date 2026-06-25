@@ -22,10 +22,15 @@ struct AppConfig {
     }
 
     QStringList executableNames; // empty = use knownExes()
+    bool    debugMode{false};
     bool    debugLog{false};
-    QString userAgentLabel{"Chrome (win11)"};
-    QString customUserAgent;
-    bool    includeToolName{true};
+    static constexpr bool kDefaultLegacyUserAgentApp = true;
+    static constexpr bool kDefaultUserAgentQt        = true;
+
+    QString debugLegacyUserAgent{"Auto (Chromium)"};
+    QString debugLegacyUserAgentCustom;
+    bool    debugLegacyUserAgentApp{kDefaultLegacyUserAgentApp};
+    bool    debugUserAgentQt{kDefaultUserAgentQt};
     bool useGameOverlay{true};
     bool autoUpdate{true};
     bool autoStartOnBoot{false};

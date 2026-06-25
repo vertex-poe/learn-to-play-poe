@@ -51,7 +51,7 @@ When a feature can be delivered without touching the game, its API, or its files
 
 The official API is the sanctioned integration surface and the first place we look. We will use it when it provides what a feature requires — meaning the data is present, accurate, timely, and accessible within rate limits that allow the feature to function in a meaningful way.
 
-"Covers the need" is not the same as "an endpoint nominally exists." If the information a feature depends on is absent from the official API but available through `Client.txt` or the website, or if rate limits make a feature non-viable through the API alone, then the official API does not cover that need and we will use whatever legitimate alternative does. The spirit of preferring the sanctioned surface is best served by actually building features that work, not by binding ourselves to an integration that cannot deliver them.
+"Covers the need" is not the same as "an endpoint nominally exists." If the information a feature depends on has not yet been added to the official API but is available through `Client.txt` or the website, or if rate limits make a feature non-viable through the API alone, then the official API does not cover that need and we will use whatever legitimate alternative does. The spirit of preferring the sanctioned surface is best served by actually building features that work, not by binding ourselves to an integration that cannot deliver them.
 
 ### 4. Use Client.txt for real-time game events
 
@@ -63,7 +63,7 @@ This passivity is an important distinction: the addon may observe game state con
 
 ### 5. Use the legacy website API sparingly and with restraint
 
-Some functionality — certain trade endpoints, forum data, league ladder information — is only available via GGG's website rather than the official developer API. We will use these endpoints only when:
+Some functionality — certain trade endpoints, forum data, league ladder information — GGG has not yet added to their official developer API, making it currently only accessible via GGG's website. We will use these endpoints only when:
 
 - No official API equivalent exists.
 - The feature materially serves the player.

@@ -20,19 +20,27 @@ static const UaEntry kUserAgents[] = {
 
 QString AppConfig::effectiveUserAgent() const
 {
+    // When debug mode is off all settings are at their defaults, which means
+    // Auto (Chromium) — return empty so callers use the native engine UA.
+    if (!debugMode)
+        return QString();
+
+    if (debugLegacyUserAgent.isEmpty() || debugLegacyUserAgent == QLatin1String("Auto (Chromium)"))
+        return QString();
+
     QString ua;
-    if (userAgentLabel == QLatin1String("Custom")) {
-        ua = customUserAgent;
+    if (debugLegacyUserAgent == QLatin1String("Custom")) {
+        ua = debugLegacyUserAgentCustom;
     } else {
         for (const auto &entry : kUserAgents) {
-            if (userAgentLabel == QLatin1String(entry.label)) {
+            if (debugLegacyUserAgent == QLatin1String(entry.label)) {
                 ua = QLatin1String(entry.ua);
                 break;
             }
         }
     }
 
-    if (includeToolName && !ua.isEmpty()) {
+    if (debugLegacyUserAgentApp && !ua.isEmpty()) {
         const QString token = QCoreApplication::applicationName().remove(u' ')
                               + u'/'
                               + QCoreApplication::applicationVersion();
@@ -76,12 +84,14 @@ AppConfig AppConfig::load()
                     cfg.executableNames << QString::fromStdString(*val);
             }
         }
+        cfg.debugMode             = tbl["debug_mode"].value_or(false);
         cfg.debugLog              = tbl["debug_log"].value_or(false);
-        if (auto v = tbl["user_agent_label"].value<std::string>())
-            cfg.userAgentLabel = QString::fromStdString(*v);
-        if (auto v = tbl["custom_user_agent"].value<std::string>())
-            cfg.customUserAgent = QString::fromStdString(*v);
-        cfg.includeToolName       = tbl["include_tool_name"].value_or(true);
+        if (auto v = tbl["debug_legacy_user_agent"].value<std::string>())
+            cfg.debugLegacyUserAgent = QString::fromStdString(*v);
+        if (auto v = tbl["debug_legacy_user_agent_custom"].value<std::string>())
+            cfg.debugLegacyUserAgentCustom = QString::fromStdString(*v);
+        cfg.debugLegacyUserAgentApp = tbl["debug_legacy_user_agent_app"].value_or(AppConfig::kDefaultLegacyUserAgentApp);
+        cfg.debugUserAgentQt        = tbl["debug_user_agent_qt"].value_or(AppConfig::kDefaultUserAgentQt);
         cfg.useGameOverlay        = tbl["use_game_overlay"].value_or(true);
         cfg.autoUpdate            = tbl["auto_update"].value_or(true);
         cfg.autoStartOnBoot       = tbl["auto_start_on_boot"].value_or(false);
@@ -161,10 +171,12 @@ void AppConfig::save() const
     for (const QString &exe : executableNames)
         exeArr.push_back(exe.toStdString());
     tbl.insert("executable_names", std::move(exeArr));
+    tbl.insert("debug_mode",              debugMode);
     tbl.insert("debug_log",               debugLog);
-    tbl.insert("user_agent_label",        userAgentLabel.toStdString());
-    tbl.insert("custom_user_agent",       customUserAgent.toStdString());
-    tbl.insert("include_tool_name",       includeToolName);
+    tbl.insert("debug_legacy_user_agent",        debugLegacyUserAgent.toStdString());
+    tbl.insert("debug_legacy_user_agent_custom", debugLegacyUserAgentCustom.toStdString());
+    tbl.insert("debug_legacy_user_agent_app", debugLegacyUserAgentApp);
+    tbl.insert("debug_user_agent_qt",            debugUserAgentQt);
     tbl.insert("use_game_overlay",        useGameOverlay);
     tbl.insert("auto_update",             autoUpdate);
     tbl.insert("auto_start_on_boot",      autoStartOnBoot);
