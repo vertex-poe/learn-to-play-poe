@@ -62,8 +62,8 @@ qt_add_executable(l2p-poe1
     ui/chat/DmPage.h
     ui/log/CurrentPage.cpp
     ui/log/CurrentPage.h
-    ui/log/PastPage.cpp
-    ui/log/PastPage.h
+    ui/log/LogPage.cpp
+    ui/log/LogPage.h
     ui/settings/PoeLoginWindow.cpp
     ui/settings/PoeLoginWindow.h
     ui/settings/SettingsDialog.cpp

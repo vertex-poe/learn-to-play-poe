@@ -1,4 +1,4 @@
-#include "ui/log/PastPage.h"
+#include "ui/log/LogPage.h"
 #include "db/Database.h"
 #include "util/Docs.h"
 #include "events/LiveEvent.h"
@@ -98,9 +98,9 @@ static QString formatDuration(double secs)
     return QStringLiteral("%1s").arg(si);
 }
 
-// ---- PastPage ---------------------------------------------------------------
+// ---- LogPage ---------------------------------------------------------------
 
-PastPage::PastPage(QWidget *parent)
+LogPage::LogPage(QWidget *parent)
     : QWidget(parent)
 {
     m_scroll = new QScrollArea(this);
@@ -121,17 +121,17 @@ PastPage::PastPage(QWidget *parent)
     m_scrollDownBtn = new ScrollJumpButton(this);
     m_scrollDownBtn->hide();
     m_scrollDownBtn->raise();
-    connect(m_scrollDownBtn, &QPushButton::clicked, this, &PastPage::jumpToLiveView);
+    connect(m_scrollDownBtn, &QPushButton::clicked, this, &LogPage::jumpToLiveView);
     connect(m_scroll->verticalScrollBar(), &QScrollBar::valueChanged,
             this, [this](int) { updateScrollDownBtn(); });
     connect(m_scroll->verticalScrollBar(), &QScrollBar::rangeChanged,
             this, [this](int, int) { updateScrollDownBtn(); });
 
     connect(LiveEventBus::instance(), &LiveEventBus::eventFired,
-            this, &PastPage::onLiveEvent);
+            this, &LogPage::onLiveEvent);
 }
 
-void PastPage::setQueryService(QueryService *qs)
+void LogPage::setQueryService(QueryService *qs)
 {
     m_queryService = qs;
     m_limit        = kInitialLimit;
@@ -139,47 +139,47 @@ void PastPage::setQueryService(QueryService *qs)
     m_dirty        = true;
 }
 
-void PastPage::markDirty()
+void LogPage::markDirty()
 {
     m_dirty = true;
 }
 
-void PastPage::showEvent(QShowEvent *e)
+void LogPage::showEvent(QShowEvent *e)
 {
     QWidget::showEvent(e);
     if (m_dirty && m_queryService)
         rebuild();
 }
 
-void PastPage::resizeEvent(QResizeEvent *e)
+void LogPage::resizeEvent(QResizeEvent *e)
 {
     QWidget::resizeEvent(e);
     m_scrollDownBtn->move(rect().right()  - m_scrollDownBtn->width()  - Theme::spacing3xl,
                           rect().bottom() - m_scrollDownBtn->height() - Theme::spacingBase);
 }
 
-void PastPage::onLiveEvent(const LiveEvent &event, bool bulk)
+void LogPage::onLiveEvent(const LiveEvent &event, bool bulk)
 {
     if (bulk || event.type == LiveEventType::SessionStart)
         m_dirty = true;
 }
 
-void PastPage::rebuild()
+void LogPage::rebuild()
 {
     if (!m_queryService) return;
     if (m_rebuildInFlight) { m_dirty = true; return; }
     m_dirty           = false;
     m_rebuildInFlight = true;
 
-    m_queryService->fetchSessionEvents(m_limit, m_windowOffset,
-        [this](QList<Database::SessionEventRecord> events) {
+    m_queryService->fetchSessions(m_limit, m_windowOffset,
+        [this](QList<Database::SessionRecord> sessions) {
             m_rebuildInFlight = false;
-            applySessionEvents(events);
+            applySessions(sessions);
             if (m_dirty) QTimer::singleShot(0, this, [this] { rebuild(); });
         });
 }
 
-void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &events)
+void LogPage::applySessions(const QList<Database::SessionRecord> &sessions)
 {
     auto *content = new QWidget;
     auto *layout  = new QVBoxLayout(content);
@@ -188,10 +188,10 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
     layout->setSpacing(6);
     layout->addStretch(1);
 
-    // "Load previous 50" at the top — shows when there may be older items.
-    if (events.size() == m_limit) {
+    // "Load previous N" at the top — shows when there may be older sessions.
+    if (sessions.size() == m_limit) {
         auto *btn = new QPushButton(
-            QStringLiteral("Load previous %1 events").arg(kPageStep), content);
+            QStringLiteral("Load previous %1 sessions").arg(kPageStep), content);
         btn->setFlat(true);
         connect(btn, &QPushButton::clicked, this, [this] {
             m_scrollRestoreMax   = m_scroll->verticalScrollBar()->maximum();
@@ -207,7 +207,7 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
         layout->addWidget(btn);
     }
 
-    if (events.isEmpty()) {
+    if (sessions.isEmpty()) {
         auto *label = new QLabel("No sessions recorded yet.", content);
         QPalette pal = label->palette();
         pal.setColor(QPalette::WindowText, Theme::textPlaceholder);
@@ -215,87 +215,59 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
         label->setAlignment(Qt::AlignCenter);
         layout->addWidget(label);
     } else {
-        // Pair each "start" with the following "stop" into a single session card.
-        // Unpaired stops (window-boundary orphans) are rendered alone.
-        struct Session {
-            Database::SessionEventRecord start;
-            Database::SessionEventRecord stop;
-            bool hasStart{false};
-            bool hasStopped{false};
-        };
-        QList<Session> sessions;
-        for (int i = 0; i < events.size(); ++i) {
-            if (events[i].eventType == "start") {
-                Session s;
-                s.start    = events[i];
-                s.hasStart = true;
-                if (i + 1 < events.size() && events[i + 1].eventType == "stop") {
-                    s.stop       = events[++i];
-                    s.hasStopped = true;
-                }
-                sessions.append(s);
-            } else {
-                Session s;
-                s.stop       = events[i];
-                s.hasStopped = true;
-                sessions.append(s);
-            }
-        }
-
         const QString today = QDate::currentDate().toString(Qt::ISODate);
         QString lastDate;
 
         for (const auto &s : sessions) {
-            const QString &anchor    = s.hasStart ? s.start.occurredAt : s.stop.occurredAt;
-            const QString  date      = anchor.left(10);
-            const QString  timeLabel = (date == today) ? anchor.mid(11, 5) : anchor.left(16);
+            const QString date      = s.startedAt.left(10);
+            const QString timeLabel = (date == today) ? s.startedAt.mid(11, 5) : s.startedAt.left(16);
 
             if (date != lastDate) {
                 lastDate = date;
                 layout->addWidget(new DateSeparator(date, content));
             }
 
+            const bool running = s.endedAt.isEmpty();
             NotificationStyle style;
-            style.accentColor = s.hasStopped ? QColor{130, 130, 130} : QColor{80, 180, 80};
+            style.accentColor = running ? QColor{80, 180, 80} : QColor{130, 130, 130};
 
-            const QString active = formatDuration(s.hasStopped ? s.stop.activeSecs : -1);
-            const QString total  = formatDuration(s.hasStopped ? s.stop.totalSecs  : -1);
+            const QString active = formatDuration(s.activeSecs);
+            const QString total  = formatDuration(s.totalSecs);
 
             auto *card = new NotificationWidget("Session", {}, {}, timeLabel, style, content);
 
-            // Header suffix: duration then character
             QString suffix;
-            if (!active.isEmpty())       suffix = active;
-            else if (!total.isEmpty())   suffix = total;
-            if (!s.start.charName.isEmpty()) {
+            if (!active.isEmpty())      suffix = active;
+            else if (!total.isEmpty())  suffix = total;
+            if (!s.charName.isEmpty()) {
                 if (!suffix.isEmpty()) suffix += " \xc2\xb7 ";
-                suffix += s.start.charName;
+                suffix += s.charName;
             }
             if (!suffix.isEmpty())
                 card->setHeaderSuffix("\xc2\xb7 " + suffix);
 
             QList<QPair<QString, QString>> details;
-            if (s.hasStart)   details.append({"Started",  s.start.occurredAt});
-            if (s.hasStopped) details.append({"Ended",    s.stop.occurredAt});
-            if (!active.isEmpty()) details.append({"Active", active});
-            if (!total.isEmpty())  details.append({"Total",  total});
-            if (!s.start.charName.isEmpty()) {
-                QString charInfo = s.start.charName;
-                if (!s.start.charClass.isEmpty())
-                    charInfo += " \xc2\xb7 " + s.start.charClass;
+            details.append({"Started", s.startedAt});
+            if (!s.endedAt.isEmpty()) details.append({"Ended",  s.endedAt});
+            if (!active.isEmpty())    details.append({"Active", active});
+            if (!total.isEmpty())     details.append({"Total",  total});
+            if (!s.charName.isEmpty()) {
+                QString charInfo = s.charName;
+                if (!s.charClass.isEmpty())
+                    charInfo += " \xc2\xb7 " + s.charClass;
                 details.append({"Character", charInfo});
             }
-            if (!s.start.installPath.isEmpty())
-                details.append({"Install", s.start.installPath});
+            if (!s.installPath.isEmpty())
+                details.append({"Install", s.installPath});
             card->setDetailRows(details);
 
             card->setSource(docSource("Client.txt", "sources/game-started"));
             layout->addWidget(card);
 
-            if (s.hasStart && !s.hasStopped) {
+            if (running) {
                 auto *btn = new QPushButton("Open current session \xe2\x86\x92", content);
                 btn->setFlat(true);
-                connect(btn, &QPushButton::clicked, this, &PastPage::viewCurrentRequested);
+                connect(btn, &QPushButton::clicked, this, &LogPage::viewCurrentRequested);
                 layout->addWidget(btn);
             }
         }
@@ -345,16 +317,16 @@ void PastPage::applySessionEvents(const QList<Database::SessionEventRecord> &eve
             m_scroll->verticalScrollBar()->setValue(prevValue + delta);
         });
     } else {
-        QTimer::singleShot(0, this, &PastPage::scrollToBottom);
+        QTimer::singleShot(0, this, &LogPage::scrollToBottom);
     }
 }
 
-void PastPage::scrollToBottom()
+void LogPage::scrollToBottom()
 {
     m_scroll->verticalScrollBar()->setValue(m_scroll->verticalScrollBar()->maximum());
 }
 
-void PastPage::jumpToLiveView()
+void LogPage::jumpToLiveView()
 {
     if (m_windowOffset == 0) {
         scrollToBottom();
@@ -367,7 +339,7 @@ void PastPage::jumpToLiveView()
     rebuild();
 }
 
-void PastPage::updateScrollDownBtn()
+void LogPage::updateScrollDownBtn()
 {
     const auto *sb = m_scroll->verticalScrollBar();
     const bool atBottom    = sb->value() >= sb->maximum() - 4;

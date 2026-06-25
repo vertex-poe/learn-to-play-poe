@@ -77,6 +77,21 @@ void QueryService::fetchZoneTransitions(int limit, int offset,
         }, Qt::QueuedConnection);
 }
 
+void QueryService::fetchSessions(int limit, int offset,
+    std::function<void(QList<Database::SessionRecord>)> cb)
+{
+    QPointer<QueryService> self(this);
+    auto *worker = m_worker;
+    QMetaObject::invokeMethod(worker,
+        [worker, qs = this, self, limit, offset, cb = std::move(cb)]() mutable {
+            auto result = worker->db().fetchSessions(limit, offset);
+            QMetaObject::invokeMethod(qs,
+                [self, result = std::move(result), cb = std::move(cb)]() mutable {
+                    if (self) cb(std::move(result));
+                }, Qt::QueuedConnection);
+        }, Qt::QueuedConnection);
+}
+
 void QueryService::fetchSessionEvents(int limit, int offset,
     std::function<void(QList<Database::SessionEventRecord>)> cb)
 {

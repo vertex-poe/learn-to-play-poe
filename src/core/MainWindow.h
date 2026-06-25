@@ -17,7 +17,7 @@ class ChatPage;
 class CurrentPage;
 class DmPage;
 class NavBar;
-class PastPage;
+class LogPage;
 class QTimer;
 class Database;
 class GameOverlay;
@@ -89,7 +89,7 @@ private:
     TaskPanel          *m_taskPanel{};
     ChatPage           *m_chatPage{};
     DmPage             *m_dmPage{};
-    PastPage           *m_pastPage{};
+    LogPage           *m_logPage{};
     NavBar             *m_navBar{};
     QStackedWidget     *m_stack{};
     QSystemTrayIcon    *m_tray{};

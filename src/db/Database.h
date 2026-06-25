@@ -64,13 +64,14 @@ public:
     struct SessionRecord
     {
         qint64 id{-1};
-        QString startedAt; // "YYYY-MM-DD HH:MM:SS"
-        QString endedAt;   // may be empty if session is still open
+        QString startedAt;   // "YYYY-MM-DD HH:MM:SS"
+        QString endedAt;     // empty if session is still open
         int totalSecs{-1};
         int activeSecs{-1};
         QString accountName; // may be empty
         QString charName;    // may be empty
         QString charClass;   // may be empty
+        QString installPath; // installs.path — which Client.txt this came from
     };
 
     // Inserts the install path if new; returns current state either way.
@@ -107,8 +108,9 @@ public:
     // most-recent first. Used to populate the filter panel date buckets.
     QStringList fetchChatDates(const QSet<QChar> &channels, bool includeDms) const;
 
-    // Returns all sessions ordered by started_at ASC, with joined account/char info.
-    QList<SessionRecord> fetchSessions() const;
+    // Returns sessions newest-first then reversed to ASC for display, with joined
+    // account/char/install info. limit > 0 caps the result; offset skips the newest N.
+    QList<SessionRecord> fetchSessions(int limit = 0, int offset = 0) const;
 
     struct SessionEventRecord
     {

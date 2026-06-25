@@ -34,6 +34,9 @@ public:
     void fetchZoneTransitions(int limit, int offset,
         std::function<void(QList<Database::ZoneTransitionRecord>)> cb);
 
+    void fetchSessions(int limit, int offset,
+        std::function<void(QList<Database::SessionRecord>)> cb);
+
     void fetchSessionEvents(int limit, int offset,
         std::function<void(QList<Database::SessionEventRecord>)> cb);
 

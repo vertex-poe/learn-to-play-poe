@@ -11,11 +11,11 @@ class QScrollArea;
 class QVBoxLayout;
 class ScrollJumpButton;
 
-class PastPage : public QWidget
+class LogPage : public QWidget
 {
     Q_OBJECT
 public:
-    explicit PastPage(QWidget *parent = nullptr);
+    explicit LogPage(QWidget *parent = nullptr);
     void setQueryService(QueryService *qs);
     void markDirty();
 
@@ -31,7 +31,7 @@ private slots:
 
 private:
     void rebuild();
-    void applySessionEvents(const QList<Database::SessionEventRecord> &events);
+    void applySessions(const QList<Database::SessionRecord> &sessions);
     void scrollToBottom();
     void jumpToLiveView();
     void updateScrollDownBtn();

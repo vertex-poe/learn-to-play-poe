@@ -212,6 +212,7 @@ void LogIngestWorker::start()
     sqlite3_stmt *sessionInsertStmt   = nullptr;
     sqlite3_stmt *sessionSelectStmt   = nullptr;
     sqlite3_stmt *sessionCloseStmt    = nullptr;
+    sqlite3_stmt *sessionRecoverStmt  = nullptr;
     sqlite3_stmt *afkStmt             = nullptr;
     sqlite3_stmt *altTabInsertStmt    = nullptr;
     sqlite3_stmt *altTabCloseStmt     = nullptr;
@@ -312,6 +313,10 @@ void LogIngestWorker::start()
     sqlite3_prepare_v2(db,
         "SELECT id FROM sessions WHERE install_id=? AND started_at=?;",
         -1, &sessionSelectStmt, nullptr);
+    sqlite3_prepare_v2(db,
+        "SELECT id, started_at FROM sessions "
+        "WHERE install_id=? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1;",
+        -1, &sessionRecoverStmt, nullptr);
     sqlite3_prepare_v2(db,
         "UPDATE sessions SET ended_at=?, total_secs=?, afk_secs=?, active_secs=?, "
         "char_id=?, area_id=? WHERE id=?;",
@@ -734,6 +739,41 @@ void LogIngestWorker::start()
         altTabOutTs.clear();
         if (caughtUp && m_liveMode.load(std::memory_order_relaxed))
             emit liveEventParsed(LiveEvent{LiveEventType::AltTabBack, gainedTs, {{"duration_secs", dur}}});
+    };
+
+    // Ensures sessionId is valid before writing any session-scoped data.
+    // If no LOG FILE OPENING was seen (e.g. ingest started mid-file), this recovers
+    // the open session from the DB or creates a new one from the event's timestamp.
+    auto ensureSession = [&](const QString &ts) {
+        if (sessionId >= 0) return;
+
+        sqlite3_bind_int64(sessionRecoverStmt, 1, m_installId);
+        if (sqlite3_step(sessionRecoverStmt) == SQLITE_ROW) {
+            sessionId = sqlite3_column_int64(sessionRecoverStmt, 0);
+            if (auto *p = sqlite3_column_text(sessionRecoverStmt, 1))
+                sessionStartTs = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        }
+        sqlite3_reset(sessionRecoverStmt);
+
+        if (sessionId >= 0) return;
+
+        const QByteArray tsb = ts.toUtf8();
+        sqlite3_bind_int64(sessionInsertStmt, 1, m_installId);
+        sqlite3_bind_text (sessionInsertStmt, 2, tsb.constData(), tsb.size(), SQLITE_STATIC);
+        sqlite3_step(sessionInsertStmt);
+        sqlite3_reset(sessionInsertStmt);
+
+        sqlite3_bind_int64(sessionSelectStmt, 1, m_installId);
+        sqlite3_bind_text (sessionSelectStmt, 2, tsb.constData(), tsb.size(), SQLITE_STATIC);
+        if (sqlite3_step(sessionSelectStmt) == SQLITE_ROW)
+            sessionId = sqlite3_column_int64(sessionSelectStmt, 0);
+        sqlite3_reset(sessionSelectStmt);
+
+        sessionStartTs   = ts;
+        sessionAfkSecs   = 0;
+        sessionCharId    = -1;
+        sessionCharLevel = -1;
+        sessionAreaId    = -1;
     };
 
     execSql(db, "BEGIN;");
@@ -1615,6 +1655,7 @@ void LogIngestWorker::start()
                     sqlite3_reset(areaSelectStmt);
 
                     if (areaId >= 0) {
+                        ensureSession(ts);
                         sqlite3_bind_int64(moveInsertStmt, 1, m_installId);
                         sqlite3_bind_int64(moveInsertStmt, 2, areaId);
                         sqlite3_bind_text (moveInsertStmt, 3, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
@@ -1689,6 +1730,7 @@ void LogIngestWorker::start()
                         sqlite3_reset(areaSelectStmt);
 
                         if (areaId >= 0) {
+                            ensureSession(ts);
                             sqlite3_bind_int64(moveInsertStmt, 1, m_installId);
                             sqlite3_bind_int64(moveInsertStmt, 2, areaId);
                             sqlite3_bind_text (moveInsertStmt, 3, tsBytes.constData(), tsBytes.size(), SQLITE_STATIC);
@@ -1783,6 +1825,7 @@ void LogIngestWorker::start()
     sqlite3_finalize(sessionInsertStmt);
     sqlite3_finalize(sessionSelectStmt);
     sqlite3_finalize(sessionCloseStmt);
+    sqlite3_finalize(sessionRecoverStmt);
     sqlite3_finalize(afkStmt);
     sqlite3_finalize(altTabInsertStmt);
     sqlite3_finalize(altTabCloseStmt);

@@ -457,7 +457,7 @@ int Database::upsertNpcDialogEntries(const QList<NpcDialogEntry> &entries)
     return inserted;
 }
 
-QList<Database::SessionRecord> Database::fetchSessions() const
+QList<Database::SessionRecord> Database::fetchSessions(int limit, int offset) const
 {
     QList<SessionRecord> result;
     if (!m_db) return result;
@@ -465,17 +465,21 @@ QList<Database::SessionRecord> Database::fetchSessions() const
 
     static const char *sql = R"(
         SELECT s.id, s.started_at, s.ended_at, s.total_secs, s.active_secs,
-               a.name, c.name, cl.name
+               a.name, c.name, cl.name, i.path
         FROM sessions s
-        LEFT JOIN accounts a  ON s.account_id = a.id
-        LEFT JOIN characters c ON s.char_id   = c.id
-        LEFT JOIN classes cl   ON c.class_id  = cl.id
-        ORDER BY s.started_at ASC
+        JOIN installs i         ON s.install_id = i.id
+        LEFT JOIN accounts a    ON s.account_id = a.id
+        LEFT JOIN characters c  ON s.char_id    = c.id
+        LEFT JOIN classes cl    ON c.class_id   = cl.id
+        ORDER BY s.started_at DESC
+        LIMIT ? OFFSET ?
     )";
 
     sqlite3_stmt *stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK)
         return result;
+    sqlite3_bind_int(stmt, 1, limit > 0 ? limit : -1);
+    sqlite3_bind_int(stmt, 2, offset);
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         SessionRecord r;
@@ -494,9 +498,13 @@ QList<Database::SessionRecord> Database::fetchSessions() const
             r.charName = QString::fromUtf8(reinterpret_cast<const char *>(p));
         if (auto *p = sqlite3_column_text(stmt, 7))
             r.charClass = QString::fromUtf8(reinterpret_cast<const char *>(p));
+        if (auto *p = sqlite3_column_text(stmt, 8))
+            r.installPath = QString::fromUtf8(reinterpret_cast<const char *>(p));
         result.append(r);
     }
     sqlite3_finalize(stmt);
+    // Fetched DESC; reverse so callers receive oldest-first (chronological) order.
+    std::reverse(result.begin(), result.end());
     return result;
 }
 

@@ -5,7 +5,7 @@
 #include "ui/log/CurrentPage.h"
 #include "db/Database.h"
 #include "ui/chat/DmPage.h"
-#include "ui/log/PastPage.h"
+#include "ui/log/LogPage.h"
 #include "db/QueryService.h"
 #include "ui/overlay/GameOverlay.h"
 #include "events/LiveEventBus.h"
@@ -63,7 +63,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_taskPanel = new TaskPanel(m_taskManager, this);
 
     m_stack    = new QStackedWidget(this);
-    m_pastPage = new PastPage(this);
+    m_logPage = new LogPage(this);
     m_chatPage = new ChatPage(this);
     m_dmPage   = new DmPage(this);
 
@@ -71,7 +71,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_stack->addWidget(m_chatPage);                          // TabChats
     m_stack->addWidget(makePlaceholder("Coming soon", this)); // TabStash
     m_stack->addWidget(makePlaceholder("Coming soon", this)); // TabProfile
-    m_stack->addWidget(m_pastPage);                          // TabLog
+    m_stack->addWidget(m_logPage);                          // TabLog
 
     m_navBar = new NavBar({"Guide", "Chat", "Stash", "Profile", "Log"}, this);
     m_navBar->setCurrentIndex(TabGuide);
@@ -113,7 +113,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_stack->setCurrentIndex(stackIdx[dt]);
     }
 
-    connect(m_pastPage, &PastPage::viewCurrentRequested,
+    connect(m_logPage, &LogPage::viewCurrentRequested,
             this, [this] { m_stack->setCurrentIndex(TabCurrent); });
     connect(m_chatPage, &ChatPage::viewDmsRequested,
             this, [this] { m_stack->setCurrentIndex(TabDms); });
@@ -174,7 +174,7 @@ MainWindow::MainWindow(QWidget *parent)
         qDebug() << "[startup] scheduleLogIngestion done in" << startupTimer.elapsed() << "ms";
         m_queryService = new QueryService(m_db->path(), this);
         m_currentPage->setQueryService(m_queryService);
-        m_pastPage->setQueryService(m_queryService);
+        m_logPage->setQueryService(m_queryService);
         m_chatPage->setQueryService(m_queryService);
         m_chatPage->setShowGuildTags(m_config.showGuildTags);
         m_dmPage->setQueryService(m_queryService);
@@ -336,7 +336,7 @@ void MainWindow::onPollTimer()
         } else if (!anyRunning && m_liveWorker) {
             // Game closed — drain any remaining log content then stop.
             stopLiveIngest();
-            m_pastPage->markDirty();
+            m_logPage->markDirty();
             m_currentPage->markDirty();
         }
 
@@ -384,7 +384,7 @@ void MainWindow::onPollTimer()
 void MainWindow::onOrphanSessionsClosed(int count)
 {
     if (count > 0)
-        m_pastPage->markDirty();
+        m_logPage->markDirty();
 }
 
 void MainWindow::onTrayActivated(QSystemTrayIcon::ActivationReason reason)
@@ -465,7 +465,7 @@ void MainWindow::onTaskUpdated(int id)
                 qDebug() << "[task]" << r.name
                          << (r.status == TaskStatus::Monitoring ? "→ Monitoring" : "→ Finished");
                 setStatusContent(QString());   // let idle message take over
-                m_pastPage->markDirty();
+                m_logPage->markDirty();
                 m_currentPage->markDirty();
             } else {
                 setStatusContent(QStringLiteral("%1 · %2").arg(t, r.name));
