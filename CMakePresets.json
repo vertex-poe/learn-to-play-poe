@@ -64,12 +64,14 @@
     },
     {
       "name": "ci",
-      "displayName": "CI (MinGW)",
+      "displayName": "CI (MSVC)",
       "inherits": "release",
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
         "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}",
-        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic"
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
       }
     }
   ],

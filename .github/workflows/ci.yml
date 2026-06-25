@@ -18,18 +18,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Install Qt6
         uses: jurplel/install-qt-action@v4
         with:
           version: "6.7.*"
-          arch: win64_mingw
+          arch: win64_msvc2022_64
+          modules: qtwebengine
           cache: true
 
       - name: Install Ninja
         uses: seanmiddleditch/gha-setup-ninja@v5
-
-      - name: Add MinGW to PATH
-        run: echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
