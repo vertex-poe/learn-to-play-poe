@@ -401,7 +401,7 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
         "Available under <a href=\"https://github.com/vertex-poe1/learn-to-play-poe1/blob/main/LICENSE\""
         " style=\"color: #787060;\">AGPL-3.0</a>"
         " — contact us for <a href=\"https://github.com/vertex-poe1/learn-to-play-poe1/blob/main/LICENSE-ALTERNATE\""
-        " style=\"color: #787060;\">other licensing</a>.<br>"
+        " style=\"color: #787060;\">alternate licensing</a>.<br>"
         "See <a href=\"https://github.com/vertex-poe1/learn-to-play-poe1/blob/main/NOTICE\""
         " style=\"color: #787060;\">NOTICE</a>"
         " for third-party attributions.",
