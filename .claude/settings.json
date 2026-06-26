@@ -24,11 +24,25 @@
       "Bash(git stash:*)",
       "Bash(git status:*)",
       "Bash(git rebase *)",
+      "Skill(grep)",
+      "Skill(grep:*)",
       "Skill(run)",
       "Skill(run:*)",
       "WebSearch",
       "Bash(xargs *)",
-      "PowerShell(cmake *)"
+      "PowerShell(cmake *)",
+      "Bash(cmake *)",
+      "Bash(sleep *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wsl gh run list *)",
+      "Bash(wsl gh release list *)",
+      "Bash(wsl gh run view *)",
+      "Bash(wsl gh api *)",
+      "Bash(wsl gh *)",
+      "Bash(python -m aqt list-qt * )"
     ]
   }
 }

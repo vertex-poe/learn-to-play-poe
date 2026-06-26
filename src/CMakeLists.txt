@@ -160,12 +160,8 @@ add_dependencies(l2p-poe1 validate_doc_urls)
 target_include_directories(l2p-poe1 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if (WIN32)
-    target_sources(l2p-poe1 PRIVATE platform/WindowTrackerWindows.cpp platform/OverlayKeepalive.cpp platform/OverlayKeepalive.h platform/l2p-poe1.rc)
+    target_sources(l2p-poe1 PRIVATE platform/WindowTrackerWindows.cpp platform/OverlayKeepalive.cpp platform/OverlayKeepalive.h platform/l2p-poe1.rc platform/l2p-poe1.manifest)
     target_link_libraries(l2p-poe1 PRIVATE psapi dbghelp)
-    if (MSVC)
-        # Disable the auto-generated manifest; we embed our own via the RC file.
-        target_link_options(l2p-poe1 PRIVATE "/MANIFEST:NO")
-    endif()
 elseif (UNIX)
     target_sources(l2p-poe1 PRIVATE platform/WindowTrackerLinux.cpp)
     find_package(X11 REQUIRED)

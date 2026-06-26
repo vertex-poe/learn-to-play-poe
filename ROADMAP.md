@@ -4,6 +4,10 @@
 
 Everything here can be considered aspirational and will likely never see the light of day. Item ideas may not be fleshed out and change drastically or be considered an actual bad idea the morning after we wrote it down in the middle of the night.
 
+## Goal: Maintenance
+
+- [ ] Switch CI aqtinstall from pinned git hash to a stable release once Qt 6.11 is properly supported (currently using `bbfb1f7c` of miurahr/aqtinstall as a workaround; check after 2026-08-01; see `.github/workflows/ci-windows.yml`)
+
 ## Goal: Basic Features
 
 - [ ] Log screen UI: flesh out the session list — richer session cards (zone count, notable events, loot highlights), expandable inline detail, filtering by character/date/duration, and visual distinction between ongoing and completed sessions
