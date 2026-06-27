@@ -131,6 +131,15 @@ LogPage::LogPage(QWidget *parent)
 
     connect(LiveEventBus::instance(), &LiveEventBus::eventFired,
             this, &LogPage::onLiveEvent);
+
+    m_loadingOverlay = new QLabel("Loading data, please stand by...", this);
+    m_loadingOverlay->setAlignment(Qt::AlignCenter);
+    {
+        QPalette pal = m_loadingOverlay->palette();
+        pal.setColor(QPalette::WindowText, Theme::textPlaceholder);
+        m_loadingOverlay->setPalette(pal);
+    }
+    m_loadingOverlay->hide();
 }
 
 void LogPage::setQueryService(QueryService *qs)
@@ -149,13 +158,20 @@ void LogPage::markDirty()
 void LogPage::showEvent(QShowEvent *e)
 {
     QWidget::showEvent(e);
-    if (m_dirty && m_queryService)
-        rebuild();
+    if (m_dirty && m_queryService) {
+        m_loadingOverlay->setGeometry(rect());
+        m_loadingOverlay->show();
+        m_loadingOverlay->raise();
+        QTimer::singleShot(0, this, [this] {
+            if (m_dirty && m_queryService) rebuild();
+        });
+    }
 }
 
 void LogPage::resizeEvent(QResizeEvent *e)
 {
     QWidget::resizeEvent(e);
+    m_loadingOverlay->setGeometry(rect());
     m_scrollDownBtn->move(rect().right()  - m_scrollDownBtn->width()  - Theme::spacing3xl,
                           rect().bottom() - m_scrollDownBtn->height() - Theme::spacingBase);
 }
@@ -299,6 +315,8 @@ void LogPage::applySessions(const QList<Database::SessionRecord> &sessions)
         });
         layout->addWidget(btn);
     }
+
+    m_loadingOverlay->hide();
 
     delete m_content;
     m_content       = content;

@@ -7,6 +7,7 @@
 
 struct LiveEvent;
 class QueryService;
+class QLabel;
 class QScrollArea;
 class QVBoxLayout;
 class ScrollJumpButton;
@@ -18,6 +19,7 @@ public:
     explicit LogPage(QWidget *parent = nullptr);
     void setQueryService(QueryService *qs);
     void markDirty();
+    QLabel *loadingOverlay() const { return m_loadingOverlay; }
 
 signals:
     void viewSessionRequested(qint64 sessionId, const QString &startedAt);
@@ -54,5 +56,6 @@ private:
     int           m_scrollRestoreValue{0};
     int           m_scrollRestoreNthRecord{-1};
 
+    QLabel           *m_loadingOverlay{};
     ScrollJumpButton *m_scrollDownBtn{};
 };

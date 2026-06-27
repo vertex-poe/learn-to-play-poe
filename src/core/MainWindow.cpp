@@ -140,6 +140,12 @@ MainWindow::MainWindow(QWidget *parent)
             QWidget *defaultPage = m_stack->widget(stackIdx[dt]);
             probe.setDefaultPageWidget(defaultPage);
 
+            // SessionViewPage: m_content covers m_scroll's viewport entirely, so
+            // Qt never delivers QEvent::Paint to any ancestor. Call
+            // onDefaultPagePainted() directly from onDefaultPageLoaded() instead.
+            if (stackIdx[dt] == TabCurrent)
+                probe.setDirectFinalPaint(true);
+
             // swapNavIdx maps directly to stack widget index for NavBar tabs 0-4.
             const int swapStack = probe.swapNavIdx(); // 0=Guide,1=Chats,2=Stash,3=Profile,4=Log
             QWidget *swapPage   = m_stack->widget(swapStack);
@@ -148,6 +154,14 @@ MainWindow::MainWindow(QWidget *parent)
                 new PaintProbeFilter(PaintProbeFilter::Default, this));
             swapPage->installEventFilter(
                 new PaintProbeFilter(PaintProbeFilter::Swap, this));
+
+            // LogPage shows a full-screen loading overlay on first paint; the overlay
+            // is opaque and covers LogPage, so paint events go to the overlay rather
+            // than to LogPage itself. Install a second filter on the overlay so we
+            // catch the swap paint regardless of which widget is visible.
+            if (swapStack == TabLog)
+                m_logPage->loadingOverlay()->installEventFilter(
+                    new PaintProbeFilter(PaintProbeFilter::Swap, this));
 
             // Connect the default page's dataLoaded signal.
             // For placeholder pages (Guide/Stash/Profile), PerfProbe auto-fires

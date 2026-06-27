@@ -80,6 +80,7 @@ private:
     QCheckBox   *m_cbGuild{};
     QPushButton *m_filterBtn{};
 
+    QLabel           *m_loadingOverlay{};
     ScrollJumpButton *m_scrollDownBtn{};
     QStackedWidget   *m_view{};
     QWidget        *m_filterPanel{};

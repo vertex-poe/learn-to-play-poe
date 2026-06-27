@@ -54,6 +54,8 @@
       "Bash(echo \"EXIT:$?\")",
       "Bash(./src/test_log_startup.exe *)",
       "Bash(echo \"exit: $?\")",
+      "Bash(where test_perf_metrics.exe)",
+      "Bash(find build *)"
     ]
   }
 }

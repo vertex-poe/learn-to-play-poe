@@ -175,8 +175,23 @@ SessionViewPage::SessionViewPage(QWidget *parent)
   connect(m_scrollSettleTimer, &QTimer::timeout, this, [this]()
           { m_pendingScrollTo = -1; });
 
+  // Loading overlay — shown over the scroll area until the first data arrives.
+  m_loadingOverlay = new QLabel("Loading data, please stand by...", this);
+  m_loadingOverlay->setAlignment(Qt::AlignCenter);
+  {
+      QPalette pal = m_loadingOverlay->palette();
+      pal.setColor(QPalette::WindowText, Theme::textPlaceholder);
+      m_loadingOverlay->setPalette(pal);
+  }
+  m_loadingOverlay->hide();
+
   connect(LiveEventBus::instance(), &LiveEventBus::eventFired,
           this, &SessionViewPage::onLiveEvent);
+}
+
+QWidget *SessionViewPage::scrollViewport() const
+{
+  return m_scroll->viewport();
 }
 
 void SessionViewPage::setQueryService(QueryService *qs)
@@ -247,13 +262,22 @@ void SessionViewPage::setRunningGames(const QList<WindowState> &games)
 void SessionViewPage::showEvent(QShowEvent *e)
 {
   QWidget::showEvent(e);
-  if (m_dirty && m_queryService)
-    rebuildDbZones();
+  if (m_dirty && m_queryService) {
+    // Show loading overlay immediately so first paint is instant; defer the
+    // SQL query to the next event-loop tick so paint goes through first.
+    m_loadingOverlay->setGeometry(m_scroll->geometry());
+    m_loadingOverlay->show();
+    m_loadingOverlay->raise();
+    QTimer::singleShot(0, this, [this] {
+      if (m_dirty && m_queryService) rebuildDbZones();
+    });
+  }
 }
 
 void SessionViewPage::resizeEvent(QResizeEvent *e)
 {
   QWidget::resizeEvent(e);
+  m_loadingOverlay->setGeometry(m_scroll->geometry());
   m_scrollDownBtn->move(rect().right() - m_scrollDownBtn->width() - Theme::spacing3xl,
                         rect().bottom() - m_scrollDownBtn->height() - Theme::spacingBase);
 }
@@ -426,6 +450,7 @@ void SessionViewPage::applyCurrentPageData(const QueryService::CurrentPageData &
   const auto &sessionEvents = data.sessionEvents;
   const auto &zones = data.zones;
 
+  m_loadingOverlay->hide();
   m_scroll->setUpdatesEnabled(false);
 
   for (QWidget *w : m_liveEventWidgets)

@@ -38,6 +38,11 @@ public:
     // Placeholder pages have no async data load; first_load fires automatically
     // right after first_interaction instead of waiting for a dataLoaded signal.
     void setIsPlaceholderPage(bool p)    { m_isPlaceholder = p; }
+    // When true, onDefaultPageLoaded() calls onDefaultPagePainted() directly
+    // instead of relying on QEvent::Paint via PaintProbeFilter. Use for pages
+    // where the widget hierarchy prevents paint events from reaching the widget
+    // (e.g. SessionViewPage, where m_content covers the scroll viewport entirely).
+    void setDirectFinalPaint(bool d)     { m_directFinalPaint = d; }
 
     void onNavBarFirstPaint();
     void onNavBarMousePress(int navTabIdx);
@@ -77,5 +82,7 @@ private:
 
     bool    m_navBarPainted{false};
     bool    m_isPlaceholder{false};
+    bool    m_dataLoadedEarly{false};   // dataLoaded fired before first_interaction
+    bool    m_directFinalPaint{false};  // bypass paint-event detection for final_paint
     QWidget *m_defaultPageWidget{nullptr};
 };

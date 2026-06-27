@@ -11,6 +11,7 @@
 
 struct LiveEvent;
 class QueryService;
+class QLabel;
 class QPushButton;
 class QScrollArea;
 class QVBoxLayout;
@@ -33,6 +34,11 @@ public:
     void addNotification(const QString &message, const NotificationStyle &style = {});
     void addNotification(const QString &title, const QString &tag,
                          const QString &message, const NotificationStyle &style = {});
+
+    // Returns m_scroll->viewport() — use this as the paint-probe target, because
+    // m_scroll fully covers SessionViewPage and Qt won't deliver QEvent::Paint to
+    // the parent when opaque children tile its entire rect.
+    QWidget *scrollViewport() const;
 
 signals:
     void backRequested();
@@ -96,5 +102,6 @@ private:
     NotificationWidget  *m_prevZoneCard{};
     QWidget             *m_sessionStartCard{};
     QString              m_dbAltTabOutTs;  // out_at of the pending alt-tab record currently shown via DB
+    QLabel              *m_loadingOverlay{};
     ScrollJumpButton    *m_scrollDownBtn{};
 };

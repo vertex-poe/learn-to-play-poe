@@ -464,6 +464,15 @@ DmPage::DmPage(QWidget *parent)
             this, [this](int, int) { updateScrollDownBtn(); });
     connect(m_view, &QStackedWidget::currentChanged,
             this, [this](int) { updateScrollDownBtn(); });
+
+    m_loadingOverlay = new QLabel("Loading data, please stand by...", this);
+    m_loadingOverlay->setAlignment(Qt::AlignCenter);
+    {
+        QPalette pal = m_loadingOverlay->palette();
+        pal.setColor(QPalette::WindowText, Theme::textPlaceholder);
+        m_loadingOverlay->setPalette(pal);
+    }
+    m_loadingOverlay->hide();
 }
 
 void DmPage::setQueryService(QueryService *qs)
@@ -491,8 +500,14 @@ void DmPage::reload()
 void DmPage::showEvent(QShowEvent *e)
 {
     QWidget::showEvent(e);
-    if (m_dirty && m_queryService)
-        reload();
+    if (m_dirty && m_queryService) {
+        m_loadingOverlay->setGeometry(m_view->geometry());
+        m_loadingOverlay->show();
+        m_loadingOverlay->raise();
+        QTimer::singleShot(0, this, [this] {
+            if (m_dirty && m_queryService) reload();
+        });
+    }
 }
 
 void DmPage::onLiveWhisper(const LiveEvent &event, bool bulk)
@@ -760,6 +775,8 @@ void DmPage::applyWhispers(const QList<Database::WhisperRecord> &whispers)
         contentLayout->addWidget(btn);
     }
 
+    m_loadingOverlay->hide();
+
     delete m_content;
     m_content       = content;
     m_contentLayout = contentLayout;
@@ -803,6 +820,7 @@ void DmPage::applyWhispers(const QList<Database::WhisperRecord> &whispers)
 void DmPage::resizeEvent(QResizeEvent *e)
 {
     QWidget::resizeEvent(e);
+    m_loadingOverlay->setGeometry(m_view->geometry());
     m_scrollDownBtn->move(rect().right()  - m_scrollDownBtn->width()  - Theme::spacing3xl,
                           rect().bottom() - m_scrollDownBtn->height() - Theme::spacingBase);
 }

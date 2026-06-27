@@ -24,7 +24,8 @@ void PerfProbe::enable(Scenario scenario, int defaultNavIdx, int swapNavIdx,
     m_defaultNavIdx = defaultNavIdx;
     m_swapNavIdx    = swapNavIdx;
     m_runJsonPath   = runJsonPath;
-    m_state         = State::WaitFirstPaint;
+    m_state            = State::WaitFirstPaint;
+    m_dataLoadedEarly  = false;
     m_timer.start();
 }
 
@@ -87,9 +88,9 @@ void PerfProbe::onNavBarMousePress(int navTabIdx)
                 m_state = State::WaitSwapPaint;
             } else {
                 m_state = State::WaitFirstLoad;
-                if (m_isPlaceholder) {
-                    // Placeholder has no async data load — fire first_load immediately
-                    // after this mouse event returns so the state machine is consistent.
+                if (m_isPlaceholder || m_dataLoadedEarly) {
+                    // Fire first_load on the next tick: placeholders have no async
+                    // data fetch; content pages where data pre-loaded need the same.
                     QTimer::singleShot(0, [this]() { onDefaultPageLoaded(); });
                 }
             }
@@ -108,14 +109,29 @@ void PerfProbe::onNavBarMousePress(int navTabIdx)
 
 void PerfProbe::onDefaultPageLoaded()
 {
-    if (!m_enabled || m_state != State::WaitFirstLoad) return;
+    if (!m_enabled) return;
+
+    // Data arrived before the user clicked (or even before first paint) — remember
+    // it so first_load fires immediately when first_interaction eventually arrives.
+    if (m_state == State::WaitFirstPaint || m_state == State::WaitFirstInteract) {
+        m_dataLoadedEarly = true;
+        return;
+    }
+
+    if (m_state != State::WaitFirstLoad) return;
 
     mark("first_load");
     m_state = State::WaitFinalPaint;
 
-    // Force the page widget to repaint so PaintProbeFilter can detect final_paint.
-    if (m_defaultPageWidget)
+    // For pages where opaque children cover the entire widget surface, Qt never
+    // delivers QEvent::Paint to the widget itself — PaintProbeFilter won't fire.
+    // In those cases (m_directFinalPaint=true), call onDefaultPagePainted() now;
+    // the state is already WaitFinalPaint so it will record the milestone.
+    if (m_directFinalPaint) {
+        onDefaultPagePainted();
+    } else if (m_defaultPageWidget) {
         m_defaultPageWidget->update();
+    }
 }
 
 void PerfProbe::onDefaultPagePainted()

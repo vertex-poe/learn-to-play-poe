@@ -71,6 +71,7 @@ private:
     int           m_scrollRestoreValue{0};
     int           m_scrollRestoreNthRecord{-1};
 
+    QLabel                        *m_loadingOverlay{};
     ScrollJumpButton              *m_scrollDownBtn{};
     QStackedWidget                *m_view{};
     QWidget                       *m_filterPanel{};
