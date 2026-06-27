@@ -15,6 +15,7 @@ _rust_archive
 __pycache__/
 *.db*
 data/seed.sql
+tests/perf_baseline.json
 dev/log_split/filtered_client.txt
 dev/log_split/filtered_client/
 dev/log_split/filtered_sql/

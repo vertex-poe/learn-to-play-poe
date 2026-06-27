@@ -121,9 +121,21 @@ static void setupCrashHandler(const QString &logPath)
 
 int main(int argc, char *argv[])
 {
-    const int cliResult = cliDispatch(argc, argv);
-    if (cliResult != -1)
-        return cliResult;
+    bool timingMode = false;
+    for (int i = 1; i < argc; ++i) {
+        if (QLatin1String(argv[i]) == "--startup-timing") {
+            timingMode = true;
+            break;
+        }
+    }
+    if (timingMode)
+        qputenv("L2P_STARTUP_TIMING_MODE", "1");
+
+    if (!timingMode) {
+        const int cliResult = cliDispatch(argc, argv);
+        if (cliResult != -1)
+            return cliResult;
+    }
 
     // Must be set before QApplication so QtWebEngineProcess.exe inherits the flag.
     // This removes Chromium's automation-mode markers (navigator.webdriver etc.)
@@ -154,7 +166,7 @@ int main(int argc, char *argv[])
     Theme::apply(app);
 
     MainWindow window;
-    if (!window.startMinimized())
+    if (timingMode || !window.startMinimized())
         window.show();
 
     const int ret = app.exec();

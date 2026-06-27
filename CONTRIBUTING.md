@@ -103,6 +103,27 @@ Subsequent builds are fast: Ninja skips anything unchanged and exits immediately
 ./build/windows-msvc/src/l2p-poe1.exe
 ```
 
+## Task runner
+
+The project uses [`just`](https://just.systems/) as a task runner. Install it with `winget install Casey.Just`, `scoop install just`, or `cargo install just`.
+
+| Command | What it does |
+|---------|--------------|
+| `just build` | Configure (if needed) and build the project |
+| `just run` | Build and launch the app |
+| `just test` | Build and run all tests, excluding perf tests |
+| `just test-all` | Build and run all tests including perf tests |
+| `just test-perf` | Build and run perf tests; compare timing against the previous-commit baseline. Auto-generates the baseline from `HEAD~1` if none exists. |
+| `just perf-baseline-prev` | Build `HEAD~1` in an isolated git worktree and record its timing as the baseline (called automatically by `test-perf` when needed). |
+| `just configure` | Run CMake configure only, without building |
+| `just package` | Build and package for distribution (`windeployqt` / `macdeployqt`) |
+| `just package-linux` | Package as AppImage (requires `linuxdeployqt` on PATH) |
+| `just package-mac` | Package as a `.app` DMG (macOS) |
+| `just installer` | Build an Inno Setup installer (Windows; requires `ISCC` on PATH) |
+| `just clean` | Delete all build and dist artifacts |
+
+Run `just` with no arguments to list all available recipes.
+
 ## Database schema
 
 [`docs/schema.md`](docs/schema.md) documents every table in the SQLite database — reference/lookup tables, sessions, movement, character progression, social/chat, game events, the app-state store, and the event history spine — along with the design patterns used throughout (install-scoping, reference normalization, idempotent ingest).

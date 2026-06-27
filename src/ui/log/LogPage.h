@@ -46,6 +46,7 @@ private:
     QVBoxLayout  *m_contentLayout{};
     bool          m_dirty{true};
     bool          m_rebuildInFlight{false};
+    bool          m_timingEmitted{false};
     int           m_limit{kInitialLimit};
     int           m_windowOffset{0};   // SQL OFFSET: skip this many newest items
     int           m_scrollRestoreMax{-1};

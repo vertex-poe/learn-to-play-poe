@@ -1,0 +1,6 @@
+{
+  "startup_to_session_list_ms": {
+    "threshold_ms": 5000,
+    "max_regression_ms": 1000
+  }
+}

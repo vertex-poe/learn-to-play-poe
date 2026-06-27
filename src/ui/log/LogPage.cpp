@@ -1,5 +1,7 @@
 #include "ui/log/LogPage.h"
 #include "db/Database.h"
+#include <QCoreApplication>
+#include <cstdio>
 #include "util/Docs.h"
 #include "events/LiveEvent.h"
 #include "db/QueryService.h"
@@ -329,6 +331,15 @@ void LogPage::applySessions(const QList<Database::SessionRecord> &sessions)
         });
     } else {
         QTimer::singleShot(0, this, &LogPage::scrollToBottom);
+    }
+
+    if (!m_timingEmitted && qgetenv("L2P_STARTUP_TIMING_MODE") == "1") {
+        m_timingEmitted = true;
+        QTimer::singleShot(0, this, [] {
+            fputs("STARTUP_TIMING:populated\n", stdout);
+            fflush(stdout);
+            QCoreApplication::quit();
+        });
     }
 }
 

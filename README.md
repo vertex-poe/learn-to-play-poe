@@ -55,4 +55,4 @@ We explain most of our [`docs/decisions/`](big decisions) — start with [ADR-00
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers how the pipeline fits together, how to build the project, and the pre-implementation research behind key technical choices.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers how the pipeline fits together, how to build on each platform, and the pre-implementation research behind key technical choices.

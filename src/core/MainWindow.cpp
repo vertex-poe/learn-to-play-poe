@@ -50,6 +50,7 @@ static QWidget *makePlaceholder(const QString &text, QWidget *parent)
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
+    const bool timingMode = qgetenv("L2P_STARTUP_TIMING_MODE") == "1";
     QElapsedTimer startupTimer; startupTimer.start();
     qDebug() << "[startup] begin";
 
@@ -107,7 +108,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Restore default tab. DMs and Current are sub-pages (not navbar tabs), so
     // navigate to the parent navbar tab first, then override the stack index.
-    {
+    if (timingMode) {
+        m_navBar->setCurrentIndex(TabLog);
+        m_stack->setCurrentIndex(TabLog);
+    } else {
         const int dt = qBound(0, m_config.defaultTab, 6);
         const int navIdx[]   = { TabGuide, TabChats, TabChats, TabStash, TabProfile, TabLog,     TabLog };
         const int stackIdx[] = { TabGuide, TabChats, TabDms,   TabStash, TabProfile, TabCurrent, TabLog };
@@ -139,7 +143,8 @@ MainWindow::MainWindow(QWidget *parent)
             move(wg.x, wg.y);
     }
 
-    connect(qApp, &QCoreApplication::aboutToQuit, this, [this]() {
+    connect(qApp, &QCoreApplication::aboutToQuit, this, [this, timingMode]() {
+        if (timingMode) return;
         WindowGeometry &wg = m_config.windowGeometry;
         wg.x      = x();
         wg.y      = y();
@@ -170,16 +175,26 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_taskManager, &TaskManager::taskAdded,   this, &MainWindow::onTaskUpdated);
     connect(m_taskManager, &TaskManager::taskUpdated, this, &MainWindow::onTaskUpdated);
 
-    QString dbPath = AppConfig::configPath();
-    dbPath.chop(5); // strip ".toml"
-    dbPath += ".db";
+    QString dbPath;
+    {
+        const QByteArray override = qgetenv("L2P_STARTUP_TIMING_DB");
+        if (!override.isEmpty()) {
+            dbPath = QString::fromUtf8(override);
+        } else {
+            dbPath = AppConfig::configPath();
+            dbPath.chop(5); // strip ".toml"
+            dbPath += ".db";
+        }
+    }
     qDebug() << "[startup] opening DB:" << dbPath;
     m_db = new Database(dbPath);
     qDebug() << "[startup] DB open in" << startupTimer.elapsed() << "ms, ok=" << m_db->isOpen();
     if (m_db->isOpen()) {
-        qDebug() << "[startup] scheduleLogIngestion";
-        scheduleLogIngestion();
-        qDebug() << "[startup] scheduleLogIngestion done in" << startupTimer.elapsed() << "ms";
+        if (!timingMode) {
+            qDebug() << "[startup] scheduleLogIngestion";
+            scheduleLogIngestion();
+            qDebug() << "[startup] scheduleLogIngestion done in" << startupTimer.elapsed() << "ms";
+        }
         m_queryService = new QueryService(m_db->path(), this);
         m_sessionViewPage->setQueryService(m_queryService);
         m_logPage->setQueryService(m_queryService);
@@ -200,7 +215,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_pollTimer = new QTimer(this);
     m_pollTimer->setInterval(1000);
     connect(m_pollTimer, &QTimer::timeout, this, &MainWindow::onPollTimer);
-    m_pollTimer->start();
+    if (!timingMode)
+        m_pollTimer->start();
 }
 
 MainWindow::~MainWindow()
