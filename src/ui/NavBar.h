@@ -16,6 +16,9 @@ public:
     void setGearActive(bool active);
     void setSearchActive(bool active);
 
+    int   labelCount() const { return m_labels.size(); }
+    QRect tabRect(int i) const;
+
 signals:
     void currentChanged(int index);
     void tabReselected(int index);

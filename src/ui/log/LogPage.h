@@ -21,6 +21,7 @@ public:
 
 signals:
     void viewSessionRequested(qint64 sessionId, const QString &startedAt);
+    void dataLoaded();
 
 protected:
     void showEvent(QShowEvent *e) override;

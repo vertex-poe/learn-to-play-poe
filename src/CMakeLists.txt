@@ -19,6 +19,10 @@ qt_add_executable(l2p-poe1
     core/Cli.h
     core/MainWindow.cpp
     core/MainWindow.h
+    core/PaintProbeFilter.cpp
+    core/PaintProbeFilter.h
+    core/PerfProbe.cpp
+    core/PerfProbe.h
     db/Database.cpp
     db/Database.h
     db/DatabaseHealth.cpp

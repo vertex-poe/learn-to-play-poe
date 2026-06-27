@@ -734,6 +734,7 @@ void SessionViewPage::applyCurrentPageData(const QueryService::CurrentPageData &
   m_pendingScrollTo = (distFromBottom <= 4) ? 0 : distFromBottom;
   m_contentLayout->activate();
   m_scroll->setUpdatesEnabled(true);
+  emit dataLoaded();
 }
 
 void SessionViewPage::onLoadMore()

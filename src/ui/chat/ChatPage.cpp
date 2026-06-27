@@ -672,6 +672,8 @@ void ChatPage::applyChats(const QList<Database::ChatRecord> &records)
     m_contentLayout = layout;
     m_scroll->setWidget(m_content);
 
+    emit dataLoaded();
+
     if (m_liveRebuildScrollToBottom) {
         m_liveRebuildScrollToBottom = false;
         m_scrollRestoreMax = -1;

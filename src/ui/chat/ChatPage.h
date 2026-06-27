@@ -30,6 +30,7 @@ public:
 
 signals:
     void viewDmsRequested();
+    void dataLoaded();
 
 public slots:
     void onLiveChat(const LiveEvent &event, bool bulk);

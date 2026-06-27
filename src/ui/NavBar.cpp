@@ -1,8 +1,10 @@
 #include "ui/NavBar.h"
 #include "ui/Theme.h"
+#include "core/PerfProbe.h"
 
 #include <QMouseEvent>
 #include <QPainter>
+#include <QRect>
 
 NavBar::NavBar(const QStringList &labels, QWidget *parent)
     : QWidget(parent), m_labels(labels)
@@ -43,6 +45,19 @@ void NavBar::setSearchActive(bool active)
     update();
 }
 
+QRect NavBar::tabRect(int i) const
+{
+    const int n = m_labels.size();
+    if (i < 0 || i >= n) return {};
+    const int w        = width();
+    const int tabAreaX = k_listWidth;
+    const int tabAreaW = w - k_listWidth - k_gearWidth;
+    const int colW     = tabAreaW / n;
+    const int x        = tabAreaX + i * colW;
+    const int cw       = (i == n - 1) ? (tabAreaX + tabAreaW - x) : colW;
+    return QRect(x, 0, cw, height());
+}
+
 QSize NavBar::sizeHint() const
 {
     QFont f = font();
@@ -52,6 +67,8 @@ QSize NavBar::sizeHint() const
 
 void NavBar::paintEvent(QPaintEvent *)
 {
+    PerfProbe::instance().onNavBarFirstPaint();
+
     QPainter p(this);
 
     const int w = width();
@@ -129,6 +146,17 @@ void NavBar::paintEvent(QPaintEvent *)
 void NavBar::mousePressEvent(QMouseEvent *event)
 {
     const int x = static_cast<int>(event->position().x());
+
+    // Compute which nav tab was hit (before routing) so PerfProbe can track it.
+    if (PerfProbe::instance().enabled() && x >= k_listWidth && x < width() - k_gearWidth) {
+        const int n = m_labels.size();
+        if (n > 0) {
+            const int tabAreaW = width() - k_listWidth - k_gearWidth;
+            const int col = qBound(0, (x - k_listWidth) * n / tabAreaW, n - 1);
+            PerfProbe::instance().onNavBarMousePress(col);
+        }
+    }
+
     if (x < k_listWidth) {
         emit searchClicked();
         return;

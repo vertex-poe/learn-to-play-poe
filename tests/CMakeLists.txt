@@ -15,6 +15,18 @@ target_compile_definitions(test_startup_timing PRIVATE
 add_test(NAME test_startup_timing COMMAND test_startup_timing)
 set_tests_properties(test_startup_timing PROPERTIES LABELS "perf")
 
+qt_add_executable(test_perf_metrics test_perf_metrics.cpp)
+target_link_libraries(test_perf_metrics PRIVATE
+    Qt6::Core Qt6::Test unofficial::sqlite3::sqlite3
+)
+target_compile_definitions(test_perf_metrics PRIVATE
+    L2P_EXE_PATH="$<TARGET_FILE:l2p-poe1>"
+    L2P_PERF_RESULTS_PATH="${CMAKE_BINARY_DIR}/perf_results.json"
+    L2P_SCHEMA_SQL_PATH="${CMAKE_SOURCE_DIR}/data/schema.sql"
+)
+add_test(NAME test_perf_metrics COMMAND test_perf_metrics)
+set_tests_properties(test_perf_metrics PROPERTIES LABELS "perf")
+
 # Unit tests for Database::fetchSessions() — order, field mapping, limit, offset.
 # Compiles Database.cpp directly; embeds schema.sql (seed.sql omitted intentionally:
 # Database warns+continues if :/db/seed.sql is absent, and sessions tests don't need it).

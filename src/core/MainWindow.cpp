@@ -1,4 +1,6 @@
 #include "core/MainWindow.h"
+#include "core/PaintProbeFilter.h"
+#include "core/PerfProbe.h"
 #include "util/ScopedBudget.h"
 #include "ui/chat/ChatPage.h"
 #include "workers/CloseOrphanSessionsWorker.h"
@@ -79,6 +81,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_stack->setCurrentIndex(TabGuide);
     connect(m_navBar, &NavBar::currentChanged,  this, &MainWindow::onTabChanged);
     connect(m_navBar, &NavBar::tabReselected,   this, [this](int index) {
+        // In perf mode, clicking the current tab must not disrupt data loading
+        // (e.g. dt=5 shows SessionViewPage on nav tab Log; reselecting Log would
+        // otherwise switch the stack back to LogPage mid-load).
+        if (PerfProbe::instance().enabled()) return;
         m_stack->setCurrentIndex(index);
     });
     connect(m_navBar, &NavBar::settingsClicked, this, &MainWindow::onGearClicked);
@@ -108,16 +114,63 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Restore default tab. DMs and Current are sub-pages (not navbar tabs), so
     // navigate to the parent navbar tab first, then override the stack index.
+    const int navIdx[]   = { TabGuide, TabChats, TabChats, TabStash, TabProfile, TabLog,     TabLog };
+    const int stackIdx[] = { TabGuide, TabChats, TabDms,   TabStash, TabProfile, TabCurrent, TabLog };
+
     if (timingMode) {
         m_navBar->setCurrentIndex(TabLog);
         m_stack->setCurrentIndex(TabLog);
     } else {
-        const int dt = qBound(0, m_config.defaultTab, 6);
-        const int navIdx[]   = { TabGuide, TabChats, TabChats, TabStash, TabProfile, TabLog,     TabLog };
-        const int stackIdx[] = { TabGuide, TabChats, TabDms,   TabStash, TabProfile, TabCurrent, TabLog };
+        int dt = qBound(0, m_config.defaultTab, 6);
+
+        // Perf mode can override the default tab via env var set by main().
+        if (PerfProbe::instance().enabled()) {
+            const QByteArray dtEnv = qgetenv("L2P_PERF_DEFAULT_TAB");
+            if (!dtEnv.isEmpty())
+                dt = qBound(0, dtEnv.toInt(), 6);
+        }
+
         m_navBar->setCurrentIndex(navIdx[dt]);
         if (stackIdx[dt] != navIdx[dt])
             m_stack->setCurrentIndex(stackIdx[dt]);
+
+        // In perf mode: wire up dataLoaded signals and install PaintProbeFilters.
+        if (PerfProbe::instance().enabled()) {
+            auto &probe = PerfProbe::instance();
+            QWidget *defaultPage = m_stack->widget(stackIdx[dt]);
+            probe.setDefaultPageWidget(defaultPage);
+
+            // swapNavIdx maps directly to stack widget index for NavBar tabs 0-4.
+            const int swapStack = probe.swapNavIdx(); // 0=Guide,1=Chats,2=Stash,3=Profile,4=Log
+            QWidget *swapPage   = m_stack->widget(swapStack);
+
+            defaultPage->installEventFilter(
+                new PaintProbeFilter(PaintProbeFilter::Default, this));
+            swapPage->installEventFilter(
+                new PaintProbeFilter(PaintProbeFilter::Swap, this));
+
+            // Connect the default page's dataLoaded signal.
+            // For placeholder pages (Guide/Stash/Profile), PerfProbe auto-fires
+            // first_load right after first_interaction (no async data fetch needed).
+            const bool isPlaceholder = (stackIdx[dt] == TabGuide
+                                        || stackIdx[dt] == TabStash
+                                        || stackIdx[dt] == TabProfile);
+            probe.setIsPlaceholderPage(isPlaceholder);
+
+            if (stackIdx[dt] == TabLog) {
+                connect(m_logPage, &LogPage::dataLoaded,
+                        this, [&probe]() { probe.onDefaultPageLoaded(); });
+            } else if (stackIdx[dt] == TabChats) {
+                connect(m_chatPage, &ChatPage::dataLoaded,
+                        this, [&probe]() { probe.onDefaultPageLoaded(); });
+            } else if (stackIdx[dt] == TabDms) {
+                connect(m_dmPage, &DmPage::dataLoaded,
+                        this, [&probe]() { probe.onDefaultPageLoaded(); });
+            } else if (stackIdx[dt] == TabCurrent) {
+                connect(m_sessionViewPage, &SessionViewPage::dataLoaded,
+                        this, [&probe]() { probe.onDefaultPageLoaded(); });
+            }
+        }
     }
 
     connect(m_logPage, &LogPage::viewSessionRequested,
@@ -189,8 +242,9 @@ MainWindow::MainWindow(QWidget *parent)
     qDebug() << "[startup] opening DB:" << dbPath;
     m_db = new Database(dbPath);
     qDebug() << "[startup] DB open in" << startupTimer.elapsed() << "ms, ok=" << m_db->isOpen();
+    const bool perfMode = PerfProbe::instance().enabled();
     if (m_db->isOpen()) {
-        if (!timingMode) {
+        if (!timingMode && !perfMode) {
             qDebug() << "[startup] scheduleLogIngestion";
             scheduleLogIngestion();
             qDebug() << "[startup] scheduleLogIngestion done in" << startupTimer.elapsed() << "ms";
@@ -215,7 +269,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_pollTimer = new QTimer(this);
     m_pollTimer->setInterval(1000);
     connect(m_pollTimer, &QTimer::timeout, this, &MainWindow::onPollTimer);
-    if (!timingMode)
+    if (!timingMode && !perfMode)
         m_pollTimer->start();
 }
 
@@ -223,6 +277,11 @@ MainWindow::~MainWindow()
 {
     delete m_tracker;
     delete m_db;
+}
+
+void MainWindow::publishPerfHitboxes()
+{
+    PerfProbe::instance().publishHitboxesAndConfig(m_navBar, this);
 }
 
 void MainWindow::setupTray()

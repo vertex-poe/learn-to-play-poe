@@ -1,6 +1,7 @@
 #include "core/AppConfig.h"
 #include "core/Cli.h"
 #include "core/MainWindow.h"
+#include "core/PerfProbe.h"
 #include "ui/Theme.h"
 
 #include <QApplication>
@@ -122,16 +123,42 @@ static void setupCrashHandler(const QString &logPath)
 int main(int argc, char *argv[])
 {
     bool timingMode = false;
+
+    // Perf-mode flags (all optional; --perf-scenario enables perf mode).
+    bool perfMode     = false;
+    bool perfBaseline = true;   // true=baseline, false=swap_early
+    int  perfDefTab   = -1;     // config dt index 0-6 override (-1 = use config)
+    int  perfSwapNav  = -1;     // NavBar index for swap target (-1 = auto)
+    QString perfRunJson;        // path where app writes per-run JSON
+
     for (int i = 1; i < argc; ++i) {
-        if (QLatin1String(argv[i]) == "--startup-timing") {
+        const QLatin1String arg(argv[i]);
+        if (arg == "--startup-timing") {
             timingMode = true;
-            break;
+        } else if (arg.startsWith(QLatin1String("--perf-scenario="))) {
+            perfMode     = true;
+            perfBaseline = QLatin1String(argv[i] + 16) == "baseline";
+        } else if (arg.startsWith(QLatin1String("--default-tab="))) {
+            perfDefTab = QLatin1String(argv[i] + 14).toInt();
+        } else if (arg.startsWith(QLatin1String("--perf-swap-nav="))) {
+            perfSwapNav = QLatin1String(argv[i] + 16).toInt();
+        } else if (arg.startsWith(QLatin1String("--perf-run-json="))) {
+            perfRunJson = QString::fromUtf8(argv[i] + 16);
         }
     }
+
     if (timingMode)
         qputenv("L2P_STARTUP_TIMING_MODE", "1");
 
-    if (!timingMode) {
+    if (perfMode) {
+        qputenv("L2P_PERF_MODE", "1");
+        if (perfDefTab >= 0)
+            qputenv("L2P_PERF_DEFAULT_TAB", QByteArray::number(perfDefTab));
+        if (perfSwapNav >= 0)
+            qputenv("L2P_PERF_SWAP_NAV", QByteArray::number(perfSwapNav));
+    }
+
+    if (!timingMode && !perfMode) {
         const int cliResult = cliDispatch(argc, argv);
         if (cliResult != -1)
             return cliResult;
@@ -165,9 +192,25 @@ int main(int argc, char *argv[])
 
     Theme::apply(app);
 
+    if (perfMode) {
+        // Default navIdx mapping: dt → navIdx (same array as MainWindow constructor)
+        static const int kNavIdx[] = { 0, 1, 1, 2, 3, 4, 4 };
+        const int dt = (perfDefTab >= 0 && perfDefTab <= 6) ? perfDefTab : 6;
+        const int defaultNavIdx = kNavIdx[dt];
+        // Default swap target: navIdx 0 unless we start there, then navIdx 4
+        const int swapNavIdx = (perfSwapNav >= 0) ? perfSwapNav
+                               : (defaultNavIdx == 0 ? 4 : 0);
+        PerfProbe::instance().enable(
+            perfBaseline ? PerfProbe::Scenario::Baseline : PerfProbe::Scenario::SwapEarly,
+            defaultNavIdx, swapNavIdx, perfRunJson);
+    }
+
     MainWindow window;
-    if (timingMode || !window.startMinimized())
+    if (timingMode || perfMode || !window.startMinimized())
         window.show();
+
+    if (perfMode)
+        window.publishPerfHitboxes();
 
     const int ret = app.exec();
 

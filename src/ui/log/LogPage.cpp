@@ -305,6 +305,8 @@ void LogPage::applySessions(const QList<Database::SessionRecord> &sessions)
     m_contentLayout = layout;
     m_scroll->setWidget(m_content);
 
+    emit dataLoaded();
+
     if (m_scrollRestoreMax >= 0) {
         const int prevMax   = m_scrollRestoreMax;
         const int prevValue = m_scrollRestoreValue;

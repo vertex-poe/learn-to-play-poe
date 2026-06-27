@@ -26,6 +26,9 @@ public:
     void setShowGuildTags(bool show);
     void reload();
 
+signals:
+    void dataLoaded();
+
 public slots:
     void onLiveWhisper(const LiveEvent &event, bool bulk);
 

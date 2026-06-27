@@ -13,7 +13,6 @@
       "Bash(cmake:*)",
       "Bash(just configure *)",
       "PowerShell(echo:*)",
-      "Bash(just build *)",
       "Bash(git -C * log *)",
       "Bash(git branch:*)",
       "Bash(git diff:*)",
@@ -46,7 +45,15 @@
       "Bash(\"src/test_log_startup.exe\" *)",
       "Bash(echo \"EXIT: $?\")",
       "Bash(time *)",
-      "Bash(ctest *)"
+      "Bash(ctest *)",
+      "Bash(just test *)",
+      "Bash(just build *)",
+      "Bash(just test-perf *)",
+      "Bash(just test-all *)",
+      "Bash(timeout *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(./src/test_log_startup.exe *)",
+      "Bash(echo \"exit: $?\")",
     ]
   }
 }

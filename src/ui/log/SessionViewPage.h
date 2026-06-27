@@ -36,6 +36,7 @@ public:
 
 signals:
     void backRequested();
+    void dataLoaded();
 
 public slots:
     void onLiveEvent(const LiveEvent &event, bool bulk);

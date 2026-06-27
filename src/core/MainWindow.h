@@ -43,6 +43,10 @@ public:
     void log(const QString &title, const QString &tag,
              const QString &message, const NotificationStyle &style = {});
 
+    // Publish NavBar hitbox coordinates and config info for the perf test.
+    // Call from main() right after show(), before exec().
+    void publishPerfHitboxes();
+
 
 protected:
     void closeEvent(QCloseEvent *event) override;
