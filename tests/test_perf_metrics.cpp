@@ -38,7 +38,7 @@
 
 #include "perf_targets.h"
 
-static const int kRuns     = 3;
+static const int kRuns     = 10;
 static const int kTimeout  = 40'000; // ms per run
 static const int kClickMs  = 100;    // interval between repeated clicks
 

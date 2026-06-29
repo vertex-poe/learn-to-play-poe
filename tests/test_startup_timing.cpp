@@ -46,7 +46,7 @@ void StartupTimingTest::sessionListVisible()
     }
 
     QVector<qint64> times;
-    constexpr int runs = 3;
+    constexpr int runs = 10;
 
     for (int i = 0; i < runs; ++i) {
         QProcess p;
