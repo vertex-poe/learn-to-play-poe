@@ -279,15 +279,51 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     auto *layoutHBox = new QHBoxLayout(layoutContainer);
     layoutHBox->setContentsMargins(0, 0, 0, 0);
 
-    m_overlayLayout = new QComboBox(layoutContainer);
-    m_overlayLayout->addItem("Vertical");
-    m_overlayLayout->addItem("Horizontal");
-    m_overlayLayout->setCurrentIndex(config.overlayLayoutVertical ? 0 : 1);
+    m_overlayColumns = new QComboBox(layoutContainer);
+    m_overlayColumns->addItem("Auto");
+    for (int i = 1; i <= 20; ++i) {
+        m_overlayColumns->addItem(QString::number(i));
+    }
+    m_overlayColumns->setCurrentIndex(config.overlayColumns);
+
+    m_overlayRows = new QComboBox(layoutContainer);
+    m_overlayRows->addItem("Auto");
+    for (int i = 1; i <= 20; ++i) {
+        m_overlayRows->addItem(QString::number(i));
+    }
+    m_overlayRows->setCurrentIndex(config.overlayRows);
+
+    connect(m_overlayColumns, &QComboBox::currentIndexChanged, this, [this](int index) {
+        if (index == 0) {
+            QSignalBlocker blocker(m_overlayRows);
+            m_overlayRows->setCurrentIndex(1);
+        } else if (index > 0 && m_overlayRows->currentIndex() > 0) {
+            QSignalBlocker blocker(m_overlayRows);
+            m_overlayRows->setCurrentIndex(0);
+        }
+    });
+    connect(m_overlayRows, &QComboBox::currentIndexChanged, this, [this](int index) {
+        if (index == 0) {
+            QSignalBlocker blocker(m_overlayColumns);
+            m_overlayColumns->setCurrentIndex(1);
+        } else if (index > 0 && m_overlayColumns->currentIndex() > 0) {
+            QSignalBlocker blocker(m_overlayColumns);
+            m_overlayColumns->setCurrentIndex(0);
+        }
+    });
     
-    layoutHBox->addWidget(m_overlayLayout);
+    auto *columnsLabel = new QLabel("Columns:", layoutContainer);
+    columnsLabel->setToolTip("Vertical");
+    layoutHBox->addWidget(columnsLabel);
+    layoutHBox->addWidget(m_overlayColumns);
+    layoutHBox->addSpacing(10);
+    auto *rowsLabel = new QLabel("Rows:", layoutContainer);
+    rowsLabel->setToolTip("Horizontal");
+    layoutHBox->addWidget(rowsLabel);
+    layoutHBox->addWidget(m_overlayRows);
     layoutHBox->addStretch();
     
-    overlayForm->addRow("Icon layout orientation:", layoutContainer);
+    overlayForm->addRow("Icon layout:", layoutContainer);
 
     auto *teleportHeader = new QLabel("<b>Teleport Shortcuts</b>", overlayContent);
     overlayForm->addRow(teleportHeader);
@@ -358,25 +394,244 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     
     overlayForm->addRow(menagerieLabelWidget, m_overlayMenagerie);
 
-    addPlaceholder("Delve", "/delve", false);
-    addPlaceholder("Sanctum", "/sanctum", false);
-    addPlaceholder("Kingsmarch", "/kingsmarch", true);
-    addPlaceholder("Heist", "/heist", false);
-    addPlaceholder("Monastery", "/monastery", true);
+    m_overlayMonastery = new QCheckBox(overlayContent);
+    m_overlayMonastery->setChecked(config.overlayShowMonastery);
+    m_overlayMonastery->setToolTip("/monastery");
+    
+    auto *monasteryLabelWidget = new QWidget(overlayContent);
+    monasteryLabelWidget->setToolTip("/monastery");
+    auto *monasteryLabelLayout = new QHBoxLayout(monasteryLabelWidget);
+    monasteryLabelLayout->setContentsMargins(0, 0, 0, 0);
+    monasteryLabelLayout->setSpacing(4);
+    
+    auto *monasteryIconLabel = new QLabel(monasteryLabelWidget);
+    monasteryIconLabel->setPixmap(QIcon(":/icons/branch.svg").pixmap(18, 18));
+    
+    auto *monasteryTextLabel = new QLabel("Monastery:", monasteryLabelWidget);
+    monasteryLabelLayout->addWidget(monasteryIconLabel);
+    monasteryLabelLayout->addWidget(monasteryTextLabel);
+    monasteryLabelLayout->addStretch();
+    
+    overlayForm->addRow(monasteryLabelWidget, m_overlayMonastery);
+
+    m_overlayHeist = new QCheckBox(overlayContent);
+    m_overlayHeist->setChecked(config.overlayShowHeist);
+    m_overlayHeist->setToolTip("/heist");
+    auto *heistLabelWidget = new QWidget(overlayContent);
+    heistLabelWidget->setToolTip("/heist");
+    auto *heistLabelLayout = new QHBoxLayout(heistLabelWidget);
+    heistLabelLayout->setContentsMargins(0, 0, 0, 0);
+    heistLabelLayout->setSpacing(4);
+    auto *heistIconLabel = new QLabel(heistLabelWidget);
+    heistIconLabel->setPixmap(QIcon(":/icons/safe2-fill.svg").pixmap(18, 18));
+    auto *heistTextLabel = new QLabel("Heist:", heistLabelWidget);
+    heistLabelLayout->addWidget(heistIconLabel);
+    heistLabelLayout->addWidget(heistTextLabel);
+    heistLabelLayout->addStretch();
+    overlayForm->addRow(heistLabelWidget, m_overlayHeist);
+
+    m_overlaySanctum = new QCheckBox(overlayContent);
+    m_overlaySanctum->setChecked(config.overlayShowSanctum);
+    m_overlaySanctum->setToolTip("/sanctum");
+    auto *sanctumLabelWidget = new QWidget(overlayContent);
+    sanctumLabelWidget->setToolTip("/sanctum");
+    auto *sanctumLabelLayout = new QHBoxLayout(sanctumLabelWidget);
+    sanctumLabelLayout->setContentsMargins(0, 0, 0, 0);
+    sanctumLabelLayout->setSpacing(4);
+    auto *sanctumIconLabel = new QLabel(sanctumLabelWidget);
+    sanctumIconLabel->setPixmap(QIcon(":/icons/door-open-fill.svg").pixmap(18, 18));
+    auto *sanctumTextLabel = new QLabel("Sanctum:", sanctumLabelWidget);
+    sanctumLabelLayout->addWidget(sanctumIconLabel);
+    sanctumLabelLayout->addWidget(sanctumTextLabel);
+    sanctumLabelLayout->addStretch();
+    overlayForm->addRow(sanctumLabelWidget, m_overlaySanctum);
+
+    m_overlayDelve = new QCheckBox(overlayContent);
+    m_overlayDelve->setChecked(config.overlayShowDelve);
+    m_overlayDelve->setToolTip("/delve");
+    auto *delveLabelWidget = new QWidget(overlayContent);
+    delveLabelWidget->setToolTip("/delve");
+    auto *delveLabelLayout = new QHBoxLayout(delveLabelWidget);
+    delveLabelLayout->setContentsMargins(0, 0, 0, 0);
+    delveLabelLayout->setSpacing(4);
+    auto *delveIconLabel = new QLabel(delveLabelWidget);
+    delveIconLabel->setPixmap(QIcon(":/icons/minecart-loaded.svg").pixmap(18, 18));
+    auto *delveTextLabel = new QLabel("Delve:", delveLabelWidget);
+    delveLabelLayout->addWidget(delveIconLabel);
+    delveLabelLayout->addWidget(delveTextLabel);
+    delveLabelLayout->addStretch();
+    overlayForm->addRow(delveLabelWidget, m_overlayDelve);
+    m_overlayKingsmarch = new QCheckBox(overlayContent);
+    m_overlayKingsmarch->setChecked(config.overlayShowKingsmarch);
+    m_overlayKingsmarch->setToolTip("/kingsmarch");
+    auto *kingsmarchLabelWidget = new QWidget(overlayContent);
+    kingsmarchLabelWidget->setToolTip("/kingsmarch");
+    auto *kingsmarchLabelLayout = new QHBoxLayout(kingsmarchLabelWidget);
+    kingsmarchLabelLayout->setContentsMargins(0, 0, 0, 0);
+    kingsmarchLabelLayout->setSpacing(4);
+    auto *kingsmarchIconLabel = new QLabel(kingsmarchLabelWidget);
+    kingsmarchIconLabel->setPixmap(QIcon(":/icons/shop.svg").pixmap(18, 18));
+    auto *kingsmarchTextLabel = new QLabel("Kingsmarch:", kingsmarchLabelWidget);
+    kingsmarchLabelLayout->addWidget(kingsmarchIconLabel);
+    kingsmarchLabelLayout->addWidget(kingsmarchTextLabel);
+    kingsmarchLabelLayout->addStretch();
+    overlayForm->addRow(kingsmarchLabelWidget, m_overlayKingsmarch);
+
 
     auto *infoHeader = new QLabel("<br><b>Informational</b>", overlayContent);
     overlayForm->addRow(infoHeader);
 
-    addPlaceholder("Top 10 Ladder", "/ladder", false);
-    addPlaceholder("Time Played", "/played", false);
-    addPlaceholder("Character Age", "/age", false);
-    addPlaceholder("Passives", "/passives", false);
-    addPlaceholder("Deaths", "/deaths", false);
-    addPlaceholder("Monsters Remaining", "/remaining", false);
-    addPlaceholder("Atlas Passives", "/atlaspassives", false);
-    addPlaceholder("Kills", "/kills", false);
-    addPlaceholder("Reset XP", "/reset_xp", false);
-    addPlaceholder("Reload Item Filter", "/reloaditemfilter", true);
+    m_overlayLadder = new QCheckBox(overlayContent);
+    m_overlayLadder->setChecked(config.overlayShowLadder);
+    m_overlayLadder->setToolTip("/ladder");
+    auto *ladderLabelWidget = new QWidget(overlayContent);
+    ladderLabelWidget->setToolTip("/ladder");
+    auto *ladderLabelLayout = new QHBoxLayout(ladderLabelWidget);
+    ladderLabelLayout->setContentsMargins(0, 0, 0, 0);
+    ladderLabelLayout->setSpacing(4);
+    auto *ladderIconLabel = new QLabel(ladderLabelWidget);
+    ladderIconLabel->setPixmap(QIcon(":/icons/trophy-fill.svg").pixmap(18, 18));
+    auto *ladderTextLabel = new QLabel("Top 10 Ladder:", ladderLabelWidget);
+    ladderLabelLayout->addWidget(ladderIconLabel);
+    ladderLabelLayout->addWidget(ladderTextLabel);
+    ladderLabelLayout->addStretch();
+    overlayForm->addRow(ladderLabelWidget, m_overlayLadder);
+
+    m_overlayTimePlayed = new QCheckBox(overlayContent);
+    m_overlayTimePlayed->setChecked(config.overlayShowTimePlayed);
+    m_overlayTimePlayed->setToolTip("/played");
+    auto *timeplayedLabelWidget = new QWidget(overlayContent);
+    timeplayedLabelWidget->setToolTip("/played");
+    auto *timeplayedLabelLayout = new QHBoxLayout(timeplayedLabelWidget);
+    timeplayedLabelLayout->setContentsMargins(0, 0, 0, 0);
+    timeplayedLabelLayout->setSpacing(4);
+    auto *timeplayedIconLabel = new QLabel(timeplayedLabelWidget);
+    timeplayedIconLabel->setPixmap(QIcon(":/icons/stopwatch-fill.svg").pixmap(18, 18));
+    auto *timeplayedTextLabel = new QLabel("Time Played:", timeplayedLabelWidget);
+    timeplayedLabelLayout->addWidget(timeplayedIconLabel);
+    timeplayedLabelLayout->addWidget(timeplayedTextLabel);
+    timeplayedLabelLayout->addStretch();
+    overlayForm->addRow(timeplayedLabelWidget, m_overlayTimePlayed);
+    m_overlayCharacterAge = new QCheckBox(overlayContent);
+    m_overlayCharacterAge->setChecked(config.overlayShowCharacterAge);
+    m_overlayCharacterAge->setToolTip("/age");
+    auto *characterageLabelWidget = new QWidget(overlayContent);
+    characterageLabelWidget->setToolTip("/age");
+    auto *characterageLabelLayout = new QHBoxLayout(characterageLabelWidget);
+    characterageLabelLayout->setContentsMargins(0, 0, 0, 0);
+    characterageLabelLayout->setSpacing(4);
+    auto *characterageIconLabel = new QLabel(characterageLabelWidget);
+    characterageIconLabel->setPixmap(QIcon(":/icons/stopwatch-fill.svg").pixmap(18, 18));
+    auto *characterageTextLabel = new QLabel("Character Age:", characterageLabelWidget);
+    characterageLabelLayout->addWidget(characterageIconLabel);
+    characterageLabelLayout->addWidget(characterageTextLabel);
+    characterageLabelLayout->addStretch();
+    overlayForm->addRow(characterageLabelWidget, m_overlayCharacterAge);
+    m_overlayPassives = new QCheckBox(overlayContent);
+    m_overlayPassives->setChecked(config.overlayShowPassives);
+    m_overlayPassives->setToolTip("/passives");
+    auto *passivesLabelWidget = new QWidget(overlayContent);
+    passivesLabelWidget->setToolTip("/passives");
+    auto *passivesLabelLayout = new QHBoxLayout(passivesLabelWidget);
+    passivesLabelLayout->setContentsMargins(0, 0, 0, 0);
+    passivesLabelLayout->setSpacing(4);
+    auto *passivesIconLabel = new QLabel(passivesLabelWidget);
+    passivesIconLabel->setPixmap(QIcon(":/icons/tree-fill.svg").pixmap(18, 18));
+    auto *passivesTextLabel = new QLabel("Passives:", passivesLabelWidget);
+    passivesLabelLayout->addWidget(passivesIconLabel);
+    passivesLabelLayout->addWidget(passivesTextLabel);
+    passivesLabelLayout->addStretch();
+    overlayForm->addRow(passivesLabelWidget, m_overlayPassives);
+    m_overlayDeaths = new QCheckBox(overlayContent);
+    m_overlayDeaths->setChecked(config.overlayShowDeaths);
+    m_overlayDeaths->setToolTip("/deaths");
+    auto *deathsLabelWidget = new QWidget(overlayContent);
+    deathsLabelWidget->setToolTip("/deaths");
+    auto *deathsLabelLayout = new QHBoxLayout(deathsLabelWidget);
+    deathsLabelLayout->setContentsMargins(0, 0, 0, 0);
+    deathsLabelLayout->setSpacing(4);
+    auto *deathsIconLabel = new QLabel(deathsLabelWidget);
+    deathsIconLabel->setPixmap(QIcon(":/icons/person-fill.svg").pixmap(18, 18));
+    auto *deathsTextLabel = new QLabel("Deaths:", deathsLabelWidget);
+    deathsLabelLayout->addWidget(deathsIconLabel);
+    deathsLabelLayout->addWidget(deathsTextLabel);
+    deathsLabelLayout->addStretch();
+    overlayForm->addRow(deathsLabelWidget, m_overlayDeaths);
+    m_overlayMonstersRemaining = new QCheckBox(overlayContent);
+    m_overlayMonstersRemaining->setChecked(config.overlayShowMonstersRemaining);
+    m_overlayMonstersRemaining->setToolTip("/remaining");
+    auto *monstersremainingLabelWidget = new QWidget(overlayContent);
+    monstersremainingLabelWidget->setToolTip("/remaining");
+    auto *monstersremainingLabelLayout = new QHBoxLayout(monstersremainingLabelWidget);
+    monstersremainingLabelLayout->setContentsMargins(0, 0, 0, 0);
+    monstersremainingLabelLayout->setSpacing(4);
+    auto *monstersremainingIconLabel = new QLabel(monstersremainingLabelWidget);
+    monstersremainingIconLabel->setPixmap(QIcon(":/icons/bug-fill.svg").pixmap(18, 18));
+    auto *monstersremainingTextLabel = new QLabel("Monsters Remaining:", monstersremainingLabelWidget);
+    monstersremainingLabelLayout->addWidget(monstersremainingIconLabel);
+    monstersremainingLabelLayout->addWidget(monstersremainingTextLabel);
+    monstersremainingLabelLayout->addStretch();
+    overlayForm->addRow(monstersremainingLabelWidget, m_overlayMonstersRemaining);
+    m_overlayAtlasPassives = new QCheckBox(overlayContent);
+    m_overlayAtlasPassives->setChecked(config.overlayShowAtlasPassives);
+    m_overlayAtlasPassives->setToolTip("/atlaspassives");
+    auto *atlaspassivesLabelWidget = new QWidget(overlayContent);
+    atlaspassivesLabelWidget->setToolTip("/atlaspassives");
+    auto *atlaspassivesLabelLayout = new QHBoxLayout(atlaspassivesLabelWidget);
+    atlaspassivesLabelLayout->setContentsMargins(0, 0, 0, 0);
+    atlaspassivesLabelLayout->setSpacing(4);
+    auto *atlaspassivesIconLabel = new QLabel(atlaspassivesLabelWidget);
+    atlaspassivesIconLabel->setPixmap(QIcon(":/icons/map-fill.svg").pixmap(18, 18));
+    auto *atlaspassivesTextLabel = new QLabel("Atlas Passives:", atlaspassivesLabelWidget);
+    atlaspassivesLabelLayout->addWidget(atlaspassivesIconLabel);
+    atlaspassivesLabelLayout->addWidget(atlaspassivesTextLabel);
+    atlaspassivesLabelLayout->addStretch();
+    overlayForm->addRow(atlaspassivesLabelWidget, m_overlayAtlasPassives);
+    m_overlayKills = new QCheckBox(overlayContent);
+    m_overlayKills->setChecked(config.overlayShowKills);
+    m_overlayKills->setToolTip("/kills");
+    auto *killsLabelWidget = new QWidget(overlayContent);
+    killsLabelWidget->setToolTip("/kills");
+    auto *killsLabelLayout = new QHBoxLayout(killsLabelWidget);
+    killsLabelLayout->setContentsMargins(0, 0, 0, 0);
+    killsLabelLayout->setSpacing(4);
+    auto *killsIconLabel = new QLabel(killsLabelWidget);
+    killsIconLabel->setPixmap(QIcon(":/icons/bullseye.svg").pixmap(18, 18));
+    auto *killsTextLabel = new QLabel("Kills:", killsLabelWidget);
+    killsLabelLayout->addWidget(killsIconLabel);
+    killsLabelLayout->addWidget(killsTextLabel);
+    killsLabelLayout->addStretch();
+    overlayForm->addRow(killsLabelWidget, m_overlayKills);
+    m_overlayResetXP = new QCheckBox(overlayContent);
+    m_overlayResetXP->setChecked(config.overlayShowResetXP);
+    m_overlayResetXP->setToolTip("/reset_xp");
+    auto *resetxpLabelWidget = new QWidget(overlayContent);
+    resetxpLabelWidget->setToolTip("/reset_xp");
+    auto *resetxpLabelLayout = new QHBoxLayout(resetxpLabelWidget);
+    resetxpLabelLayout->setContentsMargins(0, 0, 0, 0);
+    resetxpLabelLayout->setSpacing(4);
+    auto *resetxpIconLabel = new QLabel(resetxpLabelWidget);
+    resetxpIconLabel->setPixmap(QIcon(":/icons/box-arrow-in-right.svg").pixmap(18, 18));
+    auto *resetxpTextLabel = new QLabel("Reset XP:", resetxpLabelWidget);
+    resetxpLabelLayout->addWidget(resetxpIconLabel);
+    resetxpLabelLayout->addWidget(resetxpTextLabel);
+    resetxpLabelLayout->addStretch();
+    overlayForm->addRow(resetxpLabelWidget, m_overlayResetXP);
+    m_overlayReloadItemFilter = new QCheckBox(overlayContent);
+    m_overlayReloadItemFilter->setChecked(config.overlayShowReloadItemFilter);
+    m_overlayReloadItemFilter->setToolTip("/reloaditemfilter");
+    auto *reloaditemfilterLabelWidget = new QWidget(overlayContent);
+    reloaditemfilterLabelWidget->setToolTip("/reloaditemfilter");
+    auto *reloaditemfilterLabelLayout = new QHBoxLayout(reloaditemfilterLabelWidget);
+    reloaditemfilterLabelLayout->setContentsMargins(0, 0, 0, 0);
+    reloaditemfilterLabelLayout->setSpacing(4);
+    auto *reloaditemfilterIconLabel = new QLabel(reloaditemfilterLabelWidget);
+    reloaditemfilterIconLabel->setPixmap(QIcon(":/icons/indent.svg").pixmap(18, 18));
+    auto *reloaditemfilterTextLabel = new QLabel("Reload Item Filter:", reloaditemfilterLabelWidget);
+    reloaditemfilterLabelLayout->addWidget(reloaditemfilterIconLabel);
+    reloaditemfilterLabelLayout->addWidget(reloaditemfilterTextLabel);
+    reloaditemfilterLabelLayout->addStretch();
+    overlayForm->addRow(reloaditemfilterLabelWidget, m_overlayReloadItemFilter);
 
     m_stack->addWidget(overlayContent); // index 2
 
@@ -780,10 +1035,26 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     connect(m_installDirs,    &ListEditor::itemsChanged, this, &SettingsPage::saveAndEmit);
     connect(m_exeNames,       &ListEditor::itemsChanged, this, &SettingsPage::saveAndEmit);
     connect(m_enableOverlay,  &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
-    connect(m_overlayLayout,  &QComboBox::currentIndexChanged, this, [this](int) { saveAndEmit(); });
+    connect(m_overlayColumns, &QComboBox::currentIndexChanged, this, [this](int) { saveAndEmit(); });
+    connect(m_overlayRows,    &QComboBox::currentIndexChanged, this, [this](int) { saveAndEmit(); });
     connect(m_overlayHideout, &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
     connect(m_overlayGuild,   &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
     connect(m_overlayMenagerie,&QCheckBox::toggled,      this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayMonastery,&QCheckBox::toggled,      this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayHeist,    &QCheckBox::toggled,      this, [this](bool) { saveAndEmit(); });
+    connect(m_overlaySanctum,  &QCheckBox::toggled,      this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayLadder,   &QCheckBox::toggled,      this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayDelve,    &QCheckBox::toggled,      this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayKingsmarch, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayTimePlayed, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayCharacterAge, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayPassives, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayDeaths, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayMonstersRemaining, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayAtlasPassives, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayKills, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayResetXP, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
+    connect(m_overlayReloadItemFilter, &QCheckBox::toggled, this, [this](bool) { saveAndEmit(); });
     connect(m_overlayL2P,     &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
     connect(m_defaultTab,     &QComboBox::currentIndexChanged, this, [this](int) { saveAndEmit(); });
     connect(m_startMinimized, &QCheckBox::toggled,       this, [this](bool) { saveAndEmit(); });
@@ -1039,10 +1310,26 @@ void SettingsPage::saveAndEmit()
     }
     m_config.executableNames = userExes;
     m_config.useGameOverlay  = m_enableOverlay->isChecked();
-    m_config.overlayLayoutVertical = (m_overlayLayout->currentIndex() == 0);
+    m_config.overlayColumns       = m_overlayColumns->currentIndex();
+    m_config.overlayRows          = m_overlayRows->currentIndex();
     m_config.overlayShowHideout    = m_overlayHideout->isChecked();
     m_config.overlayShowGuild      = m_overlayGuild->isChecked();
     m_config.overlayShowMenagerie  = m_overlayMenagerie->isChecked();
+    m_config.overlayShowMonastery  = m_overlayMonastery->isChecked();
+    m_config.overlayShowHeist      = m_overlayHeist->isChecked();
+    m_config.overlayShowSanctum    = m_overlaySanctum->isChecked();
+    m_config.overlayShowLadder     = m_overlayLadder->isChecked();
+    m_config.overlayShowDelve      = m_overlayDelve->isChecked();
+    m_config.overlayShowKingsmarch = m_overlayKingsmarch->isChecked();
+    m_config.overlayShowTimePlayed = m_overlayTimePlayed->isChecked();
+    m_config.overlayShowCharacterAge = m_overlayCharacterAge->isChecked();
+    m_config.overlayShowPassives = m_overlayPassives->isChecked();
+    m_config.overlayShowDeaths = m_overlayDeaths->isChecked();
+    m_config.overlayShowMonstersRemaining = m_overlayMonstersRemaining->isChecked();
+    m_config.overlayShowAtlasPassives = m_overlayAtlasPassives->isChecked();
+    m_config.overlayShowKills = m_overlayKills->isChecked();
+    m_config.overlayShowResetXP = m_overlayResetXP->isChecked();
+    m_config.overlayShowReloadItemFilter = m_overlayReloadItemFilter->isChecked();
     m_config.overlayShowL2P        = m_overlayL2P->isChecked();
     m_config.defaultTab      = m_defaultTab->currentIndex();
     m_config.startMinimized  = m_startMinimized->isChecked();

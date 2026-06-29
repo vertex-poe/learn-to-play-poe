@@ -5,14 +5,14 @@
 	.st0{fill:#FFFFFF;}
 	.st1{display:none;}
 	.st2{display:inline;}
-	.st3{fill:#c8a84b;}
-	.st4{fill:#c8a84b;}
+	.st3{fill:#64aad7;}
+	.st4{fill:#64aad7;}
 	.st5{display:inline;fill:none;}
-	.st6{fill-rule:evenodd;clip-rule:evenodd;fill:none;stroke:#c8a84b;stroke-width:8;}
-	.st7{fill:none;stroke:#c8a84b;stroke-width:8;}
+	.st6{fill-rule:evenodd;clip-rule:evenodd;fill:none;stroke:#64aad7;stroke-width:8;}
+	.st7{fill:none;stroke:#64aad7;stroke-width:8;}
 </style>
 <g id="Layer_2_00000146497066822917497000000003799723794808397489_">
-	<path fill="none" stroke="#c8a84b" stroke-width="8" d="M0,0v161c0,60.6,67.1,127.5,130,139c62.9-11.5,130-78.4,130-139V0H0z"/>
+	<path fill="none" stroke="#64aad7" stroke-width="8" d="M0,0v161c0,60.6,67.1,127.5,130,139c62.9-11.5,130-78.4,130-139V0H0z"/>
 </g>
 <g id="Layer_2_00000151545794763845193870000002700991010033020572_" style="display:none;">
 	<path class="st0" d="M4.5,4.5v156.2c0,58.8,64.8,123.7,125.5,134.8c60.7-11.1,125.5-76,125.5-134.8V4.5H4.5z"/>

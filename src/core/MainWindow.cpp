@@ -279,10 +279,25 @@ MainWindow::MainWindow(QWidget *parent)
     qDebug() << "[startup] WindowTracker done in" << startupTimer.elapsed() << "ms";
 
     m_overlay = new GameOverlay(this);
-    m_overlay->setLayoutVertical(m_config.overlayLayoutVertical);
+    m_overlay->setLayoutGrid(m_config.overlayColumns, m_config.overlayRows);
     m_overlay->setHideoutVisible(m_config.overlayShowHideout);
     m_overlay->setGuildVisible(m_config.overlayShowGuild);
     m_overlay->setMenagerieVisible(m_config.overlayShowMenagerie);
+    m_overlay->setMonasteryVisible(m_config.overlayShowMonastery);
+    m_overlay->setHeistVisible(m_config.overlayShowHeist);
+    m_overlay->setSanctumVisible(m_config.overlayShowSanctum);
+    m_overlay->setLadderVisible(m_config.overlayShowLadder);
+    m_overlay->setDelveVisible(m_config.overlayShowDelve);
+    m_overlay->setKingsmarchVisible(m_config.overlayShowKingsmarch);
+    m_overlay->setTimePlayedVisible(m_config.overlayShowTimePlayed);
+    m_overlay->setCharacterAgeVisible(m_config.overlayShowCharacterAge);
+    m_overlay->setPassivesVisible(m_config.overlayShowPassives);
+    m_overlay->setDeathsVisible(m_config.overlayShowDeaths);
+    m_overlay->setMonstersRemainingVisible(m_config.overlayShowMonstersRemaining);
+    m_overlay->setAtlasPassivesVisible(m_config.overlayShowAtlasPassives);
+    m_overlay->setKillsVisible(m_config.overlayShowKills);
+    m_overlay->setResetXPVisible(m_config.overlayShowResetXP);
+    m_overlay->setReloadItemFilterVisible(m_config.overlayShowReloadItemFilter);
     m_overlay->setL2PVisible(m_config.overlayShowL2P);
 
     connect(m_overlay, &GameOverlay::showMainWindowRequested, this, [this]() {
@@ -374,10 +389,25 @@ void MainWindow::onConfigChanged()
     m_chatPage->setShowGuildTags(m_config.showGuildTags);
     m_dmPage->setShowGuildTags(m_config.showGuildTags);
     m_ruleEngine->setRules(m_config.liveAlertRules);
-    m_overlay->setLayoutVertical(m_config.overlayLayoutVertical);
+    m_overlay->setLayoutGrid(m_config.overlayColumns, m_config.overlayRows);
     m_overlay->setHideoutVisible(m_config.overlayShowHideout);
     m_overlay->setGuildVisible(m_config.overlayShowGuild);
     m_overlay->setMenagerieVisible(m_config.overlayShowMenagerie);
+    m_overlay->setMonasteryVisible(m_config.overlayShowMonastery);
+    m_overlay->setHeistVisible(m_config.overlayShowHeist);
+    m_overlay->setSanctumVisible(m_config.overlayShowSanctum);
+    m_overlay->setLadderVisible(m_config.overlayShowLadder);
+    m_overlay->setDelveVisible(m_config.overlayShowDelve);
+    m_overlay->setKingsmarchVisible(m_config.overlayShowKingsmarch);
+    m_overlay->setTimePlayedVisible(m_config.overlayShowTimePlayed);
+    m_overlay->setCharacterAgeVisible(m_config.overlayShowCharacterAge);
+    m_overlay->setPassivesVisible(m_config.overlayShowPassives);
+    m_overlay->setDeathsVisible(m_config.overlayShowDeaths);
+    m_overlay->setMonstersRemainingVisible(m_config.overlayShowMonstersRemaining);
+    m_overlay->setAtlasPassivesVisible(m_config.overlayShowAtlasPassives);
+    m_overlay->setKillsVisible(m_config.overlayShowKills);
+    m_overlay->setResetXPVisible(m_config.overlayShowResetXP);
+    m_overlay->setReloadItemFilterVisible(m_config.overlayShowReloadItemFilter);
     m_overlay->setL2PVisible(m_config.overlayShowL2P);
 }
 

@@ -50,10 +50,26 @@ private:
 
     // Overlay page
     QCheckBox  *m_enableOverlay{};
-    QComboBox  *m_overlayLayout{};
+    QComboBox  *m_overlayColumns{};
+    QComboBox  *m_overlayRows{};
     QCheckBox  *m_overlayHideout{};
     QCheckBox  *m_overlayGuild{};
     QCheckBox  *m_overlayMenagerie{};
+    QCheckBox  *m_overlayMonastery{};
+    QCheckBox  *m_overlayHeist{};
+    QCheckBox  *m_overlaySanctum{};
+    QCheckBox  *m_overlayLadder{};
+    QCheckBox  *m_overlayDelve{};
+    QCheckBox  *m_overlayKingsmarch{};
+    QCheckBox  *m_overlayTimePlayed{};
+    QCheckBox  *m_overlayCharacterAge{};
+    QCheckBox  *m_overlayPassives{};
+    QCheckBox  *m_overlayDeaths{};
+    QCheckBox  *m_overlayMonstersRemaining{};
+    QCheckBox  *m_overlayAtlasPassives{};
+    QCheckBox  *m_overlayKills{};
+    QCheckBox  *m_overlayResetXP{};
+    QCheckBox  *m_overlayReloadItemFilter{};
     QCheckBox  *m_overlayL2P{};
 
     // Window page
