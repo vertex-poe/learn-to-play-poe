@@ -8,6 +8,7 @@
 #include <QRect>
 #include <QSet>
 #include <QSystemTrayIcon>
+#include <QFutureWatcher>
 
 class QLabel;
 class QStackedWidget;
@@ -37,7 +38,7 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
-    bool startMinimized() const { return m_config.startMinimized; }
+    bool startMinimized() const { return m_config.startMinimized && !m_timingMode; }
 
     void log(const QString &message, const NotificationStyle &style = {});
     void log(const QString &title, const QString &tag,
@@ -52,6 +53,7 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private slots:
+    void onDatabaseReady();
     void onTrayActivated(QSystemTrayIcon::ActivationReason reason);
     void showSettings();
     void onConfigChanged();
@@ -85,6 +87,8 @@ private:
     void refreshStatusBar();
 
     AppConfig     m_config;
+    QFutureWatcher<Database*> m_dbWatcher;
+    bool          m_timingMode{false};
     Database     *m_db{};
     QueryService *m_queryService{};
 

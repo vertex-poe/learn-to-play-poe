@@ -78,10 +78,11 @@ private:
     int           m_swapNavIdx{0};
     QString       m_runJsonPath;
 
-    struct Milestone { qint64 absMs{-1}; qint64 deltaMs{-1}; };
+    struct Milestone { qint64 absMs{-1}; qint64 deltaMs{-1}; qint64 deltaFromPaintMs{-1}; };
     QMap<QString, Milestone> m_milestones;
     QStringList              m_order;
     qint64                   m_lastAbsMs{0};
+    qint64                   m_firstPaintMs{-1};
 
     bool    m_navBarPainted{false};
     bool    m_isPlaceholder{false};

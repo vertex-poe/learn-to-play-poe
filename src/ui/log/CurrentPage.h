@@ -41,6 +41,7 @@ private slots:
     void onLoadMore();
 
 private:
+    void triggerLoadIfNeeded();
     void rebuildDbZones();
     void applyCurrentPageData(const QueryService::CurrentPageData &data,
                               const QList<WindowState> &runningGames,

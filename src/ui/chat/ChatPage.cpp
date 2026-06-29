@@ -513,6 +513,7 @@ ChatPage::ChatPage(QWidget *parent)
 void ChatPage::setQueryService(QueryService *qs)
 {
     m_queryService = qs;
+    triggerLoadIfNeeded();
 }
 
 void ChatPage::setShowGuildTags(bool show)
@@ -532,10 +533,9 @@ void ChatPage::reload()
     QTimer::singleShot(0, this, &ChatPage::scrollToBottom);
 }
 
-void ChatPage::showEvent(QShowEvent *e)
+void ChatPage::triggerLoadIfNeeded()
 {
-    QWidget::showEvent(e);
-    if (m_dirty && m_queryService) {
+    if (m_dirty && m_queryService && isVisible()) {
         m_loadingOverlay->setGeometry(m_view->geometry());
         m_loadingOverlay->show();
         m_loadingOverlay->raise();
@@ -543,6 +543,12 @@ void ChatPage::showEvent(QShowEvent *e)
             if (m_dirty && m_queryService) reload();
         });
     }
+}
+
+void ChatPage::showEvent(QShowEvent *e)
+{
+    QWidget::showEvent(e);
+    triggerLoadIfNeeded();
 }
 
 void ChatPage::onLiveChat(const LiveEvent &event, bool bulk)

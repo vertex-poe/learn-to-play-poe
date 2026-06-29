@@ -156,6 +156,13 @@ void CurrentPage::setQueryService(QueryService *qs)
 {
   m_queryService = qs;
   m_dirty = true;
+  triggerLoadIfNeeded();
+}
+
+void CurrentPage::triggerLoadIfNeeded()
+{
+  if (m_dirty && m_queryService && isVisible())
+    rebuildDbZones();
 }
 
 void CurrentPage::markDirty()
@@ -192,8 +199,7 @@ void CurrentPage::setRunningGames(const QList<WindowState> &games)
 void CurrentPage::showEvent(QShowEvent *e)
 {
   QWidget::showEvent(e);
-  if (m_dirty && m_queryService)
-    rebuildDbZones();
+  triggerLoadIfNeeded();
 }
 
 void CurrentPage::resizeEvent(QResizeEvent *e)

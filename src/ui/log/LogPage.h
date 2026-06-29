@@ -33,6 +33,7 @@ private slots:
     void onLiveEvent(const LiveEvent &event, bool bulk);
 
 private:
+    void triggerLoadIfNeeded();
     void rebuild();
     void applySessions(const QList<Database::SessionRecord> &sessions);
     void scrollToBottom();

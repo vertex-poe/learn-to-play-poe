@@ -198,6 +198,27 @@ void SessionViewPage::setQueryService(QueryService *qs)
 {
   m_queryService = qs;
   m_dirty = true;
+  triggerLoadIfNeeded();
+}
+
+void SessionViewPage::triggerLoadIfNeeded()
+{
+  if (m_dirty && m_queryService && isVisible()) {
+    // Show loading overlay immediately so first paint is instant; defer the
+    // SQL query to the next event-loop tick so paint goes through first.
+    m_loadingOverlay->setGeometry(m_scroll->geometry());
+    m_loadingOverlay->show();
+    m_loadingOverlay->raise();
+    QTimer::singleShot(0, this, [this] {
+      if (m_dirty && m_queryService) rebuildDbZones();
+    });
+  }
+}
+
+void SessionViewPage::showEvent(QShowEvent *e)
+{
+  QWidget::showEvent(e);
+  triggerLoadIfNeeded();
 }
 
 void SessionViewPage::markDirty()
@@ -259,20 +280,6 @@ void SessionViewPage::setRunningGames(const QList<WindowState> &games)
     rebuildDbZones();
 }
 
-void SessionViewPage::showEvent(QShowEvent *e)
-{
-  QWidget::showEvent(e);
-  if (m_dirty && m_queryService) {
-    // Show loading overlay immediately so first paint is instant; defer the
-    // SQL query to the next event-loop tick so paint goes through first.
-    m_loadingOverlay->setGeometry(m_scroll->geometry());
-    m_loadingOverlay->show();
-    m_loadingOverlay->raise();
-    QTimer::singleShot(0, this, [this] {
-      if (m_dirty && m_queryService) rebuildDbZones();
-    });
-  }
-}
 
 void SessionViewPage::resizeEvent(QResizeEvent *e)
 {

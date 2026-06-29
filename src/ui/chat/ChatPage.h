@@ -40,6 +40,7 @@ protected:
     void resizeEvent(QResizeEvent *e) override;
 
 private:
+    void triggerLoadIfNeeded();
     void rebuild();
     void applyChats(const QList<Database::ChatRecord> &records);
     void openFilterPanel();

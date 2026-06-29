@@ -148,6 +148,7 @@ void LogPage::setQueryService(QueryService *qs)
     m_limit        = kInitialLimit;
     m_windowOffset = 0;
     m_dirty        = true;
+    triggerLoadIfNeeded();
 }
 
 void LogPage::markDirty()
@@ -155,10 +156,9 @@ void LogPage::markDirty()
     m_dirty = true;
 }
 
-void LogPage::showEvent(QShowEvent *e)
+void LogPage::triggerLoadIfNeeded()
 {
-    QWidget::showEvent(e);
-    if (m_dirty && m_queryService) {
+    if (m_dirty && m_queryService && isVisible()) {
         m_loadingOverlay->setGeometry(rect());
         m_loadingOverlay->show();
         m_loadingOverlay->raise();
@@ -166,6 +166,12 @@ void LogPage::showEvent(QShowEvent *e)
             if (m_dirty && m_queryService) rebuild();
         });
     }
+}
+
+void LogPage::showEvent(QShowEvent *e)
+{
+    QWidget::showEvent(e);
+    triggerLoadIfNeeded();
 }
 
 void LogPage::resizeEvent(QResizeEvent *e)

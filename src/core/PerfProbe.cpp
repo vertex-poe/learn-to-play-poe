@@ -68,12 +68,18 @@ void PerfProbe::mark(const char *name)
     const qint64 delta = absMs - m_lastAbsMs;
     m_lastAbsMs = absMs;
 
-    m_milestones[QLatin1String(name)] = {absMs, delta};
+    if (qstrcmp(name, "first_paint") == 0) {
+        m_firstPaintMs = absMs;
+    }
+
+    const qint64 deltaFromPaint = (m_firstPaintMs > 0) ? (absMs - m_firstPaintMs) : 0;
+
+    m_milestones[QLatin1String(name)] = {absMs, delta, deltaFromPaint};
     m_order.append(QLatin1String(name));
 
     char buf[128];
-    std::snprintf(buf, sizeof(buf), "PERF:%s:%lld:%lld\n", name,
-                  static_cast<long long>(absMs), static_cast<long long>(delta));
+    std::snprintf(buf, sizeof(buf), "PERF:%s:%lld:%lld:%lld\n", name,
+                  static_cast<long long>(absMs), static_cast<long long>(delta), static_cast<long long>(deltaFromPaint));
     fputs(buf, stdout);
     fflush(stdout);
 }

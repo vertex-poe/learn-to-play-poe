@@ -277,36 +277,43 @@ RunResult PerfMetricsTest::runOnce(int dt, bool baseline, const QString &dbPath)
                 QList<QByteArray> p = raw.mid(17).split(':');
                 result.milestones["first_paint"] = p[0].toLongLong();
                 if (p.size() > 1) result.milestones["first_paint_delta"] = p[1].toLongLong();
+                if (p.size() > 2) result.milestones["first_paint_from_paint"] = p[2].toLongLong();
                 if (phase == WaitFirstPaint || phase == WaitConfig)
                     phase = Clicking;
             } else if (s.startsWith(QLatin1String("PERF:first_interaction:"))) {
                 QList<QByteArray> p = raw.mid(23).split(':');
                 result.milestones["first_interaction"] = p[0].toLongLong();
                 if (p.size() > 1) result.milestones["first_interaction_delta"] = p[1].toLongLong();
+                if (p.size() > 2) result.milestones["first_interaction_from_paint"] = p[2].toLongLong();
                 if (phase == Clicking)
                     phase = baseline ? WaitFinalPaint : SendSwapClick;
             } else if (s.startsWith(QLatin1String("PERF:first_load:"))) {
                 QList<QByteArray> p = raw.mid(16).split(':');
                 result.milestones["first_load"] = p[0].toLongLong();
                 if (p.size() > 1) result.milestones["first_load_delta"] = p[1].toLongLong();
+                if (p.size() > 2) result.milestones["first_load_from_paint"] = p[2].toLongLong();
             } else if (s.startsWith(QLatin1String("PERF:final_paint:"))) {
                 QList<QByteArray> p = raw.mid(17).split(':');
                 result.milestones["final_paint"] = p[0].toLongLong();
                 if (p.size() > 1) result.milestones["final_paint_delta"] = p[1].toLongLong();
+                if (p.size() > 2) result.milestones["final_paint_from_paint"] = p[2].toLongLong();
                 if (phase == WaitFinalPaint)
                     phase = SendSwapClick;
             } else if (s.startsWith(QLatin1String("PERF:final_interaction:"))) {
                 QList<QByteArray> p = raw.mid(23).split(':');
                 result.milestones["final_interaction"] = p[0].toLongLong();
                 if (p.size() > 1) result.milestones["final_interaction_delta"] = p[1].toLongLong();
+                if (p.size() > 2) result.milestones["final_interaction_from_paint"] = p[2].toLongLong();
             } else if (s.startsWith(QLatin1String("PERF:menu_swap_final:"))) {
                 QList<QByteArray> p = raw.mid(21).split(':');
                 result.milestones["menu_swap_final"] = p[0].toLongLong();
                 if (p.size() > 1) result.milestones["menu_swap_final_delta"] = p[1].toLongLong();
+                if (p.size() > 2) result.milestones["menu_swap_final_from_paint"] = p[2].toLongLong();
             } else if (s.startsWith(QLatin1String("PERF:menu_swap_early:"))) {
                 QList<QByteArray> p = raw.mid(21).split(':');
                 result.milestones["menu_swap_early"] = p[0].toLongLong();
                 if (p.size() > 1) result.milestones["menu_swap_early_delta"] = p[1].toLongLong();
+                if (p.size() > 2) result.milestones["menu_swap_early_from_paint"] = p[2].toLongLong();
             } else if (s == QLatin1String("PERF:done") ||
                        s.startsWith(QLatin1String("PERF:done:"))) {
                 phase = Done;

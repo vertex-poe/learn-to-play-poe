@@ -21,6 +21,8 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QScreen>
+#include <QtConcurrent>
+#include <QFuture>
 #include <QDateTime>
 #include <QDebug>
 #include <QElapsedTimer>
@@ -53,6 +55,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     const bool timingMode = qgetenv("L2P_STARTUP_TIMING_MODE") == "1";
+    m_timingMode = timingMode;
     QElapsedTimer startupTimer; startupTimer.start();
     qDebug() << "[startup] begin";
 
@@ -253,26 +256,12 @@ MainWindow::MainWindow(QWidget *parent)
             dbPath += ".db";
         }
     }
-    qDebug() << "[startup] opening DB:" << dbPath;
-    m_db = new Database(dbPath);
-    qDebug() << "[startup] DB open in" << startupTimer.elapsed() << "ms, ok=" << m_db->isOpen();
-    const bool perfMode = PerfProbe::instance().enabled();
-    if (m_db->isOpen()) {
-        if (!timingMode && !perfMode) {
-            qDebug() << "[startup] scheduleLogIngestion";
-            scheduleLogIngestion();
-            qDebug() << "[startup] scheduleLogIngestion done in" << startupTimer.elapsed() << "ms";
-        }
-        m_queryService = new QueryService(m_db->path(), this);
-        m_sessionViewPage->setQueryService(m_queryService);
-        m_logPage->setQueryService(m_queryService);
-        m_chatPage->setQueryService(m_queryService);
-        m_chatPage->setShowGuildTags(m_config.showGuildTags);
-        m_dmPage->setQueryService(m_queryService);
-        m_dmPage->setShowGuildTags(m_config.showGuildTags);
-    } else {
-        log("Database error", "db", m_db->lastError());
-    }
+    qDebug() << "[startup] starting async DB open:" << dbPath;
+    connect(&m_dbWatcher, &QFutureWatcher<Database*>::finished, this, &MainWindow::onDatabaseReady);
+    QFuture<Database*> future = QtConcurrent::run([dbPath]() {
+        return new Database(dbPath);
+    });
+    m_dbWatcher.setFuture(future);
 
     qDebug() << "[startup] creating WindowTracker";
     m_tracker = WindowTracker::create();
@@ -309,7 +298,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_pollTimer = new QTimer(this);
     m_pollTimer->setInterval(1000);
     connect(m_pollTimer, &QTimer::timeout, this, &MainWindow::onPollTimer);
-    if (!timingMode && !perfMode)
+    const bool perfMode = PerfProbe::instance().enabled();
+    if (!m_timingMode && !perfMode)
         m_pollTimer->start();
 }
 
@@ -380,6 +370,27 @@ void MainWindow::onSearchClicked()
         showWindow();
         m_navBar->setSearchActive(true);
         m_stack->setCurrentIndex(TabSearch);
+    }
+}
+
+void MainWindow::onDatabaseReady()
+{
+    m_db = m_dbWatcher.result();
+    qDebug() << "[startup] DB open async completed, ok=" << m_db->isOpen();
+    const bool perfMode = PerfProbe::instance().enabled();
+    if (m_db->isOpen()) {
+        if (!m_timingMode && !perfMode) {
+            scheduleLogIngestion();
+        }
+        m_queryService = new QueryService(m_db->path(), this);
+        m_sessionViewPage->setQueryService(m_queryService);
+        m_logPage->setQueryService(m_queryService);
+        m_chatPage->setQueryService(m_queryService);
+        m_chatPage->setShowGuildTags(m_config.showGuildTags);
+        m_dmPage->setQueryService(m_queryService);
+        m_dmPage->setShowGuildTags(m_config.showGuildTags);
+    } else {
+        log("Database error", "db", m_db->lastError());
     }
 }
 

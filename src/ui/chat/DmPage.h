@@ -40,6 +40,7 @@ private slots:
     void onPlayerSelected(const QString &name);
 
 private:
+    void triggerLoadIfNeeded();
     void rebuild();
     void applyWhispers(const QList<Database::WhisperRecord> &whispers);
     void openFilterPanel();

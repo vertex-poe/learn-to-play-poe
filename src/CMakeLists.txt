@@ -178,12 +178,16 @@ elseif (UNIX)
 endif()
 
 target_include_directories(l2p-poe1 PRIVATE ${_qtkeychain_src} ${_qtkeychain_bin})
+find_package(Qt6 COMPONENTS Core Gui Widgets Svg WebEngineWidgets Network Concurrent REQUIRED)
 
 target_link_libraries(l2p-poe1 PRIVATE
     Qt6::Core
-    Qt6::Svg
+    Qt6::Gui
     Qt6::Widgets
+    Qt6::Svg
     Qt6::WebEngineWidgets
+    Qt6::Network
+    Qt6::Concurrent
     tomlplusplus::tomlplusplus
     unofficial::sqlite3::sqlite3
     qt6keychain

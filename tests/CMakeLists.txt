@@ -59,3 +59,14 @@ target_compile_definitions(test_log_startup PRIVATE
     L2P_SCHEMA_SQL_PATH="${CMAKE_SOURCE_DIR}/data/schema.sql"
 )
 add_test(NAME test_log_startup COMMAND test_log_startup)
+
+add_subdirectory(ref_basic)
+add_test(NAME test_ref_basic COMMAND ref_basic_app)
+
+add_subdirectory(ref_data)
+qt_add_executable(test_ref_data test_ref_data.cpp)
+target_link_libraries(test_ref_data PRIVATE Qt6::Core Qt6::Test unofficial::sqlite3::sqlite3)
+target_compile_definitions(test_ref_data PRIVATE
+    L2P_REF_DATA_EXE_PATH="$<TARGET_FILE:ref_data_app>"
+)
+add_test(NAME test_ref_data COMMAND test_ref_data)

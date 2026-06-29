@@ -478,6 +478,7 @@ DmPage::DmPage(QWidget *parent)
 void DmPage::setQueryService(QueryService *qs)
 {
     m_queryService = qs;
+    triggerLoadIfNeeded();
 }
 
 void DmPage::setShowGuildTags(bool show)
@@ -497,10 +498,9 @@ void DmPage::reload()
     QTimer::singleShot(0, this, &DmPage::scrollToBottom);
 }
 
-void DmPage::showEvent(QShowEvent *e)
+void DmPage::triggerLoadIfNeeded()
 {
-    QWidget::showEvent(e);
-    if (m_dirty && m_queryService) {
+    if (m_dirty && m_queryService && isVisible()) {
         m_loadingOverlay->setGeometry(m_view->geometry());
         m_loadingOverlay->show();
         m_loadingOverlay->raise();
@@ -508,6 +508,12 @@ void DmPage::showEvent(QShowEvent *e)
             if (m_dirty && m_queryService) reload();
         });
     }
+}
+
+void DmPage::showEvent(QShowEvent *e)
+{
+    QWidget::showEvent(e);
+    triggerLoadIfNeeded();
 }
 
 void DmPage::onLiveWhisper(const LiveEvent &event, bool bulk)

@@ -75,6 +75,14 @@ test-perf preset=default_preset: (build preset)
 test-all preset=default_preset: (build preset)
     ctest --preset {{preset}} --output-on-failure
 
+# Run the reference basic performance test
+test-ref-basic preset=default_preset: (build preset)
+    ctest --preset {{preset}} -R test_ref_basic -V
+
+# Run the reference data performance test
+test-ref-data preset=default_preset: (build preset)
+    ctest --preset {{preset}} -R test_ref_data -V
+
 # Configure + build + test in one shot
 all preset=default_preset: (test preset)
 
