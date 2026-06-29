@@ -191,6 +191,13 @@ int main(int argc, char *argv[])
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-blink-features=AutomationControlled");
 
     PerfProbe::instance().markDebug("main_before_app");
+#ifdef Q_OS_WIN
+    // Force Windows QPA to use a dark background brush and dark immersive titlebars,
+    // eliminating the white flash on startup.
+    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) {
+        qputenv("QT_QPA_PLATFORM", "windows:darkmode=2");
+    }
+#endif
     QApplication app(argc, argv);
     PerfProbe::instance().markDebug("main_after_app");
     
