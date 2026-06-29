@@ -117,6 +117,8 @@ void PerfMetricsTest::initTestCase()
     QVERIFY2(sqlite3_exec(db, schema.constData(), nullptr, nullptr, nullptr) == SQLITE_OK,
              "Failed to execute schema.sql");
 
+    sqlite3_exec(db, "PRAGMA user_version = 99;", nullptr, nullptr, nullptr);
+
     sqlite3_exec(db,
         "INSERT INTO installs(path) VALUES('/perf/Client.txt');",
         nullptr, nullptr, nullptr);

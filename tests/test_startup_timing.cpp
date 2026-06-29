@@ -9,6 +9,7 @@
 #include <QProcess>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <sqlite3.h>
 
 #ifndef L2P_EXE_PATH
 #error "L2P_EXE_PATH not defined by CMake"
@@ -33,6 +34,16 @@ void StartupTimingTest::sessionListVisible()
     QTemporaryDir tmpDir;
     QVERIFY(tmpDir.isValid());
     const QString dbPath = tmpDir.path() + "/timing.db";
+
+    {
+        sqlite3 *db = nullptr;
+        QVERIFY(sqlite3_open(dbPath.toUtf8().constData(), &db) == SQLITE_OK);
+        QFile schemaFile(QString::fromUtf8(L2P_SCHEMA_SQL_PATH));
+        QVERIFY(schemaFile.open(QIODevice::ReadOnly));
+        sqlite3_exec(db, schemaFile.readAll().constData(), nullptr, nullptr, nullptr);
+        sqlite3_exec(db, "PRAGMA user_version = 99;", nullptr, nullptr, nullptr);
+        sqlite3_close(db);
+    }
 
     QVector<qint64> times;
     constexpr int runs = 3;
