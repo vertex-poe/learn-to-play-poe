@@ -54,7 +54,7 @@ def main(baseline_path: str, current_path: str) -> int:
     b_ts = baseline.get("timestamp", "")[:10]
     c_ts = current.get("timestamp", "")[:10]
 
-    print(f"\nPerf delta  {b_commit} {b_ts} (baseline)  →  {c_commit} {c_ts} (current)")
+    print(f"\nPerf delta  {b_commit} {b_ts} (baseline)  ->  {c_commit} {c_ts} (current)")
     print(f"  {'Metric':<45} {'Baseline':>10} {'Current':>10} {'Delta':>10} {'Change':>9}  Status")
     print("  " + "-" * 97)
 
