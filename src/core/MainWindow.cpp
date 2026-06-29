@@ -69,9 +69,17 @@ MainWindow::MainWindow(QWidget *parent)
     m_taskPanel = new TaskPanel(m_taskManager, this);
 
     m_stack    = new QStackedWidget(this);
+    PerfProbe::instance().markDebug("mainwindow_before_logpage");
     m_logPage = new LogPage(this);
+    PerfProbe::instance().markDebug("mainwindow_after_logpage");
+
+    PerfProbe::instance().markDebug("mainwindow_before_chatpage");
     m_chatPage = new ChatPage(this);
+    PerfProbe::instance().markDebug("mainwindow_after_chatpage");
+
+    PerfProbe::instance().markDebug("mainwindow_before_dmpage");
     m_dmPage   = new DmPage(this);
+    PerfProbe::instance().markDebug("mainwindow_after_dmpage");
 
     m_stack->addWidget(makePlaceholder("Coming soon", this)); // TabGuide
     m_stack->addWidget(m_chatPage);                          // TabChats
@@ -79,7 +87,10 @@ MainWindow::MainWindow(QWidget *parent)
     m_stack->addWidget(makePlaceholder("Coming soon", this)); // TabProfile
     m_stack->addWidget(m_logPage);                          // TabLog
 
+    PerfProbe::instance().markDebug("mainwindow_before_navbar");
     m_navBar = new NavBar({"Guide", "Chat", "Stash", "Profile", "Log"}, this);
+    PerfProbe::instance().markDebug("mainwindow_after_navbar");
+    
     m_navBar->setCurrentIndex(TabGuide);
     m_stack->setCurrentIndex(TabGuide);
     connect(m_navBar, &NavBar::currentChanged,  this, &MainWindow::onTabChanged);
@@ -103,18 +114,21 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(container);
 
     qDebug() << "[startup] UI built in" << startupTimer.elapsed() << "ms";
+    PerfProbe::instance().markDebug("mainwindow_before_config_load");
     m_config = AppConfig::load();
+    PerfProbe::instance().markDebug("mainwindow_after_config_load");
     qDebug() << "[startup] config loaded in" << startupTimer.elapsed() << "ms";
 
-    m_settingsPage = new SettingsPage(m_config, this);
-    m_stack->addWidget(m_settingsPage); // TabSettings
-    connect(m_settingsPage, &SettingsPage::configChanged,
-            this, &MainWindow::onConfigChanged);
+    PerfProbe::instance().markDebug("mainwindow_before_settingspage");
+    m_settingsPage = nullptr;
+    m_stack->addWidget(makePlaceholder("Settings (Loading...)", this)); // TabSettings placeholder
+    PerfProbe::instance().markDebug("mainwindow_after_settingspage");
 
     m_stack->addWidget(makePlaceholder("Coming soon", this)); // TabSearch
     m_stack->addWidget(m_sessionViewPage);                     // TabCurrent
     m_stack->addWidget(m_dmPage);                             // TabDms
 
+    PerfProbe::instance().markDebug("mainwindow_before_ruleengine");
     // Restore default tab. DMs and Current are sub-pages (not navbar tabs), so
     // navigate to the parent navbar tab first, then override the stack index.
     const int navIdx[]   = { TabGuide, TabChats, TabChats, TabStash, TabProfile, TabLog,     TabLog };
@@ -225,6 +239,8 @@ MainWindow::MainWindow(QWidget *parent)
         m_config.save();
     });
 
+    PerfProbe::instance().markDebug("mainwindow_before_gameoverlay");
+
     m_ruleEngine = new LiveEventRuleEngine(this);
     m_ruleEngine->setRules(m_config.liveAlertRules);
     connect(m_ruleEngine, &LiveEventRuleEngine::notifyRequested,
@@ -256,43 +272,46 @@ MainWindow::MainWindow(QWidget *parent)
             dbPath += ".db";
         }
     }
-    qDebug() << "[startup] starting async DB open:" << dbPath;
     connect(&m_dbWatcher, &QFutureWatcher<Database*>::finished, this, &MainWindow::onDatabaseReady);
     QFuture<Database*> future = QtConcurrent::run([dbPath]() {
         return new Database(dbPath);
     });
     m_dbWatcher.setFuture(future);
 
-    qDebug() << "[startup] creating WindowTracker";
     m_tracker = WindowTracker::create();
-    qDebug() << "[startup] WindowTracker done in" << startupTimer.elapsed() << "ms";
 
-    m_overlay = new GameOverlay(this);
-    m_overlay->setLayoutGrid(m_config.overlayColumns, m_config.overlayRows);
-    m_overlay->setHideoutVisible(m_config.overlayShowHideout);
-    m_overlay->setGuildVisible(m_config.overlayShowGuild);
-    m_overlay->setMenagerieVisible(m_config.overlayShowMenagerie);
-    m_overlay->setMonasteryVisible(m_config.overlayShowMonastery);
-    m_overlay->setHeistVisible(m_config.overlayShowHeist);
-    m_overlay->setSanctumVisible(m_config.overlayShowSanctum);
-    m_overlay->setLadderVisible(m_config.overlayShowLadder);
-    m_overlay->setDelveVisible(m_config.overlayShowDelve);
-    m_overlay->setKingsmarchVisible(m_config.overlayShowKingsmarch);
-    m_overlay->setTimePlayedVisible(m_config.overlayShowTimePlayed);
-    m_overlay->setCharacterAgeVisible(m_config.overlayShowCharacterAge);
-    m_overlay->setPassivesVisible(m_config.overlayShowPassives);
-    m_overlay->setDeathsVisible(m_config.overlayShowDeaths);
-    m_overlay->setMonstersRemainingVisible(m_config.overlayShowMonstersRemaining);
-    m_overlay->setAtlasPassivesVisible(m_config.overlayShowAtlasPassives);
-    m_overlay->setKillsVisible(m_config.overlayShowKills);
-    m_overlay->setResetXPVisible(m_config.overlayShowResetXP);
-    m_overlay->setReloadItemFilterVisible(m_config.overlayShowReloadItemFilter);
-    m_overlay->setL2PVisible(m_config.overlayShowL2P);
+    PerfProbe::instance().markDebug("mainwindow_before_gameoverlay_new");
 
-    connect(m_overlay, &GameOverlay::showMainWindowRequested, this, [this]() {
-        showNormal();
-        activateWindow();
-        raise();
+    m_overlay = nullptr;
+    QTimer::singleShot(0, this, [this]() {
+        m_overlay = new GameOverlay(this);
+        PerfProbe::instance().markDebug("mainwindow_after_gameoverlay");
+        m_overlay->setLayoutGrid(m_config.overlayColumns, m_config.overlayRows);
+        m_overlay->setHideoutVisible(m_config.overlayShowHideout);
+        m_overlay->setGuildVisible(m_config.overlayShowGuild);
+        m_overlay->setMenagerieVisible(m_config.overlayShowMenagerie);
+        m_overlay->setMonasteryVisible(m_config.overlayShowMonastery);
+        m_overlay->setHeistVisible(m_config.overlayShowHeist);
+        m_overlay->setSanctumVisible(m_config.overlayShowSanctum);
+        m_overlay->setLadderVisible(m_config.overlayShowLadder);
+        m_overlay->setDelveVisible(m_config.overlayShowDelve);
+        m_overlay->setKingsmarchVisible(m_config.overlayShowKingsmarch);
+        m_overlay->setTimePlayedVisible(m_config.overlayShowTimePlayed);
+        m_overlay->setCharacterAgeVisible(m_config.overlayShowCharacterAge);
+        m_overlay->setPassivesVisible(m_config.overlayShowPassives);
+        m_overlay->setDeathsVisible(m_config.overlayShowDeaths);
+        m_overlay->setMonstersRemainingVisible(m_config.overlayShowMonstersRemaining);
+        m_overlay->setAtlasPassivesVisible(m_config.overlayShowAtlasPassives);
+        m_overlay->setKillsVisible(m_config.overlayShowKills);
+        m_overlay->setResetXPVisible(m_config.overlayShowResetXP);
+        m_overlay->setReloadItemFilterVisible(m_config.overlayShowReloadItemFilter);
+        m_overlay->setL2PVisible(m_config.overlayShowL2P);
+
+        connect(m_overlay, &GameOverlay::showMainWindowRequested, this, [this]() {
+            showNormal();
+            activateWindow();
+            raise();
+        });
     });
 
     m_pollTimer = new QTimer(this);
@@ -343,6 +362,18 @@ void MainWindow::showSettings()
 {
     showWindow();
     m_navBar->setGearActive(true);
+    
+    if (!m_settingsPage) {
+        m_settingsPage = new SettingsPage(m_config, this);
+        connect(m_settingsPage, &SettingsPage::configChanged,
+                this, &MainWindow::onConfigChanged);
+        
+        QWidget *placeholder = m_stack->widget(TabSettings);
+        m_stack->removeWidget(placeholder);
+        placeholder->deleteLater();
+        m_stack->insertWidget(TabSettings, m_settingsPage);
+    }
+    
     m_stack->setCurrentIndex(TabSettings);
 }
 
@@ -400,26 +431,29 @@ void MainWindow::onConfigChanged()
     m_chatPage->setShowGuildTags(m_config.showGuildTags);
     m_dmPage->setShowGuildTags(m_config.showGuildTags);
     m_ruleEngine->setRules(m_config.liveAlertRules);
-    m_overlay->setLayoutGrid(m_config.overlayColumns, m_config.overlayRows);
-    m_overlay->setHideoutVisible(m_config.overlayShowHideout);
-    m_overlay->setGuildVisible(m_config.overlayShowGuild);
-    m_overlay->setMenagerieVisible(m_config.overlayShowMenagerie);
-    m_overlay->setMonasteryVisible(m_config.overlayShowMonastery);
-    m_overlay->setHeistVisible(m_config.overlayShowHeist);
-    m_overlay->setSanctumVisible(m_config.overlayShowSanctum);
-    m_overlay->setLadderVisible(m_config.overlayShowLadder);
-    m_overlay->setDelveVisible(m_config.overlayShowDelve);
-    m_overlay->setKingsmarchVisible(m_config.overlayShowKingsmarch);
-    m_overlay->setTimePlayedVisible(m_config.overlayShowTimePlayed);
-    m_overlay->setCharacterAgeVisible(m_config.overlayShowCharacterAge);
-    m_overlay->setPassivesVisible(m_config.overlayShowPassives);
-    m_overlay->setDeathsVisible(m_config.overlayShowDeaths);
-    m_overlay->setMonstersRemainingVisible(m_config.overlayShowMonstersRemaining);
-    m_overlay->setAtlasPassivesVisible(m_config.overlayShowAtlasPassives);
-    m_overlay->setKillsVisible(m_config.overlayShowKills);
-    m_overlay->setResetXPVisible(m_config.overlayShowResetXP);
-    m_overlay->setReloadItemFilterVisible(m_config.overlayShowReloadItemFilter);
-    m_overlay->setL2PVisible(m_config.overlayShowL2P);
+    
+    if (m_overlay) {
+        m_overlay->setLayoutGrid(m_config.overlayColumns, m_config.overlayRows);
+        m_overlay->setHideoutVisible(m_config.overlayShowHideout);
+        m_overlay->setGuildVisible(m_config.overlayShowGuild);
+        m_overlay->setMenagerieVisible(m_config.overlayShowMenagerie);
+        m_overlay->setMonasteryVisible(m_config.overlayShowMonastery);
+        m_overlay->setHeistVisible(m_config.overlayShowHeist);
+        m_overlay->setSanctumVisible(m_config.overlayShowSanctum);
+        m_overlay->setLadderVisible(m_config.overlayShowLadder);
+        m_overlay->setDelveVisible(m_config.overlayShowDelve);
+        m_overlay->setKingsmarchVisible(m_config.overlayShowKingsmarch);
+        m_overlay->setTimePlayedVisible(m_config.overlayShowTimePlayed);
+        m_overlay->setCharacterAgeVisible(m_config.overlayShowCharacterAge);
+        m_overlay->setPassivesVisible(m_config.overlayShowPassives);
+        m_overlay->setDeathsVisible(m_config.overlayShowDeaths);
+        m_overlay->setMonstersRemainingVisible(m_config.overlayShowMonstersRemaining);
+        m_overlay->setAtlasPassivesVisible(m_config.overlayShowAtlasPassives);
+        m_overlay->setKillsVisible(m_config.overlayShowKills);
+        m_overlay->setResetXPVisible(m_config.overlayShowResetXP);
+        m_overlay->setReloadItemFilterVisible(m_config.overlayShowReloadItemFilter);
+        m_overlay->setL2PVisible(m_config.overlayShowL2P);
+    }
 }
 
 void MainWindow::onPollTimer()
@@ -460,9 +494,11 @@ void MainWindow::onPollTimer()
     } else if (m_lastGameRect.isNull()) {
         m_lastGameRect = QRect(0, 0, 1280, 720);
     }
-    m_overlay->updateGameRect(m_lastGameRect);
-    m_overlay->setGameVisible(anyRunning && m_config.useGameOverlay);
-    m_overlay->setGameHwnd(anyRunning ? states[0].hwnd : 0);
+    if (m_overlay) {
+        m_overlay->updateGameRect(m_lastGameRect);
+        m_overlay->setGameVisible(anyRunning && m_config.useGameOverlay);
+        m_overlay->setGameHwnd(anyRunning ? states[0].hwnd : 0);
+    }
 
     // Auto-detect install dirs for all running instances.
     if (m_config.autoDetectInstallDir) {

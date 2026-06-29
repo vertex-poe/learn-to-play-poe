@@ -24,6 +24,16 @@ void PerfProbe::startClock()
     }
 }
 
+void PerfProbe::markDebug(const char *label)
+{
+    if (m_timer.isValid()) {
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "DEBUG_PERF:%s:%lld\n", label, static_cast<long long>(m_timer.elapsed()));
+        fputs(buf, stdout);
+        fflush(stdout);
+    }
+}
+
 void PerfProbe::enable(Scenario scenario, int defaultNavIdx, int swapNavIdx,
                        const QString &runJsonPath)
 {

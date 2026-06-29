@@ -190,12 +190,17 @@ int main(int argc, char *argv[])
     // at the engine level, which is more robust than patching them in JavaScript.
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-blink-features=AutomationControlled");
 
+    PerfProbe::instance().markDebug("main_before_app");
     QApplication app(argc, argv);
+    PerfProbe::instance().markDebug("main_after_app");
+    
     app.setApplicationName("Learn to Play PoE1");
     app.setApplicationVersion("0.1.0");
     app.setQuitOnLastWindowClosed(false);
 
+    PerfProbe::instance().markDebug("main_before_theme");
     Theme::apply(app);
+    PerfProbe::instance().markDebug("main_after_theme");
 
     if (perfMode) {
         // Default navIdx mapping: dt → navIdx (same array as MainWindow constructor)
@@ -210,9 +215,14 @@ int main(int argc, char *argv[])
             defaultNavIdx, swapNavIdx, perfRunJson);
     }
 
+    PerfProbe::instance().markDebug("main_before_mainwindow");
     MainWindow window;
-    if (timingMode || perfMode || !window.startMinimized())
+    PerfProbe::instance().markDebug("main_after_mainwindow");
+    if (timingMode || perfMode || !window.startMinimized()) {
+        PerfProbe::instance().markDebug("main_before_window_show");
         window.show();
+        PerfProbe::instance().markDebug("main_after_window_show");
+    }
 
     if (perfMode)
         window.publishPerfHitboxes();

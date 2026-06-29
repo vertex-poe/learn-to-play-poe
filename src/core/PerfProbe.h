@@ -20,6 +20,7 @@ public:
 
     // Start the reference clock as early as possible.
     void startClock();
+    void markDebug(const char *label);
 
     // Enable. Call once from main() after parsing
     // CLI flags, before QApplication is created.
