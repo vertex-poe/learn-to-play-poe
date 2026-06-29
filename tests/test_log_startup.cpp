@@ -47,9 +47,31 @@ private:
         p.setProcessChannelMode(QProcess::MergedChannels);
         p.start();
         QVERIFY2(p.waitForStarted(10'000), "App process failed to start");
-        const bool finished = p.waitForFinished(15'000);
+
+        QByteArray output;
+        bool startedMarkerSeen = false;
+        QElapsedTimer timer; timer.start();
+        while (timer.elapsed() < 30'000) {
+            output += p.readAll();
+            if (output.contains("STARTUP_TIMING:started")) {
+                startedMarkerSeen = true;
+                break;
+            }
+            if (p.state() == QProcess::NotRunning) {
+                output += p.readAll();
+                if (output.contains("STARTUP_TIMING:started"))
+                    startedMarkerSeen = true;
+                break;
+            }
+            p.waitForReadyRead(100);
+        }
+        QVERIFY2(startedMarkerSeen, 
+                 qPrintable(QString("Did not see 'started' marker. Output: %1").arg(output.left(500))));
+
+        const bool finished = p.waitForFinished(10'000);
         if (!finished) { p.kill(); p.waitForFinished(3'000); }
-        const QByteArray output = p.readAll();
+        output += p.readAll();
+        
         QVERIFY2(finished,
                  qPrintable(QString("Process timed out (output: %1)").arg(output.left(500))));
         QVERIFY2(p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0,

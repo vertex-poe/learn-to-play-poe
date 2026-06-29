@@ -54,6 +54,11 @@ QString AppConfig::effectiveUserAgent() const
 
 #include <fstream>
 
+#include <QFileInfo>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 QString AppConfig::configPath()
 {
     // If the CWD contains a Justfile it's the project root (e.g. `just run` or an IDE
@@ -63,7 +68,18 @@ QString AppConfig::configPath()
     if (QFile::exists(cwd + "/Justfile"))
         return cwd + "/l2p-poe1.toml";
 
-    return QCoreApplication::applicationDirPath() + "/l2p-poe1.toml";
+    if (qApp) {
+        return QCoreApplication::applicationDirPath() + "/l2p-poe1.toml";
+    }
+
+#ifdef Q_OS_WIN
+    wchar_t path[MAX_PATH];
+    if (GetModuleFileNameW(NULL, path, MAX_PATH)) {
+        return QFileInfo(QString::fromWCharArray(path)).absolutePath() + "/l2p-poe1.toml";
+    }
+#endif
+
+    return QDir::currentPath() + "/l2p-poe1.toml";
 }
 
 AppConfig AppConfig::load()

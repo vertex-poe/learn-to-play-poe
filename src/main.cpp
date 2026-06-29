@@ -147,8 +147,28 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (timingMode)
+    if (timingMode) {
         qputenv("L2P_STARTUP_TIMING_MODE", "1");
+        fputs("STARTUP_TIMING:started\n", stdout);
+        fflush(stdout);
+    }
+
+    // Load config early so we can honour debug_log before MainWindow starts up,
+    // and before QApplication initializes so we catch early crashes.
+    const AppConfig earlyConfig = AppConfig::load();
+    if (earlyConfig.debugLog) {
+        QString logPath = AppConfig::configPath();
+        logPath.chop(5); // strip ".toml"
+        logPath += ".log";
+        s_logFile = new QFile(logPath);
+        if (s_logFile->open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            s_logStream = new QTextStream(s_logFile);
+            qInstallMessageHandler(fileMessageHandler);
+#ifdef Q_OS_WIN
+            setupCrashHandler(s_logFile->fileName());
+#endif
+        }
+    }
 
     if (perfMode) {
         qputenv("L2P_PERF_MODE", "1");
@@ -173,22 +193,6 @@ int main(int argc, char *argv[])
     app.setApplicationName("Learn to Play PoE1");
     app.setApplicationVersion("0.1.0");
     app.setQuitOnLastWindowClosed(false);
-
-    // Load config early so we can honour debug_log before MainWindow starts up.
-    const AppConfig earlyConfig = AppConfig::load();
-    if (earlyConfig.debugLog) {
-        QString logPath = AppConfig::configPath();
-        logPath.chop(5); // strip ".toml"
-        logPath += ".log";
-        s_logFile = new QFile(logPath);
-        if (s_logFile->open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-            s_logStream = new QTextStream(s_logFile);
-            qInstallMessageHandler(fileMessageHandler);
-#ifdef Q_OS_WIN
-            setupCrashHandler(s_logFile->fileName());
-#endif
-        }
-    }
 
     Theme::apply(app);
 
