@@ -1,6 +1,6 @@
 # Startup Performance Metrics
 
-Baseline recorded 2026-06-27, commit d23edb6+, on Windows 11 (dev machine).  
+Baseline recorded 2026-06-29, on Windows 11 (dev machine).  
 Methodology: `just test-perf` — 3 runs per (tab × scenario), median taken.  
 All times are absolute ms from process start (clock starts before QApplication).  
 Test DB: 120 closed sessions, no open session.
@@ -9,7 +9,7 @@ Test DB: 120 closed sessions, no open session.
 
 | Metric | ms |
 |---|---|
-| startup_to_session_list | 1339 |
+| startup_to_session_list | 1614 |
 
 ## Per-tab milestones
 
@@ -24,25 +24,25 @@ Test DB: 120 closed sessions, no open session.
 
 | Tab | first_paint | first_interaction | first_load | final_paint | final_interaction | menu_swap_final |
 |---|---|---|---|---|---|---|
-| guide (placeholder) | 987 | 1055 | 1059 | 1062 | 1129 | 1156 |
-| chats | 1060 | 1307 | 1512 | 1515 | 1581 | 1619 |
-| dms | 1029 | 1169 | 1284 | 1286 | 1326 | 1352 |
-| stash (placeholder) | 963 | 993 | 996 | 1001 | 1008 | 1085 |
-| profile (placeholder) | 924 | 953 | 957 | 960 | 966 | 1001 |
-| current | 1015 | 1047 | 1050 | 1050 | 1058 | 1071 |
-| log | 1059 | 1898 | 1997 | 2021 | 2093 | 2128 |
+| guide (placeholder) | 1380 | 1411 | 1413 | 1417 | 1423 | 1442 |
+| chats | 1324 | 1535 | 1740 | 1743 | 1813 | 1855 |
+| dms | 1287 | 1416 | 1524 | 1525 | 1568 | 1596 |
+| stash (placeholder) | 1348 | 1377 | 1380 | 1385 | 1390 | 1405 |
+| profile (placeholder) | 1293 | 1321 | 1323 | 1327 | 1334 | 1370 |
+| current | 1269 | 1298 | 1301 | 1301 | 1306 | 1319 |
+| log | 1371 | 2234 | 2331 | 2354 | 2407 | 2436 |
 
 ### Swap-early scenario (swap tab clicked immediately after first_interaction)
 
 | Tab | first_paint | first_interaction | menu_swap_early |
 |---|---|---|---|
-| guide (placeholder) | 1003 | 1033 | 1054 |
-| chats | 974 | 1174 | 1431 |
-| dms | 983 | 1108 | 1260 |
-| stash (placeholder) | 938 | 965 | 981 |
-| profile (placeholder) | 931 | 957 | 977 |
-| current | 990 | 1020 | 1044 |
-| log | 1008 | 1809 | 2002 |
+| guide (placeholder) | 1290 | 1318 | 1336 |
+| chats | 1271 | 1484 | 1753 |
+| dms | 1334 | 1474 | 1672 |
+| stash (placeholder) | 1400 | 1429 | 1450 |
+| profile (placeholder) | 1357 | 1386 | 1403 |
+| current | 1372 | 1406 | 1428 |
+| log | 1380 | 2235 | 2472 |
 
 ## Notes
 

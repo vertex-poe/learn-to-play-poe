@@ -23,6 +23,7 @@ target_compile_definitions(test_perf_metrics PRIVATE
     L2P_EXE_PATH="$<TARGET_FILE:l2p-poe1>"
     L2P_PERF_RESULTS_PATH="${CMAKE_BINARY_DIR}/perf_results.json"
     L2P_SCHEMA_SQL_PATH="${CMAKE_SOURCE_DIR}/data/schema.sql"
+    L2P_PERF_TARGETS_PATH="${CMAKE_SOURCE_DIR}/tests/perf_targets.json"
 )
 add_test(NAME test_perf_metrics COMMAND test_perf_metrics)
 set_tests_properties(test_perf_metrics PROPERTIES LABELS "perf")

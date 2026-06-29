@@ -272,25 +272,39 @@ RunResult PerfMetricsTest::runOnce(int dt, bool baseline, const QString &dbPath)
                 swpNavIdx = raw.mid(25).toInt();
                 hasSwpNav = true;
             } else if (s.startsWith(QLatin1String("PERF:first_paint:"))) {
-                result.milestones["first_paint"] = raw.mid(17).toLongLong();
+                QList<QByteArray> p = raw.mid(17).split(':');
+                result.milestones["first_paint"] = p[0].toLongLong();
+                if (p.size() > 1) result.milestones["first_paint_delta"] = p[1].toLongLong();
                 if (phase == WaitFirstPaint || phase == WaitConfig)
                     phase = Clicking;
             } else if (s.startsWith(QLatin1String("PERF:first_interaction:"))) {
-                result.milestones["first_interaction"] = raw.mid(23).toLongLong();
+                QList<QByteArray> p = raw.mid(23).split(':');
+                result.milestones["first_interaction"] = p[0].toLongLong();
+                if (p.size() > 1) result.milestones["first_interaction_delta"] = p[1].toLongLong();
                 if (phase == Clicking)
                     phase = baseline ? WaitFinalPaint : SendSwapClick;
             } else if (s.startsWith(QLatin1String("PERF:first_load:"))) {
-                result.milestones["first_load"] = raw.mid(16).toLongLong();
+                QList<QByteArray> p = raw.mid(16).split(':');
+                result.milestones["first_load"] = p[0].toLongLong();
+                if (p.size() > 1) result.milestones["first_load_delta"] = p[1].toLongLong();
             } else if (s.startsWith(QLatin1String("PERF:final_paint:"))) {
-                result.milestones["final_paint"] = raw.mid(17).toLongLong();
+                QList<QByteArray> p = raw.mid(17).split(':');
+                result.milestones["final_paint"] = p[0].toLongLong();
+                if (p.size() > 1) result.milestones["final_paint_delta"] = p[1].toLongLong();
                 if (phase == WaitFinalPaint)
                     phase = SendSwapClick;
             } else if (s.startsWith(QLatin1String("PERF:final_interaction:"))) {
-                result.milestones["final_interaction"] = raw.mid(23).toLongLong();
+                QList<QByteArray> p = raw.mid(23).split(':');
+                result.milestones["final_interaction"] = p[0].toLongLong();
+                if (p.size() > 1) result.milestones["final_interaction_delta"] = p[1].toLongLong();
             } else if (s.startsWith(QLatin1String("PERF:menu_swap_final:"))) {
-                result.milestones["menu_swap_final"] = raw.mid(21).toLongLong();
+                QList<QByteArray> p = raw.mid(21).split(':');
+                result.milestones["menu_swap_final"] = p[0].toLongLong();
+                if (p.size() > 1) result.milestones["menu_swap_final_delta"] = p[1].toLongLong();
             } else if (s.startsWith(QLatin1String("PERF:menu_swap_early:"))) {
-                result.milestones["menu_swap_early"] = raw.mid(21).toLongLong();
+                QList<QByteArray> p = raw.mid(21).split(':');
+                result.milestones["menu_swap_early"] = p[0].toLongLong();
+                if (p.size() > 1) result.milestones["menu_swap_early_delta"] = p[1].toLongLong();
             } else if (s == QLatin1String("PERF:done") ||
                        s.startsWith(QLatin1String("PERF:done:"))) {
                 phase = Done;
@@ -378,6 +392,17 @@ void PerfMetricsTest::perfSuite()
     bool anyFail = false;
     QStringList failures;
 
+    // Load targets from JSON
+    QJsonObject targetsJson;
+    {
+        QFile f(QString::fromUtf8(L2P_PERF_TARGETS_PATH));
+        if (f.open(QIODevice::ReadOnly)) {
+            targetsJson = QJsonDocument::fromJson(f.readAll()).object();
+        } else {
+            QFAIL(qPrintable(QString("Failed to open perf targets: %1").arg(QString::fromUtf8(L2P_PERF_TARGETS_PATH))));
+        }
+    }
+
     for (auto it = collected.begin(); it != collected.end(); ++it) {
         QVector<qint64> vals = it.value();
         std::sort(vals.begin(), vals.end());
@@ -390,30 +415,14 @@ void PerfMetricsTest::perfSuite()
         entry["median"] = median;
         metrics[it.key()] = entry;
 
-        // Select threshold.
-        int threshold = 0;
         const QString &key = it.key();
-        if (key.contains("first_paint"))
-            threshold = PerfTargets::Perf::kFirstPaint;
-        else if (key.contains("first_interaction"))
-            threshold = PerfTargets::Perf::kFirstInteraction;
-        else if (key.contains("first_load")) {
-            // Parse dt from the tab prefix to determine placeholder vs content.
-            // Placeholder: guide (dt=0), stash (dt=3), profile (dt=4).
-            const bool ph = key.startsWith("guide_") ||
-                            key.startsWith("stash_") ||
-                            key.startsWith("profile_");
-            threshold = ph ? PerfTargets::Perf::kFirstLoadPlaceholder
-                           : PerfTargets::Perf::kFirstLoadContent;
-        } else if (key.contains("final_paint"))
-            threshold = PerfTargets::Perf::kFinalPaint;
-        else if (key.contains("final_interaction"))
-            threshold = PerfTargets::Perf::kFinalInteraction;
-        else if (key.contains("menu_swap_final"))
-            threshold = PerfTargets::Perf::kMenuSwapFinal;
-        else if (key.contains("menu_swap_early"))
-            threshold = PerfTargets::Perf::kMenuSwapEarly;
+        QJsonObject targetObj = targetsJson[key].toObject();
+        if (targetObj.isEmpty()) {
+            // Unconfigured milestone target; could warn, but skipping allows dynamic tracking of info-only metrics
+            continue;
+        }
 
+        int threshold = targetObj["threshold_ms"].toInt(0);
         if (threshold > 0 && median > threshold) {
             anyFail = true;
             failures.append(

@@ -171,6 +171,7 @@ int main(int argc, char *argv[])
     }
 
     if (perfMode) {
+        PerfProbe::instance().startClock();
         qputenv("L2P_PERF_MODE", "1");
         if (perfDefTab >= 0)
             qputenv("L2P_PERF_DEFAULT_TAB", QByteArray::number(perfDefTab));

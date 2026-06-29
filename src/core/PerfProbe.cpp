@@ -16,6 +16,14 @@ PerfProbe &PerfProbe::instance()
     return s;
 }
 
+void PerfProbe::startClock()
+{
+    if (!m_timer.isValid()) {
+        m_timer.start();
+        m_lastAbsMs = 0;
+    }
+}
+
 void PerfProbe::enable(Scenario scenario, int defaultNavIdx, int swapNavIdx,
                        const QString &runJsonPath)
 {
@@ -26,7 +34,10 @@ void PerfProbe::enable(Scenario scenario, int defaultNavIdx, int swapNavIdx,
     m_runJsonPath   = runJsonPath;
     m_state            = State::WaitFirstPaint;
     m_dataLoadedEarly  = false;
-    m_timer.start();
+    if (!m_timer.isValid()) {
+        m_timer.start();
+        m_lastAbsMs = 0;
+    }
 }
 
 void PerfProbe::publishHitboxesAndConfig(NavBar *navBar, QWidget *mainWindow)
@@ -61,8 +72,8 @@ void PerfProbe::mark(const char *name)
     m_order.append(QLatin1String(name));
 
     char buf[128];
-    std::snprintf(buf, sizeof(buf), "PERF:%s:%lld\n", name,
-                  static_cast<long long>(absMs));
+    std::snprintf(buf, sizeof(buf), "PERF:%s:%lld:%lld\n", name,
+                  static_cast<long long>(absMs), static_cast<long long>(delta));
     fputs(buf, stdout);
     fflush(stdout);
 }

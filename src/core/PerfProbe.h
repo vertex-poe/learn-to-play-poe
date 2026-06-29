@@ -18,7 +18,10 @@ public:
 
     static PerfProbe &instance();
 
-    // Enable and start the reference clock. Call once from main() after parsing
+    // Start the reference clock as early as possible.
+    void startClock();
+
+    // Enable. Call once from main() after parsing
     // CLI flags, before QApplication is created.
     void enable(Scenario scenario, int defaultNavIdx, int swapNavIdx,
                 const QString &runJsonPath);
