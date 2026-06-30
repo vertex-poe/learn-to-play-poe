@@ -23,7 +23,7 @@ public:
     explicit SettingsPage(AppConfig &config, QWidget *parent = nullptr);
 
     // Background-build all sub-pages at low priority so they're instant when clicked.
-    void preloadSubPages();
+    void preloadSubPages(QObject* requestor);
 
     // Provide a way to build specific sub-pages when clicked
     void buildGamePage(QWidget *parent);

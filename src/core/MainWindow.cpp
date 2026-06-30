@@ -1,4 +1,5 @@
 #include "core/MainWindow.h"
+#include "core/DeferredTaskQueue.h"
 #include "core/PaintProbeFilter.h"
 #include "core/PerfProbe.h"
 #include "util/ScopedBudget.h"
@@ -392,6 +393,21 @@ void MainWindow::showSettings()
 
 void MainWindow::schedulePreloads(int stackIndex)
 {
+    // Cancel any queued preloads owned by the tab we just left.
+    DeferredTaskQueue::instance().cancelByRequestor(m_lastPreloadRequestor);
+
+    // The new requestor is the page widget that corresponds to the active tab.
+    // For tabs that don't enqueue into DeferredTaskQueue this is a no-op but
+    // kept consistent so future preloads can use it.
+    switch (stackIndex) {
+    case TabSettings: m_lastPreloadRequestor = m_settingsPage;    break;
+    case TabLog:      m_lastPreloadRequestor = m_logPage;         break;
+    case TabCurrent:  m_lastPreloadRequestor = m_sessionViewPage; break;
+    case TabChats:    m_lastPreloadRequestor = m_chatPage;        break;
+    case TabDms:      m_lastPreloadRequestor = m_dmPage;          break;
+    default:          m_lastPreloadRequestor = nullptr;            break;
+    }
+
     // All navbar data pages get a low-priority background fetch when not currently visible.
     // Use a short delay so the active page's own query goes first.
     if (stackIndex != TabChats && stackIndex != TabDms)
@@ -417,9 +433,15 @@ void MainWindow::schedulePreloads(int stackIndex)
         QTimer::singleShot(300, m_logPage, &LogPage::preload);
         break;
     case TabSettings:
-        // Preload all settings sub-pages at low priority
-        if (m_settingsPage)
-            QTimer::singleShot(200, m_settingsPage, &SettingsPage::preloadSubPages);
+        // Preload all settings sub-pages at low priority, tracked so they're
+        // cancelled if the user navigates away before they execute.
+        if (m_settingsPage) {
+            QObject* req = m_settingsPage;
+            QTimer::singleShot(200, this, [this, req]() {
+                if (m_settingsPage)
+                    m_settingsPage->preloadSubPages(req);
+            });
+        }
         break;
     default:
         break;

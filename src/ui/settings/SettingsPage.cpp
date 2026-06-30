@@ -942,7 +942,7 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
 }
 
 
-void SettingsPage::preloadSubPages()
+void SettingsPage::preloadSubPages(QObject* requestor)
 {
     static const struct { int index; } kSubPages[] = {{1},{2},{3},{4},{5},{6},{7},{8}};
     for (const auto &p : kSubPages) {
@@ -966,7 +966,8 @@ void SettingsPage::preloadSubPages()
                     default: break;
                 }
                 m_pageLoaded[idx] = true;
-            });
+            },
+            requestor);
     }
 }
 

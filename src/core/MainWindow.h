@@ -119,4 +119,5 @@ private:
     QPointer<LogIngestWorker> m_liveWorker;
     LiveEventRuleEngine      *m_ruleEngine{};
     int                       m_orphanCloseTaskId{0};
+    QObject                  *m_lastPreloadRequestor{};
 };
