@@ -207,30 +207,30 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     m_stack->addWidget(categoryPage); // index 0
 
     connect(makeItemBtn("Alerts"), &QPushButton::clicked,
-            this, [this] { loadPageAsync(6, "Alerts", [this](QWidget* w) { buildAlertsPage(w); }); });
+            this, [this] { loadPageAsync(6, "Alerts"); });
 
     addDivider();
 
     connect(makeItemBtn("Accounts"), &QPushButton::clicked,
-            this, [this] { loadPageAsync(8, "Accounts", [this](QWidget* w) { buildAccountsPage(w); }); });
+            this, [this] { loadPageAsync(8, "Accounts"); });
     connect(makeItemBtn("Game"),    &QPushButton::clicked,
-            this, [this] { loadPageAsync(1, "Game", [this](QWidget* w) { buildGamePage(w); }); });
+            this, [this] { loadPageAsync(1, "Game"); });
     connect(makeItemBtn("Overlay"), &QPushButton::clicked,
-            this, [this] { loadPageAsync(2, "Overlay", [this](QWidget* w) { buildOverlayPage(w); }); });
+            this, [this] { loadPageAsync(2, "Overlay"); });
     connect(makeItemBtn("Window"),  &QPushButton::clicked,
-            this, [this] { loadPageAsync(3, "Window", [this](QWidget* w) { buildWindowPage(w); }); });
+            this, [this] { loadPageAsync(3, "Window"); });
     connect(makeItemBtn("Chat"),    &QPushButton::clicked,
-            this, [this] { loadPageAsync(4, "Chat", [this](QWidget* w) { buildChatPage(w); }); });
+            this, [this] { loadPageAsync(4, "Chat"); });
 
     addDivider();
 
     m_debugCategoryBtn = makeItemBtn("Debug");
     m_debugCategoryBtn->setVisible(config.debugMode);
     connect(m_debugCategoryBtn, &QPushButton::clicked,
-            this, [this] { loadPageAsync(7, "Debug", [this](QWidget* w) { buildDebugPage(w); }); });
+            this, [this] { loadPageAsync(7, "Debug"); });
 
     connect(makeItemBtn("About"),  &QPushButton::clicked,
-            this, [this] { loadPageAsync(5, "About", [this](QWidget* w) { buildAboutPage(w); }); });
+            this, [this] { loadPageAsync(5, "About"); });
 
     connect(makeItemBtn("Exit App", false), &QPushButton::clicked, this, [this]() {
         const auto reply = QMessageBox::question(this, "Exit", "Really exit?",
@@ -253,7 +253,33 @@ SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
     font.setPointSize(16);
     loadingLabel->setFont(font);
     loadingLayout->addWidget(loadingLabel);
-    m_stack->addWidget(m_loadingPage);
+    m_stack->addWidget(m_loadingPage); // index 9
+
+    auto enqueuePreload = [this](int pageIndex, const std::function<void(QWidget*)> &builder) {
+        DeferredTaskQueue::instance().enqueue(QString("settings_page_%1").arg(pageIndex), DeferredTaskQueue::Low, [this, pageIndex, builder]() {
+            if (!m_pageLoaded[pageIndex]) {
+                QWidget *pageWidget = m_stack->widget(pageIndex);
+                builder(pageWidget);
+                m_pageLoaded[pageIndex] = true;
+            }
+            if (pageIndex == 6)
+                alertsRebuildList();
+            
+            if (m_targetPageIndex == pageIndex) {
+                m_stack->setCurrentIndex(pageIndex);
+                m_targetPageIndex = 0;
+            }
+        });
+    };
+
+    enqueuePreload(6, [this](QWidget* w) { buildAlertsPage(w); });
+    enqueuePreload(8, [this](QWidget* w) { buildAccountsPage(w); });
+    enqueuePreload(1, [this](QWidget* w) { buildGamePage(w); });
+    enqueuePreload(2, [this](QWidget* w) { buildOverlayPage(w); });
+    enqueuePreload(3, [this](QWidget* w) { buildWindowPage(w); });
+    enqueuePreload(4, [this](QWidget* w) { buildChatPage(w); });
+    enqueuePreload(7, [this](QWidget* w) { buildDebugPage(w); });
+    enqueuePreload(5, [this](QWidget* w) { buildAboutPage(w); });
 
     // Fetch the native Chromium UA once without blocking the constructor.
     // Removed the problematic QTimer::singleShot that crashes QtWebEngine on startup.
@@ -1186,7 +1212,8 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
     m_accountsUaDisplay->setVisible(m_config.debugMode);
     m_accountsUaCopyBtn->setVisible(m_config.debugMode);
     const QString displayUa = m_config.debugLegacyUserAgent == QLatin1String("Auto (Chromium)")
-                              ? autoChromiumUA() : m_config.effectiveUserAgent();
+                              ? (m_nativeChromiumUA.isEmpty() ? "Auto (Chromium)" : autoChromiumUA())
+                              : m_config.effectiveUserAgent();
     m_accountsUaDisplay->setText(displayUa);
 }
 
@@ -1201,7 +1228,7 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
 }
 
 
-void SettingsPage::loadPageAsync(int pageIndex, const QString &title, const std::function<void(QWidget*)> &builder)
+void SettingsPage::loadPageAsync(int pageIndex, const QString &title)
 {
     if (m_stack->currentIndex() == 9 && m_targetPageIndex != pageIndex) {
         // We are currently loading a DIFFERENT page. Deprioritize it.
@@ -1221,25 +1248,11 @@ void SettingsPage::loadPageAsync(int pageIndex, const QString &title, const std:
 
     m_stack->setCurrentIndex(9); // Loading page
 
-    QApplication::setOverrideCursor(Qt::WaitCursor);
     qApp->processEvents(QEventLoop::ExcludeUserInputEvents); // Force UI update before blocking
 
-    DeferredTaskQueue::instance().enqueue(QString("settings_page_%1").arg(pageIndex), DeferredTaskQueue::Immediate, [this, pageIndex, builder]() {
-        if (!m_pageLoaded[pageIndex]) {
-            QWidget *pageWidget = m_stack->widget(pageIndex);
-            builder(pageWidget);
-            m_pageLoaded[pageIndex] = true;
-        }
-
-        if (pageIndex == 6)
-            alertsRebuildList();
-
-        if (m_targetPageIndex == pageIndex) {
-            m_stack->setCurrentIndex(pageIndex);
-        }
-
-        QApplication::restoreOverrideCursor();
-    });
+    // Promote the pre-queued task to Immediate priority so it runs right away and blocks UI
+    // with the WaitCursor automatically managed by DeferredTaskQueue.
+    DeferredTaskQueue::instance().setPriority(QString("settings_page_%1").arg(pageIndex), DeferredTaskQueue::Immediate);
 }
 
 void SettingsPage::navigateBack()

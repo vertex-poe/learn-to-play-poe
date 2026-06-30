@@ -40,7 +40,7 @@ protected:
 
 private:
     void navigateTo(int pageIndex, const QString &title);
-    void loadPageAsync(int pageIndex, const QString &title, const std::function<void(QWidget*)> &builder);
+    void loadPageAsync(int pageIndex, const QString &title);
     void navigateBack();
     void saveAndEmit();
 
