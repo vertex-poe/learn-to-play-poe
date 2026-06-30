@@ -401,6 +401,7 @@ void NotificationWidget::mousePressEvent(QMouseEvent *e)
                 : QString(QChar(0x25B8))); // ▸
         if (m_outerLayout) m_outerLayout->activate();
         updateGeometry();
+        emit expanded(m_expanded);
     }
     QFrame::mousePressEvent(e);
 }

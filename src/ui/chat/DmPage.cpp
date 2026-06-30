@@ -510,6 +510,14 @@ void DmPage::triggerLoadIfNeeded()
     }
 }
 
+void DmPage::preload()
+{
+    if (!m_dirty || !m_queryService || m_rebuildInFlight) return;
+    QTimer::singleShot(0, this, [this] {
+        if (m_dirty && m_queryService && !isVisible()) reload();
+    });
+}
+
 void DmPage::showEvent(QShowEvent *e)
 {
     QWidget::showEvent(e);

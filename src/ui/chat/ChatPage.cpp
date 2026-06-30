@@ -545,6 +545,14 @@ void ChatPage::triggerLoadIfNeeded()
     }
 }
 
+void ChatPage::preload()
+{
+    if (!m_dirty || !m_queryService || m_rebuildInFlight) return;
+    QTimer::singleShot(0, this, [this] {
+        if (m_dirty && m_queryService && !isVisible()) reload();
+    });
+}
+
 void ChatPage::showEvent(QShowEvent *e)
 {
     QWidget::showEvent(e);

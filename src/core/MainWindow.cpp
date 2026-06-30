@@ -208,11 +208,22 @@ MainWindow::MainWindow(QWidget *parent)
             this, [this](qint64 sessionId, const QString &startedAt) {
                 m_sessionViewPage->viewSession(sessionId, startedAt);
                 m_stack->setCurrentIndex(TabCurrent);
+                schedulePreloads(TabCurrent);
             });
     connect(m_sessionViewPage, &SessionViewPage::backRequested,
-            this, [this] { m_stack->setCurrentIndex(TabLog); });
+            this, [this] {
+                m_stack->setCurrentIndex(TabLog);
+                schedulePreloads(TabLog);
+            });
     connect(m_chatPage, &ChatPage::viewDmsRequested,
-            this, [this] { m_stack->setCurrentIndex(TabDms); });
+            this, [this] {
+                m_stack->setCurrentIndex(TabDms);
+                schedulePreloads(TabDms);
+            });
+    connect(m_logPage, &LogPage::sessionPreviewRequested,
+            this, [this](qint64 sessionId, const QString &startedAt) {
+                m_sessionViewPage->preloadSession(sessionId, startedAt);
+            });
 
     // Restore saved window geometry; if the saved screen no longer exists, keep
     // the saved size but let the OS decide placement.
@@ -358,23 +369,61 @@ void MainWindow::showWindow()
     activateWindow();
 }
 
+void MainWindow::ensureSettingsPage()
+{
+    if (m_settingsPage) return;
+    m_settingsPage = new SettingsPage(m_config, this);
+    connect(m_settingsPage, &SettingsPage::configChanged,
+            this, &MainWindow::onConfigChanged);
+    QWidget *placeholder = m_stack->widget(TabSettings);
+    m_stack->removeWidget(placeholder);
+    placeholder->deleteLater();
+    m_stack->insertWidget(TabSettings, m_settingsPage);
+}
+
 void MainWindow::showSettings()
 {
     showWindow();
     m_navBar->setGearActive(true);
-    
-    if (!m_settingsPage) {
-        m_settingsPage = new SettingsPage(m_config, this);
-        connect(m_settingsPage, &SettingsPage::configChanged,
-                this, &MainWindow::onConfigChanged);
-        
-        QWidget *placeholder = m_stack->widget(TabSettings);
-        m_stack->removeWidget(placeholder);
-        placeholder->deleteLater();
-        m_stack->insertWidget(TabSettings, m_settingsPage);
-    }
-    
+    ensureSettingsPage();
     m_stack->setCurrentIndex(TabSettings);
+    schedulePreloads(TabSettings);
+}
+
+void MainWindow::schedulePreloads(int stackIndex)
+{
+    // All navbar data pages get a low-priority background fetch when not currently visible.
+    // Use a short delay so the active page's own query goes first.
+    if (stackIndex != TabChats && stackIndex != TabDms)
+        QTimer::singleShot(500, m_chatPage, &ChatPage::preload);
+    if (stackIndex != TabLog && stackIndex != TabCurrent)
+        QTimer::singleShot(500, m_logPage, &LogPage::preload);
+
+    switch (stackIndex) {
+    case TabChats:
+        // Preload DMs (one click away via "View DMs" button)
+        QTimer::singleShot(300, m_dmPage, &DmPage::preload);
+        break;
+    case TabDms:
+        // Preload Chat (sibling — back button returns here)
+        QTimer::singleShot(300, m_chatPage, &ChatPage::preload);
+        break;
+    case TabLog:
+        // Preload current/live session (most likely "View" target)
+        QTimer::singleShot(300, m_sessionViewPage, &SessionViewPage::preload);
+        break;
+    case TabCurrent:
+        // Preload the session list in case they click back
+        QTimer::singleShot(300, m_logPage, &LogPage::preload);
+        break;
+    case TabSettings:
+        // Preload all settings sub-pages at low priority
+        if (m_settingsPage)
+            QTimer::singleShot(200, m_settingsPage, &SettingsPage::preloadSubPages);
+        break;
+    default:
+        break;
+    }
 }
 
 void MainWindow::onTabChanged(int index)
@@ -382,6 +431,7 @@ void MainWindow::onTabChanged(int index)
     m_navBar->setGearActive(false);
     m_navBar->setSearchActive(false);
     m_stack->setCurrentIndex(index);
+    schedulePreloads(index);
 }
 
 void MainWindow::onGearClicked()
@@ -420,6 +470,13 @@ void MainWindow::onDatabaseReady()
         m_chatPage->setShowGuildTags(m_config.showGuildTags);
         m_dmPage->setQueryService(m_queryService);
         m_dmPage->setShowGuildTags(m_config.showGuildTags);
+
+        // Schedule initial preloads for the current page, and background-create
+        // the settings page so its landing screen is instant on first click.
+        if (!m_timingMode && !perfMode) {
+            schedulePreloads(m_stack->currentIndex());
+            QTimer::singleShot(800, this, &MainWindow::ensureSettingsPage);
+        }
     } else {
         log("Database error", "db", m_db->lastError());
     }

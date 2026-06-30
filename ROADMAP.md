@@ -30,7 +30,6 @@ Everything here can be considered aspirational and will likely never see the lig
 
 ## Goal: Companion
 
-- [ ] Next-click low-priority preloading: when a navigation list is visible (e.g. Settings category list, main navbar), enqueue the unbuilt pages at Low priority so they are ready before the user clicks; complements on-demand lazy building (which shows a brief "Loading…" on first open) without paying the eager-preload-at-startup cost
 - [ ] Log screen session detail scroll-to-bottom: the detail view doesn't reliably stay pinned to the bottom when new events are appended — investigate whether the scroll anchor logic used in CurrentPage needs to be applied here
 - [ ] Log screen session detail flashing and slow updates: investigate UI flicker and sluggish refresh when viewing a session's detail on the Log screen — profile rebuild triggers, widget deletion timing, and whether the same deferred-clear fix applied to CurrentPage is needed here
 - [ ] Historical events panel: virtual scrolling via QListView + QAbstractItemModel + QStyledItemDelegate (replaces load-N-at-a-time approach; delegate ports existing custom-paint logic from NotificationWidget; enables millions of rows with no memory growth)

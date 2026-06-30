@@ -157,6 +157,14 @@ void LogPage::markDirty()
     m_dirty = true;
 }
 
+void LogPage::preload()
+{
+    if (!m_dirty || !m_queryService || m_rebuildInFlight) return;
+    QTimer::singleShot(0, this, [this] {
+        if (m_dirty && m_queryService && !isVisible()) rebuild();
+    });
+}
+
 void LogPage::triggerLoadIfNeeded()
 {
     if (m_dirty && m_queryService && isVisible()) {
@@ -303,6 +311,10 @@ void LogPage::applySessions(const QList<Database::SessionRecord> &sessions)
             const QString startedAt = s.startedAt;
             connect(viewBtn, &QPushButton::clicked, this, [this, sessionId, startedAt] {
                 emit viewSessionRequested(sessionId, startedAt);
+            });
+            connect(card, &NotificationWidget::expanded, this, [this, sessionId, startedAt](bool isExpanded) {
+                if (isExpanded)
+                    emit sessionPreviewRequested(sessionId, startedAt);
             });
             card->setActionWidget(viewBtn);
             layout->addWidget(card);

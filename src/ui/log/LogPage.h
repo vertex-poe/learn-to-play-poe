@@ -19,10 +19,12 @@ public:
     explicit LogPage(QWidget *parent = nullptr);
     void setQueryService(QueryService *qs);
     void markDirty();
+    void preload();
     QLabel *loadingOverlay() const { return m_loadingOverlay; }
 
 signals:
     void viewSessionRequested(qint64 sessionId, const QString &startedAt);
+    void sessionPreviewRequested(qint64 sessionId, const QString &startedAt);
     void dataLoaded();
 
 protected:

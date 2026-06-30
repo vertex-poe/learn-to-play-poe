@@ -31,6 +31,10 @@ public:
     // startedAt is shown in the sub-bar header (e.g. "2024-01-15 14:30:22").
     void viewSession(qint64 sessionId, const QString &startedAt);
 
+    // Preload methods — fire background data fetches while the page is hidden.
+    void preload();
+    void preloadSession(qint64 sessionId, const QString &startedAt);
+
     void addNotification(const QString &message, const NotificationStyle &style = {});
     void addNotification(const QString &title, const QString &tag,
                          const QString &message, const NotificationStyle &style = {});

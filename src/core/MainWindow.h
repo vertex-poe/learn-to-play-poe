@@ -80,6 +80,8 @@ private:
     void showWindow();
     void setupTray();
     void scheduleLogIngestion();
+    void schedulePreloads(int stackIndex);
+    void ensureSettingsPage();
     void maybeIngestClientLog(const QString &installDir, bool liveMode = false);
     void startLiveIngest(const QString &installDir);
     void stopLiveIngest();

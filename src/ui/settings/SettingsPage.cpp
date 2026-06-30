@@ -942,6 +942,34 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
 }
 
 
+void SettingsPage::preloadSubPages()
+{
+    static const struct { int index; } kSubPages[] = {{1},{2},{3},{4},{5},{6},{7},{8}};
+    for (const auto &p : kSubPages) {
+        if (m_pageLoaded[p.index]) continue;
+        const int idx = p.index;
+        DeferredTaskQueue::instance().enqueue(
+            QString("settings_page_%1").arg(idx),
+            DeferredTaskQueue::Low,
+            [this, idx]() {
+                if (m_pageLoaded[idx]) return;
+                QWidget *w = m_stack->widget(idx);
+                switch (idx) {
+                    case 1: buildGamePage(w);     break;
+                    case 2: buildOverlayPage(w);  break;
+                    case 3: buildWindowPage(w);   break;
+                    case 4: buildChatPage(w);     break;
+                    case 5: buildAboutPage(w);    break;
+                    case 6: buildAlertsPage(w);   break;
+                    case 7: buildDebugPage(w);    break;
+                    case 8: buildAccountsPage(w); break;
+                    default: break;
+                }
+                m_pageLoaded[idx] = true;
+            });
+    }
+}
+
     void SettingsPage::navigateTo(int pageIndex, const QString &title)
 {
     if (pageIndex == 6)

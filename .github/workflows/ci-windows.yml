@@ -13,7 +13,8 @@ concurrency:
 jobs:
   build:
     runs-on: windows-2022
-    timeout-minutes: 10
+    # Observed ~7 min on a clean run; 15 min gives headroom without masking hangs
+    timeout-minutes: 15
     env:
       # Disables GPU rendering for QtWebEngine (Chromium).
       # See: https://doc.qt.io/qt-6/qtwebengine-debugging.html

@@ -43,6 +43,9 @@ public:
     // Inserts w into the top row between the expand indicator and the source icon.
     void setActionWidget(QWidget *w);
 
+signals:
+    void expanded(bool isExpanded);
+
 protected:
     void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *e) override;

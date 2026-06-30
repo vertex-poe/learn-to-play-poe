@@ -228,25 +228,48 @@ void SessionViewPage::markDirty()
     rebuildDbZones();
 }
 
+void SessionViewPage::preload()
+{
+  if (!m_dirty || !m_queryService || m_rebuildInFlight) return;
+  QTimer::singleShot(0, this, [this] {
+    if (m_dirty && m_queryService && !isVisible()) rebuildDbZones();
+  });
+}
+
+void SessionViewPage::preloadSession(qint64 sessionId, const QString &startedAt)
+{
+  if (isVisible() || !m_queryService) return;
+  if (sessionId == m_targetSessionId && !m_dirty) return;
+  m_targetSessionId = sessionId;
+  m_dirty = true;
+  QTimer::singleShot(0, this, [this] {
+    if (m_dirty && m_queryService && !isVisible()) rebuildDbZones();
+  });
+  Q_UNUSED(startedAt)
+}
+
 void SessionViewPage::viewSession(qint64 sessionId, const QString &startedAt)
 {
+  const bool alreadyLoaded = (sessionId == m_targetSessionId && !m_dirty);
   m_targetSessionId = sessionId;
   m_sessionLabel->setText(startedAt);
   m_headerBar->setVisible(true);
   m_headerSep->setVisible(true);
 
-  // Clear accumulated live event widgets (not relevant when switching sessions)
-  m_scroll->setUpdatesEnabled(false);
-  for (QWidget *w : m_liveEventWidgets) {
-    m_contentLayout->removeWidget(w);
-    delete w;
+  if (!alreadyLoaded) {
+    // Clear accumulated live event widgets (not relevant when switching sessions)
+    m_scroll->setUpdatesEnabled(false);
+    for (QWidget *w : m_liveEventWidgets) {
+      m_contentLayout->removeWidget(w);
+      delete w;
+    }
+    m_liveEventWidgets.clear();
+    m_prevZoneCard = nullptr;
+    m_scroll->setUpdatesEnabled(true);
+    m_dirty = true;
   }
-  m_liveEventWidgets.clear();
-  m_prevZoneCard = nullptr;
-  m_scroll->setUpdatesEnabled(true);
 
-  m_dirty = true;
-  if (isVisible() && m_queryService)
+  if (isVisible() && m_queryService && m_dirty)
     rebuildDbZones();
 }
 

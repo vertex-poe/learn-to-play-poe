@@ -56,7 +56,8 @@
       "Bash(echo \"exit: $?\")",
       "Bash(where test_perf_metrics.exe)",
       "Bash(find build *)",
-      "Bash(git show *)"
+      "Bash(git show *)",
+      "Bash(xargs grep *)"
     ]
   }
 }

@@ -27,6 +27,7 @@ public:
     void setQueryService(QueryService *qs);
     void setShowGuildTags(bool show);
     void reload();
+    void preload();
 
 signals:
     void viewDmsRequested();
