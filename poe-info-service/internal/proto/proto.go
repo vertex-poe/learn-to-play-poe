@@ -1,0 +1,70 @@
+package proto
+
+import "encoding/json"
+
+const Version = "0.1.0"
+
+type MessageType string
+
+const (
+	TypeHello       MessageType = "hello"
+	TypeStepDown    MessageType = "step-down"
+	TypeSubscribe   MessageType = "subscribe"
+	TypeUnsubscribe MessageType = "unsubscribe"
+	TypeEvent       MessageType = "event"
+	TypeRequest     MessageType = "request"
+	TypeResponse    MessageType = "response"
+	TypePing        MessageType = "ping"
+	TypePong        MessageType = "pong"
+)
+
+type Message struct {
+	Type    MessageType     `json:"type"`
+	ID      string          `json:"id,omitempty"`
+	Topic   string          `json:"topic,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	Error   string          `json:"error,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+type HelloPayload struct {
+	Version   string `json:"version"`
+	StartTime int64  `json:"startTime"` // Unix seconds
+}
+
+type ParsedEvent struct {
+	Type      string         `json:"type"`
+	Timestamp string         `json:"timestamp"`
+	Data      map[string]any `json:"data,omitempty"`
+}
+
+const (
+	EventAreaEntered        = "area_entered"
+	EventLevelUp            = "level_up"
+	EventCharacterDeath     = "character_death"
+	EventAfkOn              = "afk_on"
+	EventAfkOff             = "afk_off"
+	EventWhisper            = "whisper"
+	EventChat               = "chat"
+	EventAchievement        = "achievement"
+	EventHideoutDiscovered  = "hideout_discovered"
+	EventPvpQueue           = "pvp_queue"
+	EventPvpQueueCancelled  = "pvp_queue_cancelled"
+	EventPassiveAllocated   = "passive_allocated"
+	EventPassiveUnallocated = "passive_unallocated"
+	EventQuestEvent         = "quest_event"
+	EventGeneralEvent       = "general_event"
+	EventSessionStart       = "session_start"
+	EventLoginScreen        = "login_screen"
+	EventCharSelect         = "char_select"
+	EventAltTabOut          = "alt_tab_out"
+	EventAltTabBack         = "alt_tab_back"
+)
+
+type StatusPayload struct {
+	Version   string `json:"version"`
+	StartTime int64  `json:"startTime"`
+	LogPath   string `json:"logPath"`
+	LogOffset int64  `json:"logOffset"`
+	Uptime    string `json:"uptime"`
+}

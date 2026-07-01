@@ -43,7 +43,6 @@ Everything here can be considered aspirational and will likely never see the lig
 - [ ] Overlay settings: find distinct icons for rows that currently share a placeholder — Character Age reuses the same `stopwatch-fill.svg` as Time Played; source a dedicated SVG (e.g. a calendar or hourglass) so each row is visually distinct in the overlay icon grid
 
 ## Goal: Chat
-- [x] Chat/whisper panel: three views — whispers-only, chats-only, and a combined view (UNION ALL of both tables with a source column to distinguish them); chats are not in the events spine so the combined view is its own dedicated query, not a filter on events
 - [ ] Chats tab — channel-number filtering: the Filter panel UI is built but "show only global #3" / "show only trade #2" can't be wired up until `chats` has a `channel_number INTEGER` column (schema migration to v4) and `LogIngestWorker` tracks the current channel join per install so new rows get the right number on ingest
 - [ ] Copy support for chat/DM excerpts: select one or more message rows in the chat or DM view and copy them as plain text so conversations can be shared on forums or Discord without combing the raw log
 - [ ] Local chat capture: parse and store local (area) chat lines from `Client.txt` so the Local checkbox in the chat filter panel becomes functional; requires identifying the log line format and adding a `local` channel variant to the ingest worker

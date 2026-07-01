@@ -116,3 +116,29 @@ installer preset=default_preset: (package preset)
 # Remove all build and dist artifacts
 clean:
     cmake -E rm -rf build dist
+
+# ── poe-info-service (Go) ────────────────────────────────────────────────────
+
+# Build poe-info-service binary into bin/
+[windows]
+service-build:
+    New-Item -ItemType Directory -Force -Path "bin" | Out-Null; \
+    go build -C poe-info-service -o ../bin/poe-info-service.exe .
+
+[unix]
+service-build:
+    mkdir -p bin
+    go build -C poe-info-service -o ../bin/poe-info-service .
+
+# Run poe-info-service tests
+service-test:
+    go test -C poe-info-service ./...
+
+# Build and run the service; pass flags after `--`, e.g. just service-run -- --log-path "C:\..."
+[windows]
+service-run *args: (service-build)
+    bin/poe-info-service.exe {{args}}
+
+[unix]
+service-run *args: (service-build)
+    bin/poe-info-service {{args}}

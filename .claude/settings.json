@@ -57,7 +57,12 @@
       "Bash(where test_perf_metrics.exe)",
       "Bash(find build *)",
       "Bash(git show *)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(xargs grep -l *)",
+      "Bash(go version *)",
+      "Bash(go mod *)",
+      "Bash(go build *)",
+      "Bash(just service-build *)"
     ]
   }
 }
