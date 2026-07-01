@@ -8,8 +8,6 @@
 #include <QFile>
 #include <QHash>
 
-static constexpr int kDbVersion = 5;
-
 static void execSql(sqlite3 *db, const char *sql)
 {
     char *err = nullptr;
@@ -17,40 +15,11 @@ static void execSql(sqlite3 *db, const char *sql)
     if (err) sqlite3_free(err);
 }
 
-static void execResource(sqlite3 *db, const char *path)
-{
-    QFile f(QString::fromLatin1(path));
-    if (!f.open(QIODevice::ReadOnly)) {
-        qWarning("[db] cannot open resource %s", path);
-        return;
-    }
-    const QByteArray sql = f.readAll();
-    char *err = nullptr;
-    sqlite3_exec(db, sql.constData(), nullptr, nullptr, &err);
-    if (err) {
-        qWarning("[db] %s: %s", path, err);
-        sqlite3_free(err);
-    }
-}
-
-static int readUserVersion(sqlite3 *db)
-{
-    sqlite3_stmt *stmt = nullptr;
-    sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nullptr);
-    int v = 0;
-    if (sqlite3_step(stmt) == SQLITE_ROW)
-        v = sqlite3_column_int(stmt, 0);
-    sqlite3_finalize(stmt);
-    return v;
-}
-
-static void setUserVersion(sqlite3 *db, int version)
-{
-    char sql[48];
-    std::snprintf(sql, sizeof(sql), "PRAGMA user_version = %d;", version);
-    execSql(db, sql);
-}
-
+// poe-info-service owns schema creation/migration for this database (see
+// poe-info-service/internal/schema). By the time anything here opens it,
+// poe-info-service has already created it — this constructor just opens the
+// existing file for the handful of direct reads/writes that still happen
+// in-process (dialog import, fetch* queries).
 Database::Database(const QString &path, bool readOnly)
     : m_path(path)
     , m_readOnly(readOnly)
@@ -66,8 +35,6 @@ Database::Database(const QString &path, bool readOnly)
         return;
     }
     applyPragmas();
-    if (!readOnly)
-        initSchema();
 }
 
 Database::~Database()
@@ -116,19 +83,6 @@ int Database::s_queryProgressHandler(void *ctx)
         return 1;
     }
     return 0;
-}
-
-void Database::initSchema()
-{
-    execResource(m_db, ":/db/schema.sql");
-
-    const int version = readUserVersion(m_db);
-    if (version == 0) {
-        execResource(m_db, ":/db/seed.sql");
-        setUserVersion(m_db, kDbVersion);
-    } else if (version < kDbVersion) {
-        migrate(version);
-    }
 }
 
 QList<Database::WhisperRecord> Database::fetchWhispers(const QString &playerFilter, int limit, int offset) const
@@ -373,60 +327,6 @@ QStringList Database::fetchChatDates(const QSet<QChar> &channels, bool includeDm
     return result;
 }
 
-void Database::migrate(int fromVersion)
-{
-    if (fromVersion < 5) {
-        execSql(m_db,
-            "CREATE TABLE IF NOT EXISTS session_alt_tabs ("
-            "    id         INTEGER PRIMARY KEY AUTOINCREMENT,"
-            "    session_id INTEGER NOT NULL REFERENCES sessions(id),"
-            "    out_at     TEXT    NOT NULL,"
-            "    in_at      TEXT,"
-            "    UNIQUE(session_id, out_at)"
-            ");");
-        setUserVersion(m_db, 5);
-        fromVersion = 5;
-    }
-
-    if (fromVersion < kDbVersion) {
-        qWarning("[DB] stale schema version %d, expected %d — delete the database to start fresh",
-                 fromVersion, kDbVersion);
-        setUserVersion(m_db, kDbVersion);
-    }
-}
-
-Database::InstallState Database::upsertInstall(const QString &installPath)
-{
-    if (!m_db) return {};
-
-    const QByteArray pathBytes = installPath.toUtf8();
-
-    sqlite3_stmt *stmt = nullptr;
-    sqlite3_prepare_v2(m_db,
-        "INSERT OR IGNORE INTO installs(path) VALUES(?);",
-        -1, &stmt, nullptr);
-    sqlite3_bind_text(stmt, 1, pathBytes.constData(), pathBytes.size(), SQLITE_STATIC);
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    sqlite3_prepare_v2(m_db,
-        "SELECT id, file_created_at, file_modified_at, file_size, last_byte_offset "
-        "FROM installs WHERE path = ?;",
-        -1, &stmt, nullptr);
-    sqlite3_bind_text(stmt, 1, pathBytes.constData(), pathBytes.size(), SQLITE_STATIC);
-
-    InstallState state;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        state.id             = sqlite3_column_int64(stmt, 0);
-        state.fileCreatedAt  = sqlite3_column_int64(stmt, 1);
-        state.fileModifiedAt = sqlite3_column_int64(stmt, 2);
-        state.fileSize       = sqlite3_column_int64(stmt, 3);
-        state.lastByteOffset = sqlite3_column_int64(stmt, 4);
-    }
-    sqlite3_finalize(stmt);
-    return state;
-}
-
 int Database::upsertNpcDialogEntries(const QList<NpcDialogEntry> &entries)
 {
     if (!m_db || entries.isEmpty()) return 0;
@@ -603,65 +503,6 @@ QList<Database::SessionEventRecord> Database::fetchSessionEvents(int limit, int 
     return result;
 }
 
-int Database::closeOrphanSessions(const QStringList &runningInstallPaths)
-{
-    if (!m_db) return 0;
-    armQueryBudget();
-
-    // Collect sessions that have no ended_at, along with their install path.
-    struct Dangling { qint64 id; QString installPath; };
-    QList<Dangling> dangling;
-
-    static const char *selectSql = R"(
-        SELECT s.id, i.path
-        FROM sessions s
-        JOIN installs i ON s.install_id = i.id
-        WHERE s.ended_at IS NULL
-    )";
-
-    sqlite3_stmt *sel = nullptr;
-    if (sqlite3_prepare_v2(m_db, selectSql, -1, &sel, nullptr) != SQLITE_OK)
-        return 0;
-    while (sqlite3_step(sel) == SQLITE_ROW) {
-        Dangling d;
-        d.id = sqlite3_column_int64(sel, 0);
-        if (auto *p = sqlite3_column_text(sel, 1))
-            d.installPath = QString::fromUtf8(reinterpret_cast<const char *>(p));
-        dangling.append(d);
-    }
-    sqlite3_finalize(sel);
-
-    // Filter: skip sessions whose install is currently running.
-    QList<qint64> toClose;
-    for (const auto &d : dangling)
-        if (!runningInstallPaths.contains(d.installPath))
-            toClose.append(d.id);
-
-    if (toClose.isEmpty()) return 0;
-
-    // Close each orphaned session. We don't know the exact stop time, so we
-    // use the current local time and leave total_secs/active_secs as NULL.
-    // The AND ended_at IS NULL guard makes the update safe against concurrent writers.
-    static const char *updateSql = R"(
-        UPDATE sessions
-        SET ended_at = datetime('now', 'localtime')
-        WHERE id = ? AND ended_at IS NULL
-    )";
-
-    sqlite3_stmt *upd = nullptr;
-    if (sqlite3_prepare_v2(m_db, updateSql, -1, &upd, nullptr) != SQLITE_OK)
-        return 0;
-
-    int closed = 0;
-    for (qint64 sid : toClose) {
-        sqlite3_bind_int64(upd, 1, sid);
-        if (sqlite3_step(upd) == SQLITE_DONE && sqlite3_changes(m_db) > 0)
-            ++closed;
-        sqlite3_reset(upd);
-    }
-    sqlite3_finalize(upd);
-    return closed;
-}
 
 QList<Database::ZoneTransitionRecord> Database::fetchZoneTransitions(int limit, int offset) const
 {

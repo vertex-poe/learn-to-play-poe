@@ -12,7 +12,9 @@ public:
     explicit ServiceManager(QObject *parent = nullptr);
     ~ServiceManager() override;
 
-    void start(const QString &dbPath, const QString &logPath);
+    // installDir is the PoE install directory (may be empty if none configured
+    // yet); the Client.txt path and install identity are both derived from it.
+    void start(const QString &dbPath, const QString &installDir);
     void stop();
 
     QString host() const { return m_host; }

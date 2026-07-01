@@ -2,12 +2,9 @@
 #include "core/AppConfig.h"
 #include "db/Database.h"
 #include "util/DialogHash.h"
-#include "workers/LogIngestWorker.h"
-#include "workers/TaskManager.h"
 
 #include <QCoreApplication>
 #include <QFile>
-#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -154,76 +151,6 @@ static int runDialogIngest(int argc, char *argv[])
 }
 
 // ---------------------------------------------------------------------------
-// ingest
-// ---------------------------------------------------------------------------
-
-static int runIngest(int argc, char *argv[])
-{
-    QCoreApplication app(argc, argv);
-    app.setApplicationName("Learn to Play PoE1");
-    app.setApplicationVersion("0.1.0");
-
-    const AppConfig config = AppConfig::load();
-
-    Database db(dbPath());
-    if (!db.isOpen()) {
-        qCritical() << "DB error:" << db.lastError();
-        return 1;
-    }
-
-    auto *taskManager = new TaskManager(&app);
-
-    int submitted = 0;
-    for (const QString &installDir : config.installDirs) {
-        const QString logPath = installDir + "/logs/Client.txt";
-        if (!QFileInfo::exists(logPath)) continue;
-
-        const Database::InstallState inst = db.upsertInstall(installDir);
-        if (inst.id < 0) continue;
-
-        const QFileInfo fi(logPath);
-        const bool upToDate = inst.fileModifiedAt > 0
-            && inst.fileModifiedAt == fi.lastModified().toSecsSinceEpoch()
-            && inst.fileSize       == fi.size();
-        if (upToDate) {
-            qInfo().noquote() << "up to date:" << logPath;
-            continue;
-        }
-
-        auto *worker = new LogIngestWorker(
-            db.path(), inst.id, logPath, inst.lastByteOffset, config.channelNames);
-        taskManager->submit(
-            QStringLiteral("Ingest %1").arg(logPath), TaskKind::DbWrite, worker);
-        qInfo().noquote() << "ingesting:" << logPath;
-        ++submitted;
-    }
-
-    if (submitted == 0) {
-        qInfo() << "nothing to ingest";
-        return 0;
-    }
-
-    QObject::connect(taskManager, &TaskManager::taskUpdated, [taskManager](int) {
-        for (const auto &r : taskManager->tasks()) {
-            if (r.status == TaskStatus::Pending || r.status == TaskStatus::Running)
-                return;
-        }
-        QCoreApplication::quit();
-    });
-
-    QObject::connect(taskManager, &TaskManager::taskUpdated, [taskManager](int id) {
-        for (const auto &r : taskManager->tasks()) {
-            if (r.id != id) continue;
-            if (r.status == TaskStatus::Running && r.percent > 0)
-                qInfo().noquote() << QStringLiteral("%1%  %2").arg(r.percent, 3).arg(r.message);
-            break;
-        }
-    });
-
-    return app.exec();
-}
-
-// ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
 
@@ -231,7 +158,6 @@ static void printUsage()
 {
     QTextStream err(stderr);
     err << "usage:\n"
-        << "  l2p-poe1 ingest\n"
         << "  l2p-poe1 dialog hash [file.json]\n"
         << "  l2p-poe1 dialog hash <npc_name> <message>\n"
         << "  l2p-poe1 dialog ingest [file.json]\n"
@@ -245,9 +171,6 @@ int cliDispatch(int argc, char *argv[])
 
     const QString verb = QString::fromLocal8Bit(argv[1]);
     const QString noun = argc >= 3 ? QString::fromLocal8Bit(argv[2]) : QString();
-
-    if (verb == "ingest")
-        return runIngest(argc, argv);
 
     if (verb == "dialog") {
         if (noun == "hash")   return runDialogHash(argc, argv);

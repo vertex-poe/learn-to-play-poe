@@ -1,17 +1,20 @@
 """
-Combine seed_base.sql and data/areas/*.sql into data/seed.sql.
+Combine seed_base.sql and areas/*.sql into seed.sql, for local inspection of
+what poe-info-service's embedded schema.EnsureSchema will insert on a fresh
+database. poe-info-service combines these files itself at runtime (see
+poe-info-service/internal/schema/embed.go) — this script's output isn't
+consumed by any build step.
 
 Usage:
     python dev/build/combine_seed.py
 
-This is the only seed step the build system runs — it has no database
-dependency. Run gen_area_seed.py (which calls this at the end) when you
-want to regenerate the area fixtures from the live database.
+Run gen_area_seed.py (which calls this at the end) when you want to
+regenerate the area fixtures from the live database.
 """
 
 from pathlib import Path
 
-DATA = Path(__file__).parent.parent.parent / "data"
+DATA = Path(__file__).parent.parent.parent / "poe-info-service" / "internal" / "schema" / "sql"
 
 
 def combine() -> None:

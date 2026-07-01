@@ -50,9 +50,27 @@ void PoeInfoClient::request(const QString &method, const QJsonObject &params,
     m_socket->sendTextMessage(QJsonDocument(msg).toJson(QJsonDocument::Compact));
 }
 
+void PoeInfoClient::subscribe(const QString &topic, std::function<void(QJsonObject)> handler)
+{
+    m_subscriptions[topic].append(std::move(handler));
+    if (isConnected())
+        sendSubscribe(topic);
+}
+
+void PoeInfoClient::sendSubscribe(const QString &topic)
+{
+    const QJsonObject msg{
+        {QStringLiteral("type"),  QStringLiteral("subscribe")},
+        {QStringLiteral("topic"), topic},
+    };
+    m_socket->sendTextMessage(QJsonDocument(msg).toJson(QJsonDocument::Compact));
+}
+
 void PoeInfoClient::onConnected()
 {
     qDebug() << "PoeInfoClient: connected to" << m_host << ":" << m_port;
+    for (auto it = m_subscriptions.constBegin(); it != m_subscriptions.constEnd(); ++it)
+        sendSubscribe(it.key());
     emit connected();
 }
 
@@ -71,7 +89,20 @@ void PoeInfoClient::onDisconnected()
 void PoeInfoClient::onTextMessageReceived(const QString &message)
 {
     const QJsonObject obj = QJsonDocument::fromJson(message.toUtf8()).object();
-    if (obj[QStringLiteral("type")].toString() != QStringLiteral("response"))
+    const QString type = obj[QStringLiteral("type")].toString();
+
+    if (type == QStringLiteral("event")) {
+        const QString topic = obj[QStringLiteral("topic")].toString();
+        const auto it = m_subscriptions.constFind(topic);
+        if (it == m_subscriptions.constEnd())
+            return;
+        const QJsonObject payload = obj[QStringLiteral("payload")].toObject();
+        for (const auto &handler : it.value())
+            handler(payload);
+        return;
+    }
+
+    if (type != QStringLiteral("response"))
         return;
 
     const QString id = obj[QStringLiteral("id")].toString();

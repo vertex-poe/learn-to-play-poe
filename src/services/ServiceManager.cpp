@@ -1,5 +1,7 @@
 #include "services/ServiceManager.h"
 
+#include "core/AppConfig.h"
+
 #include <QCoreApplication>
 #include <QDebug>
 #include <QFile>
@@ -33,7 +35,7 @@ void ServiceManager::loadConfig()
     }
 }
 
-void ServiceManager::start(const QString &dbPath, const QString &logPath)
+void ServiceManager::start(const QString &dbPath, const QString &installDir)
 {
     if (m_process)
         return;
@@ -52,8 +54,11 @@ void ServiceManager::start(const QString &dbPath, const QString &logPath)
          << "--bind" << m_host;
     if (!dbPath.isEmpty())
         args << "--db-path" << dbPath;
-    if (!logPath.isEmpty())
-        args << "--log-path" << logPath;
+    if (!installDir.isEmpty()) {
+        args << "--install-dir" << installDir
+             << "--log-path"    << installDir + "/logs/Client.txt";
+    }
+    args << "--config-path" << AppConfig::configPath();
     const QByteArray serviceLog = qgetenv("L2P_SERVICE_LOG");
     if (!serviceLog.isEmpty())
         args << "--service-log" << QString::fromUtf8(serviceLog);

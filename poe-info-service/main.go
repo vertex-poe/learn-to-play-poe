@@ -19,8 +19,10 @@ func main() {
 	fileCfg := config.Load(filepath.Dir(exe))
 
 	var (
+		installDir = flag.String("install-dir", "", "PoE install directory (identifies the installs row)")
 		logPath    = flag.String("log-path", "", "Path to Client.txt (e.g. C:\\Games\\PoE\\logs\\Client.txt)")
 		dbPath     = flag.String("db-path", "", "Path to l2p SQLite database")
+		configPath = flag.String("config-path", "", "Path to l2p-poe1's own config toml (for chat channel labels)")
 		port       = flag.Int("port", fileCfg.Port, "TCP port to listen on")
 		bind       = flag.String("bind", fileCfg.Bind, "Bind address (default 127.0.0.1)")
 		cacheDir   = flag.String("cache-dir", defaultCacheDir(), "Directory for SQLite DB and state files")
@@ -34,6 +36,11 @@ func main() {
 		return
 	}
 
+	var channelNames map[int]string
+	if *configPath != "" {
+		channelNames = config.LoadChannelNames(*configPath)
+	}
+
 	if *serviceLog != "" {
 		f, err := os.OpenFile(*serviceLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err == nil {
@@ -45,13 +52,15 @@ func main() {
 	}
 
 	cfg := server.Config{
-		Version:   proto.Version,
-		StartTime: time.Now().Unix(),
-		Bind:      *bind,
-		Port:      *port,
-		CacheDir:  *cacheDir,
-		LogPath:   *logPath,
-		DbPath:    *dbPath,
+		Version:      proto.Version,
+		StartTime:    time.Now().Unix(),
+		Bind:         *bind,
+		Port:         *port,
+		CacheDir:     *cacheDir,
+		InstallDir:   *installDir,
+		LogPath:      *logPath,
+		DbPath:       *dbPath,
+		ChannelNames: channelNames,
 	}
 
 	log.Printf("starting v%s on %s:%d db=%q logPath=%q",

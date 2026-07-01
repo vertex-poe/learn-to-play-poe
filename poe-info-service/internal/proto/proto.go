@@ -59,6 +59,14 @@ const (
 	EventCharSelect         = "char_select"
 	EventAltTabOut          = "alt_tab_out"
 	EventAltTabBack         = "alt_tab_back"
+
+	// DB-only event types: written to the l2p database by the ingest writer
+	// but never broadcast to the "clientlog" pub/sub topic (no overlay use).
+	EventPlayed             = "played"
+	EventPassivesSnapshot   = "passives_snapshot"
+	EventGuildJoined        = "guild_joined"
+	EventGuildMemberUpdated = "guild_member_updated"
+	EventChatChannelJoin    = "chat_channel_join"
 )
 
 type StatusPayload struct {

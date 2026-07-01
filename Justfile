@@ -31,8 +31,9 @@ build preset=default_preset:
     cmake --preset {{preset}}
     cmake --build --preset {{preset}}
 
-# Run tests (builds first), excluding perf tests
-test preset=default_preset: (build preset)
+# Run tests (builds first), excluding perf tests. Includes poe-info-service's
+# Go tests since it now owns Client.txt ingestion and schema/migration.
+test preset=default_preset: (build preset) (service-test)
     ctest --preset {{preset}} --output-on-failure -LE perf
 
 # Build HEAD~1's app in an isolated worktree and record it as the perf baseline.

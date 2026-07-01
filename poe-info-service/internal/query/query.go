@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MovingCairn/poe-info-service/internal/schema"
 	_ "modernc.org/sqlite"
 )
 
@@ -30,22 +31,30 @@ type DB struct {
 	db *sql.DB
 }
 
-// Open opens the l2p SQLite database read-only. WAL journal mode is inherited
-// from the writer; requesting it on a read-only connection is rejected by
-// SQLite, so the DSN omits it.
+// Open opens the l2p SQLite database read-write and ensures its schema is
+// created/migrated. poe-info-service is the sole writer of this database, so
+// opening it is also where schema ownership lives.
 func Open(path string) (*DB, error) {
-	dsn := path + "?mode=ro&_busy_timeout=5000"
+	dsn := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000&_foreign_keys=1"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open %q: %w", path, err)
 	}
-	db.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(1) // single connection shared by reads and ingest writes
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ping %q: %w", path, err)
 	}
+	if err := schema.EnsureSchema(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ensure schema %q: %w", path, err)
+	}
 	return &DB{db: db}, nil
 }
+
+// Raw exposes the underlying *sql.DB so the ingest package can share this
+// connection for writes rather than opening a second one to the same file.
+func (d *DB) Raw() *sql.DB { return d.db }
 
 func (d *DB) Close() error { return d.db.Close() }
 

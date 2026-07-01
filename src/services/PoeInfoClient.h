@@ -23,6 +23,11 @@ public:
     void request(const QString &method, const QJsonObject &params,
                  std::function<void(QJsonObject, QString)> callback);
 
+    // Subscribes to a pub/sub topic (e.g. "clientlog"). handler is invoked on
+    // the main thread with each event's payload for as long as this client
+    // lives. Re-sent automatically on every reconnect.
+    void subscribe(const QString &topic, std::function<void(QJsonObject)> handler);
+
 signals:
     void connected();
     void disconnected();
@@ -40,4 +45,7 @@ private:
     int         m_port;
     int         m_nextId{1};
     QHash<QString, std::function<void(QJsonObject, QString)>> m_pending;
+    QHash<QString, QList<std::function<void(QJsonObject)>>>   m_subscriptions;
+
+    void sendSubscribe(const QString &topic);
 };

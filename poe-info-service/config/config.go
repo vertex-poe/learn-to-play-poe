@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -44,4 +45,42 @@ func Load(dir string) Config {
 		}
 	}
 	return cfg
+}
+
+// LoadChannelNames reads the [chat_channel_names] table (channel number ->
+// user-defined label) from l2p-poe1's own config toml, mirroring
+// AppConfig::channelNames on the C++ side. Returns an empty map if the file
+// is missing or the section is absent — channel labels are cosmetic, so any
+// failure here is silent rather than fatal.
+func LoadChannelNames(path string) map[int]string {
+	names := map[int]string{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return names
+	}
+
+	inSection := false
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			inSection = line == "[chat_channel_names]"
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		kv := strings.SplitN(line, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		num, err := strconv.Atoi(strings.TrimSpace(kv[0]))
+		if err != nil {
+			continue
+		}
+		names[num] = strings.Trim(strings.TrimSpace(kv[1]), `"`)
+	}
+	return names
 }

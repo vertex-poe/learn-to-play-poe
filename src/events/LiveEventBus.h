@@ -9,8 +9,9 @@
 #include <functional>
 
 // Singleton pub/sub bus for live game events.
-// LogIngestWorker emits liveEventParsed → this bus's dispatch() slot (queued connection).
-// Any code may subscribe via subscribe() or connect to eventFired.
+// poe-info-service tails and parses Client.txt; MainWindow subscribes to its
+// "clientlog" WebSocket topic via PoeInfoClient and calls dispatch() with
+// each event. Any code may subscribe via subscribe() or connect to eventFired.
 class LiveEventBus : public QObject
 {
     Q_OBJECT

@@ -3,28 +3,37 @@ package tailer
 import (
 	"bufio"
 	"context"
-	"fmt"
+	"database/sql"
 	"io"
 	"log"
 	"os"
-	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
-
-	"github.com/MovingCairn/poe-info-service/internal/store"
 )
 
 const pollInterval = 250 * time.Millisecond
 
+// Tailer polls Client.txt for new lines, forwarding each complete line to
+// out. Resume position and file bookkeeping (created/modified/size) live in
+// the l2p database's installs row for this install, mirroring the columns
+// the old C++ LogIngestWorker maintained.
 type Tailer struct {
-	logPath string
-	store   *store.Store
-	out     chan<- string
+	logPath   string
+	db        *sql.DB
+	installID int64
+	out       chan<- string
+	caughtUp  atomic.Bool
 }
 
-func New(logPath string, st *store.Store, out chan<- string) *Tailer {
-	return &Tailer{logPath: logPath, store: st, out: out}
+func New(logPath string, db *sql.DB, installID int64, out chan<- string) *Tailer {
+	return &Tailer{logPath: logPath, db: db, installID: installID, out: out}
 }
+
+// CaughtUp reports whether the tailer has drained the file to EOF at least
+// once since this process started. Callers use this to avoid broadcasting
+// backlog events (replayed after a restart) as if they were live.
+func (t *Tailer) CaughtUp() bool { return t.caughtUp.Load() }
 
 func (t *Tailer) Run(ctx context.Context) {
 	offset := t.loadOffset()
@@ -38,52 +47,52 @@ func (t *Tailer) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			n, err := t.poll(ctx, offset)
+			newOffset, err := t.poll(ctx, offset)
 			if err != nil {
 				if !os.IsNotExist(err) {
 					log.Printf("tailer: poll error: %v", err)
 				}
 				continue
 			}
-			if n > 0 {
-				offset += n
+			if newOffset != offset {
+				offset = newOffset
 				t.saveOffset(offset)
+			} else {
+				t.caughtUp.Store(true)
 			}
 		}
 	}
 }
 
-// poll reads any new complete lines from the log file starting at offset.
-// Returns the number of bytes consumed (up to and including the last newline).
+// poll reads any new complete lines from the log file starting at offset and
+// returns the absolute offset after the read (unchanged if nothing new was
+// available). If the file has shrunk (truncated or rotated), it resets to 0.
 func (t *Tailer) poll(ctx context.Context, offset int64) (int64, error) {
 	f, err := os.Open(t.logPath)
 	if err != nil {
-		return 0, err
+		return offset, err
 	}
 	defer f.Close()
 
 	fi, err := f.Stat()
 	if err != nil {
-		return 0, err
+		return offset, err
 	}
 
 	if fi.Size() < offset {
-		// File was truncated or rotated; restart from the beginning.
 		log.Printf("tailer: log file shrank (was %d, now %d), resetting", offset, fi.Size())
-		t.saveOffset(0)
-		return -offset, nil // caller adjusts offset to 0
+		offset = 0
 	}
-
 	if fi.Size() == offset {
-		return 0, nil // nothing new
+		return offset, nil
 	}
 
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return 0, err
+		return offset, err
 	}
 
 	reader := bufio.NewReader(f)
-	var consumed int64
+	consumed := offset
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -113,16 +122,26 @@ func (t *Tailer) poll(ctx context.Context, offset int64) (int64, error) {
 }
 
 func (t *Tailer) loadOffset() int64 {
-	val, ok, err := t.store.GetState("log_offset")
-	if err != nil || !ok {
-		return 0
+	var offset int64
+	if err := t.db.QueryRow(
+		"SELECT last_byte_offset FROM installs WHERE id=?", t.installID,
+	).Scan(&offset); err != nil {
+		log.Printf("tailer: failed to load offset: %v", err)
 	}
-	n, _ := strconv.ParseInt(val, 10, 64)
-	return n
+	return offset
 }
 
 func (t *Tailer) saveOffset(offset int64) {
-	if err := t.store.SetState("log_offset", fmt.Sprintf("%d", offset)); err != nil {
+	var createdAt, modifiedAt, size int64
+	if fi, err := os.Stat(t.logPath); err == nil {
+		createdAt = fileCreatedAt(fi)
+		modifiedAt = fi.ModTime().Unix()
+		size = fi.Size()
+	}
+	if _, err := t.db.Exec(
+		`UPDATE installs SET file_created_at=?, file_modified_at=?, file_size=?, last_byte_offset=? WHERE id=?`,
+		createdAt, modifiedAt, size, offset, t.installID,
+	); err != nil {
 		log.Printf("tailer: failed to save offset: %v", err)
 	}
 }

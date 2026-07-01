@@ -11,7 +11,7 @@ Two phases:
      Rules run in order; earlier rules win. Existing types are never overwritten,
      so manual DB edits and types loaded by load_seed_to_db survive.
   2. Dump every typed area to data/areas/<slug>.sql (one file per distinct type),
-     then call combine_seed to rebuild data/seed.sql.
+     then call combine_seed to rebuild seed.sql for local inspection.
 """
 
 import re
@@ -24,7 +24,7 @@ from combine_seed import combine
 
 ROOT = Path(__file__).parent.parent.parent
 DB   = ROOT / "l2p-poe1.db"
-OUT  = ROOT / "data" / "areas"
+OUT  = ROOT / "poe-info-service" / "internal" / "schema" / "sql" / "areas"
 
 
 # ── type assignment rules ────────────────────────────────────────────────────

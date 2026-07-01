@@ -60,10 +60,11 @@ CREATE TABLE IF NOT EXISTS classes (
 );
 
 CREATE TABLE IF NOT EXISTS characters (
-    id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    name     TEXT    NOT NULL UNIQUE,
-    class_id INTEGER NOT NULL REFERENCES classes(id),
-    level    INTEGER
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT    NOT NULL UNIQUE,
+    class_id    INTEGER NOT NULL REFERENCES classes(id),
+    level       INTEGER,
+    played_secs INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS character_level_events (

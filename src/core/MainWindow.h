@@ -4,11 +4,9 @@
 #include "ui/widgets/NotificationWidget.h"
 
 #include <QMainWindow>
-#include <QPointer>
 #include <QRect>
 #include <QSet>
 #include <QSystemTrayIcon>
-#include <QFutureWatcher>
 
 class QLabel;
 class QStackedWidget;
@@ -22,10 +20,8 @@ class DmPage;
 class NavBar;
 class LogPage;
 class QTimer;
-class Database;
 class GameOverlay;
 class LiveEventRuleEngine;
-class LogIngestWorker;
 class SettingsPage;
 class TaskManager;
 class TaskPanel;
@@ -54,7 +50,7 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private slots:
-    void onDatabaseReady();
+    void onServiceReady();
     void onTrayActivated(QSystemTrayIcon::ActivationReason reason);
     void showSettings();
     void onConfigChanged();
@@ -63,7 +59,6 @@ private slots:
     void onTabChanged(int index);
     void onGearClicked();
     void onSearchClicked();
-    void onOrphanSessionsClosed(int count);
 
 private:
     enum Tab {
@@ -80,19 +75,13 @@ private:
 
     void showWindow();
     void setupTray();
-    void scheduleLogIngestion();
     void schedulePreloads(int stackIndex);
     void ensureSettingsPage();
-    void maybeIngestClientLog(const QString &installDir, bool liveMode = false);
-    void startLiveIngest(const QString &installDir);
-    void stopLiveIngest();
     void setStatusContent(const QString &content);
     void refreshStatusBar();
 
     AppConfig     m_config;
-    QFutureWatcher<Database*> m_dbWatcher;
     bool          m_timingMode{false};
-    Database     *m_db{};
     ServiceManager *m_serviceManager{};
     PoeInfoClient  *m_poeInfoClient{};
 
@@ -118,8 +107,7 @@ private:
     QStringList      m_runningInstallDirs;
     QRect            m_lastGameRect;
 
-    QPointer<LogIngestWorker> m_liveWorker;
     LiveEventRuleEngine      *m_ruleEngine{};
-    int                       m_orphanCloseTaskId{0};
+    bool                      m_orphanCloseInFlight{false};
     QObject                  *m_lastPreloadRequestor{};
 };

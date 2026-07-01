@@ -10,30 +10,31 @@ import (
 )
 
 var (
-	lineRE           = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \d+ [0-9a-f]+ \[(\w+)[^\]]*\](?: \[(\w+)\])? ?(.*)`)
-	logOpenRE        = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})`)
-	generatingRE     = regexp.MustCompile(`Generating level (\d+) area "([^"]+)"`)
-	enteredRE        = regexp.MustCompile(`You have entered (.+?)\.`)
-	sceneSourceRE    = regexp.MustCompile(`Set Source \[([^\]]+)\]`)
-	guildRE          = regexp.MustCompile(`Joined guild named (.+?) with \d+ members`)
-	guildDetailsRE   = regexp.MustCompile(`Guild details changed (.+)`)
-	guildMemberRE    = regexp.MustCompile(`Guild member updated (\S+)`)
-	chatChannelRE    = regexp.MustCompile(`You have joined global chat channel ([\d,]+) (\w+)`)
-	levelUpRE        = regexp.MustCompile(`(\S+) \((\w+)\) is now level (\d+)`)
-	afkRE            = regexp.MustCompile(`AFK mode is now (ON|OFF)`)
-	whisperRE        = regexp.MustCompile(`@(From|To) (?:<([^>]*)> )?(\S+): (.*)`)
-	passiveAllocRE   = regexp.MustCompile(`Successfully (allocated|unallocated) passive skill id: ([^,]+), name: (.+)`)
-	masteryAllocRE   = regexp.MustCompile(`Successfully (allocated|unallocated) mastery effect id: ([^,]+), mastery: [^,]+, name: (.+)`)
-	deathRE          = regexp.MustCompile(`(\S+) has been slain\.`)
-	chatRE           = regexp.MustCompile(`([#$%&])(?:<([^>]*)> )?(\S+): (.*)`)
-	playedRE         = regexp.MustCompile(`You have played for .+?\.`)
+	lineRE         = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \d+ [0-9a-f]+ \[(\w+)[^\]]*\](?: \[(\w+)\])? ?(.*)`)
+	logOpenRE      = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})`)
+	generatingRE   = regexp.MustCompile(`Generating level (\d+) area "([^"]+)"`)
+	enteredRE      = regexp.MustCompile(`You have entered (.+?)\.`)
+	sceneSourceRE  = regexp.MustCompile(`Set Source \[([^\]]+)\]`)
+	guildRE        = regexp.MustCompile(`Joined guild named (.+?) with \d+ members`)
+	guildDetailsRE = regexp.MustCompile(`Guild details changed (.+)`)
+	guildMemberRE  = regexp.MustCompile(`Guild member updated (\S+)`)
+	chatChannelRE  = regexp.MustCompile(`You have joined global chat channel ([\d,]+) (\w+)`)
+	levelUpRE      = regexp.MustCompile(`(\S+) \((\w+)\) is now level (\d+)`)
+	afkRE          = regexp.MustCompile(`AFK mode is now (ON|OFF)`)
+	whisperRE      = regexp.MustCompile(`@(From|To) (?:<([^>]*)> )?(\S+): (.*)`)
+	passiveAllocRE = regexp.MustCompile(`Successfully (allocated|unallocated) passive skill id: ([^,]+), name: (.+)`)
+	masteryAllocRE = regexp.MustCompile(`Successfully (allocated|unallocated) mastery effect id: ([^,]+), mastery: [^,]+, name: (.+)`)
+	deathRE        = regexp.MustCompile(`(\S+) has been slain\.`)
+	chatRE         = regexp.MustCompile(`([#$%&])(?:<([^>]*)> )?(\S+): (.*)`)
+	playedRE       = regexp.MustCompile(`You have played for .+?\.`)
+	playedUnitRE   = regexp.MustCompile(`(\d+) (hours?|minutes?|seconds?)`)
 	// "Achivement" is an intentional typo matching the actual log output
-	achievementRE    = regexp.MustCompile(`Achivement stored: (\S+)`)
-	hideoutRE        = regexp.MustCompile(`Spawning discoverable Hideout (.+)`)
-	pvpQueueRE       = regexp.MustCompile(`Queueing for PVP match "([^"]+)" with (\d+) other players`)
-	passivesTotalRE  = regexp.MustCompile(`(\d+) total Passive Skill Points \((\d+) allocated\)`)
-	passivesAscRE    = regexp.MustCompile(`(\d+) total Ascendancy Skill Points \((\d+) allocated\)`)
-	passivesLevelRE  = regexp.MustCompile(`(\d+) Passive Skill Points from character level`)
+	achievementRE        = regexp.MustCompile(`Achivement stored: (\S+)`)
+	hideoutRE            = regexp.MustCompile(`Spawning discoverable Hideout (.+)`)
+	pvpQueueRE           = regexp.MustCompile(`Queueing for PVP match "([^"]+)" with (\d+) other players`)
+	passivesTotalRE      = regexp.MustCompile(`(\d+) total Passive Skill Points \((\d+) allocated\)`)
+	passivesAscRE        = regexp.MustCompile(`(\d+) total Ascendancy Skill Points \((\d+) allocated\)`)
+	passivesLevelRE      = regexp.MustCompile(`(\d+) Passive Skill Points from character level`)
 	passivesQuestTotalRE = regexp.MustCompile(`(\d+) Passive Skill Points from quests:`)
 	passivesQuestEntryRE = regexp.MustCompile(`\((\d+) from (.+)\)`)
 	triggerFollowupRE    = regexp.MustCompile(`[\w ]+[=:] ?\d+`)
@@ -44,7 +45,7 @@ var (
 type locState int
 
 const (
-	locUnknown               locState = iota
+	locUnknown locState = iota
 	locLoginScreen
 	locConnectingFromLogin
 	locConnectingFromZone
@@ -53,24 +54,30 @@ const (
 	locInZone
 )
 
+type passivesQuestEntry struct {
+	Name   string
+	Points int
+}
+
 type passivesBlock struct {
-	ts             string
-	totalPoints    int
+	ts              string
+	totalPoints     int
 	allocatedPoints int
-	ascTotal       int
-	ascAllocated   int
-	levelPoints    int
-	questPoints    int
+	ascTotal        int
+	ascAllocated    int
+	levelPoints     int
+	questPoints     int
+	quests          []passivesQuestEntry
 }
 
 type Parser struct {
-	loc                  locState
-	pendingCode          string
-	pendingLevel         int
-	skipTriggerFollowup  bool
-	pendingPassives      *passivesBlock
-	altTabOutTs          string
-	afkOnTs              string
+	loc                 locState
+	pendingCode         string
+	pendingLevel        int
+	skipTriggerFollowup bool
+	pendingPassives     *passivesBlock
+	altTabOutTs         string
+	afkOnTs             string
 }
 
 func New() *Parser {
@@ -94,6 +101,34 @@ func tsToSecs(ts string) int64 {
 	return t.Unix()
 }
 
+// flushPassives closes out an in-progress /passives block, emitting a
+// snapshot event if one was pending. Returns nil if no block was active.
+func (p *Parser) flushPassives() *proto.ParsedEvent {
+	if p.pendingPassives == nil {
+		return nil
+	}
+	b := p.pendingPassives
+	p.pendingPassives = nil
+
+	quests := make([]map[string]any, len(b.quests))
+	for i, q := range b.quests {
+		quests[i] = map[string]any{"name": q.Name, "points": q.Points}
+	}
+	return &proto.ParsedEvent{
+		Type:      proto.EventPassivesSnapshot,
+		Timestamp: b.ts,
+		Data: map[string]any{
+			"total_points":     b.totalPoints,
+			"allocated_points": b.allocatedPoints,
+			"asc_total":        b.ascTotal,
+			"asc_allocated":    b.ascAllocated,
+			"level_points":     b.levelPoints,
+			"quest_points":     b.questPoints,
+			"quests":           quests,
+		},
+	}
+}
+
 func (p *Parser) clearAltTab(ts string) *proto.ParsedEvent {
 	if p.altTabOutTs == "" {
 		return nil
@@ -115,14 +150,18 @@ func (p *Parser) clearAltTab(ts string) *proto.ParsedEvent {
 func (p *Parser) ParseLine(line string) []proto.ParsedEvent {
 	// LOG FILE OPENING — checked before the header regex
 	if strings.Contains(line, "LOG FILE OPENING") {
+		var events []proto.ParsedEvent
+		if ev := p.flushPassives(); ev != nil {
+			events = append(events, *ev)
+		}
 		p.loc = locUnknown
 		p.pendingCode = ""
 		p.pendingLevel = 0
 		p.skipTriggerFollowup = false
-		p.pendingPassives = nil
 		p.altTabOutTs = ""
 		p.afkOnTs = ""
-		return []proto.ParsedEvent{{Type: proto.EventSessionStart, Timestamp: normalizeTs(logOpenRE.FindString(line))}}
+		events = append(events, proto.ParsedEvent{Type: proto.EventSessionStart, Timestamp: normalizeTs(logOpenRE.FindString(line))})
+		return events
 	}
 
 	m := lineRE.FindStringSubmatch(line)
@@ -167,12 +206,30 @@ func (p *Parser) ParseLine(line string) []proto.ParsedEvent {
 
 	// a. Passives multi-line block
 	if p.pendingPassives != nil {
-		if passivesAscRE.MatchString(msg) || passivesLevelRE.MatchString(msg) ||
-			passivesQuestTotalRE.MatchString(msg) || passivesQuestEntryRE.MatchString(msg) {
+		if am := passivesAscRE.FindStringSubmatch(msg); am != nil {
+			p.pendingPassives.ascTotal, _ = strconv.Atoi(am[1])
+			p.pendingPassives.ascAllocated, _ = strconv.Atoi(am[2])
 			return nil
 		}
-		p.pendingPassives = nil
-		// fall through
+		if lm := passivesLevelRE.FindStringSubmatch(msg); lm != nil {
+			p.pendingPassives.levelPoints, _ = strconv.Atoi(lm[1])
+			return nil
+		}
+		if qtm := passivesQuestTotalRE.FindStringSubmatch(msg); qtm != nil {
+			p.pendingPassives.questPoints, _ = strconv.Atoi(qtm[1])
+			return nil
+		}
+		if qem := passivesQuestEntryRE.FindStringSubmatch(msg); qem != nil {
+			points, _ := strconv.Atoi(qem[1])
+			p.pendingPassives.quests = append(p.pendingPassives.quests, passivesQuestEntry{
+				Name: strings.TrimSpace(qem[2]), Points: points,
+			})
+			return nil
+		}
+		if ev := p.flushPassives(); ev != nil {
+			events = append(events, *ev)
+		}
+		// fall through — msg may still match something below
 	}
 	if pm := passivesTotalRE.FindStringSubmatch(msg); pm != nil {
 		total, _ := strconv.Atoi(pm[1])
@@ -182,7 +239,7 @@ func (p *Parser) ParseLine(line string) []proto.ParsedEvent {
 			totalPoints:     total,
 			allocatedPoints: allocated,
 		}
-		return nil
+		return events
 	}
 
 	// b. [WINDOW] bracket
@@ -200,14 +257,25 @@ func (p *Parser) ParseLine(line string) []proto.ParsedEvent {
 		return events
 	}
 
-	// c. Guild (no event, consume)
-	if guildRE.MatchString(msg) || guildDetailsRE.MatchString(msg) || guildMemberRE.MatchString(msg) {
-		return nil
+	// c. Guild
+	if gm := guildRE.FindStringSubmatch(msg); gm != nil {
+		events = append(events, proto.ParsedEvent{Type: proto.EventGuildJoined, Timestamp: ts, Data: map[string]any{"guild_name": gm[1]}})
+	}
+	if gdm := guildDetailsRE.FindStringSubmatch(msg); gdm != nil {
+		events = append(events, proto.ParsedEvent{Type: proto.EventGuildJoined, Timestamp: ts, Data: map[string]any{"guild_name": strings.TrimSpace(gdm[1])}})
+	}
+	if gmm := guildMemberRE.FindStringSubmatch(msg); gmm != nil {
+		events = append(events, proto.ParsedEvent{Type: proto.EventGuildMemberUpdated, Timestamp: ts, Data: map[string]any{"account_name": gmm[1]}})
 	}
 
-	// d. Chat channel join (no event, consume)
-	if chatChannelRE.MatchString(msg) {
-		return nil
+	// d. Chat channel join
+	if ccm := chatChannelRE.FindStringSubmatch(msg); ccm != nil {
+		num, _ := strconv.Atoi(strings.ReplaceAll(ccm[1], ",", ""))
+		events = append(events, proto.ParsedEvent{
+			Type:      proto.EventChatChannelJoin,
+			Timestamp: ts,
+			Data:      map[string]any{"number": num, "lang": ccm[2]},
+		})
 	}
 
 	// e. Level up
@@ -277,8 +345,21 @@ func (p *Parser) ParseLine(line string) []proto.ParsedEvent {
 		events = append(events, proto.ParsedEvent{Type: proto.EventQuestEvent, Timestamp: ts, Data: map[string]any{"event_type": tm[1]}})
 	}
 
-	// k. /played (consume, no event)
+	// k. /played
 	if playedRE.MatchString(msg) {
+		var playedSecs int64
+		for _, um := range playedUnitRE.FindAllStringSubmatch(msg, -1) {
+			val, _ := strconv.ParseInt(um[1], 10, 64)
+			switch um[2][0] {
+			case 'h':
+				playedSecs += val * 3600
+			case 'm':
+				playedSecs += val * 60
+			default:
+				playedSecs += val
+			}
+		}
+		events = append(events, proto.ParsedEvent{Type: proto.EventPlayed, Timestamp: ts, Data: map[string]any{"played_secs": playedSecs}})
 		return events
 	}
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/MovingCairn/poe-info-service/internal/hub"
+	"github.com/MovingCairn/poe-info-service/internal/ingest"
 	"github.com/MovingCairn/poe-info-service/internal/parser"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
 	"github.com/MovingCairn/poe-info-service/internal/query"
@@ -18,14 +19,43 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// liveBroadcastTypes are the parsed-event types the old C++ LiveEventBus
+// consumed for overlay/alert purposes. Event types outside this set (e.g.
+// EventPlayed, EventPassivesSnapshot) are written to the database by the
+// ingest writer but never published to the "clientlog" topic.
+var liveBroadcastTypes = map[string]bool{
+	proto.EventAreaEntered:        true,
+	proto.EventLevelUp:            true,
+	proto.EventCharacterDeath:     true,
+	proto.EventAfkOn:              true,
+	proto.EventAfkOff:             true,
+	proto.EventWhisper:            true,
+	proto.EventChat:               true,
+	proto.EventAchievement:        true,
+	proto.EventHideoutDiscovered:  true,
+	proto.EventPvpQueue:           true,
+	proto.EventPvpQueueCancelled:  true,
+	proto.EventPassiveAllocated:   true,
+	proto.EventPassiveUnallocated: true,
+	proto.EventQuestEvent:         true,
+	proto.EventGeneralEvent:       true,
+	proto.EventSessionStart:       true,
+	proto.EventLoginScreen:        true,
+	proto.EventCharSelect:         true,
+	proto.EventAltTabOut:          true,
+	proto.EventAltTabBack:         true,
+}
+
 type Config struct {
-	Version   string
-	StartTime int64
-	Bind      string // default "127.0.0.1"
-	Port      int
-	CacheDir  string
-	LogPath   string
-	DbPath    string // path to the l2p SQLite database
+	Version      string
+	StartTime    int64
+	Bind         string // default "127.0.0.1"
+	Port         int
+	CacheDir     string
+	InstallDir   string         // PoE install directory; identifies the installs row (matches the old C++ convention)
+	LogPath      string         // InstallDir + "/logs/Client.txt"
+	DbPath       string         // path to the l2p SQLite database
+	ChannelNames map[int]string // chat channel number -> user-defined label
 }
 
 type server struct {
@@ -143,20 +173,32 @@ func serve(cfg Config, listener net.Listener) error {
 	h := hub.New()
 	ctx, cancel := context.WithCancel(context.Background())
 
-	if cfg.LogPath != "" {
-		eventCh := make(chan string, 512)
-		t := tailer.New(cfg.LogPath, st, eventCh)
-		p := parser.New()
-		go t.Run(ctx)
-		go broadcastLogEvents(ctx, h, eventCh, p)
+	if cfg.LogPath != "" && cfg.InstallDir != "" && qdb != nil {
+		// installs.path stores the install directory (not the Client.txt path),
+		// matching the convention the old C++ Database::upsertInstall used.
+		installID, err := ingest.EnsureInstall(qdb.Raw(), cfg.InstallDir)
+		if err != nil {
+			log.Printf("warn: cannot ensure install row for %q: %v", cfg.InstallDir, err)
+		} else {
+			writer, err := ingest.NewWriter(qdb.Raw(), installID, cfg.ChannelNames)
+			if err != nil {
+				log.Printf("warn: cannot start ingest writer: %v", err)
+			} else {
+				eventCh := make(chan string, 512)
+				t := tailer.New(cfg.LogPath, qdb.Raw(), installID, eventCh)
+				p := parser.New()
+				go t.Run(ctx)
+				go broadcastLogEvents(ctx, h, eventCh, p, writer, t.CaughtUp)
+			}
+		}
 	}
 
 	srv := &server{
-		cfg:     cfg,
-		hub:     h,
-		store:   st,
-		queryDB: qdb,
-		started: time.Now(),
+		cfg:      cfg,
+		hub:      h,
+		store:    st,
+		queryDB:  qdb,
+		started:  time.Now(),
 		shutdown: cancel,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -189,7 +231,12 @@ func serve(cfg Config, listener net.Listener) error {
 	return nil
 }
 
-func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, p *parser.Parser) {
+// broadcastLogEvents drains parsed Client.txt lines, applying each event to
+// the database via w and then — only for overlay-relevant event types, and
+// only once the tailer has caught up to EOF at least once this run —
+// publishing it to the "clientlog" hub topic. The caughtUp gate prevents
+// every service restart from replaying the whole backlog as "live" events.
+func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, p *parser.Parser, w *ingest.Writer, caughtUp func() bool) {
 	for {
 		select {
 		case line, ok := <-eventCh:
@@ -197,6 +244,13 @@ func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, 
 				return
 			}
 			for _, evt := range p.ParseLine(line) {
+				if err := w.HandleEvent(evt); err != nil {
+					log.Printf("ingest: failed to apply %s event: %v", evt.Type, err)
+				}
+
+				if !liveBroadcastTypes[evt.Type] || !caughtUp() {
+					continue
+				}
 				msg, _ := json.Marshal(proto.Message{
 					Type:    proto.TypeEvent,
 					Topic:   "clientlog",
@@ -376,6 +430,9 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 
 	case "dm.partners":
 		s.handleDmPartners(c, msg)
+
+	case "sessions.closeOrphans":
+		s.handleCloseOrphanSessions(c, msg)
 
 	default:
 		s.send(c, proto.Message{
@@ -565,6 +622,30 @@ func (s *server) handleDmPartners(c *hub.Client, msg proto.Message) {
 		Type:    proto.TypeResponse,
 		ID:      msg.ID,
 		Payload: mustMarshal(map[string]any{"partners": partners}),
+	})
+}
+
+func (s *server) handleCloseOrphanSessions(c *hub.Client, msg proto.Message) {
+	if s.queryDB == nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "no db configured"})
+		return
+	}
+	var params struct {
+		RunningInstallPaths []string `json:"running_install_paths"`
+	}
+	if err := json.Unmarshal(msg.Payload, &params); err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: " + err.Error()})
+		return
+	}
+	closed, err := ingest.CloseOrphanSessions(s.queryDB.Raw(), params.RunningInstallPaths)
+	if err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
+	}
+	s.send(c, proto.Message{
+		Type:    proto.TypeResponse,
+		ID:      msg.ID,
+		Payload: mustMarshal(map[string]any{"closed": closed}),
 	})
 }
 

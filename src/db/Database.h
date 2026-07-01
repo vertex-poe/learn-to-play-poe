@@ -19,15 +19,6 @@ public:
     QString lastError() const { return m_lastError; }
     QString path() const { return m_path; }
 
-    struct InstallState
-    {
-        qint64 id{-1};
-        qint64 fileCreatedAt{0};
-        qint64 fileModifiedAt{0};
-        qint64 fileSize{0};
-        qint64 lastByteOffset{0};
-    };
-
     struct NpcDialogEntry
     {
         QString messageHash;
@@ -73,9 +64,6 @@ public:
         QString charClass;   // may be empty
         QString installPath; // installs.path — which Client.txt this came from
     };
-
-    // Inserts the install path if new; returns current state either way.
-    InstallState upsertInstall(const QString &installPath);
 
     // Inserts NPC dialog entries; existing rows (by message_hash) are left
     // untouched so hand-assigned labels are never overwritten.
@@ -126,10 +114,6 @@ public:
     // Returns game-start and game-stop events as a flat chronological list.
     // limit > 0 returns only the most recent N events; offset skips the newest N.
     QList<SessionEventRecord> fetchSessionEvents(int limit = 0, int offset = 0) const;
-
-    // Closes sessions with no ended_at whose install is NOT in runningInstallPaths.
-    // Uses datetime('now','localtime') as the end timestamp; returns count closed.
-    int closeOrphanSessions(const QStringList &runningInstallPaths);
 
     struct ZoneTransitionRecord
     {
@@ -192,8 +176,6 @@ public:
 
 private:
     void applyPragmas();
-    void initSchema();
-    void migrate(int fromVersion);
 
     // Arms the per-query budget timer. Call at the start of every fetch method
     // that runs on the UI thread. The progress handler interrupts any query whose

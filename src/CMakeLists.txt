@@ -38,10 +38,6 @@ qt_add_executable(l2p-poe1
     events/LiveEventRuleEngine.cpp
     events/LiveEventRuleEngine.h
     workers/BackgroundWorker.h
-    workers/CloseOrphanSessionsWorker.cpp
-    workers/CloseOrphanSessionsWorker.h
-    workers/LogIngestWorker.cpp
-    workers/LogIngestWorker.h
     workers/TaskManager.cpp
     workers/TaskManager.h
     platform/WindowTracker.h
@@ -86,28 +82,6 @@ qt_add_executable(l2p-poe1
     ui/widgets/NotificationsPanel.h
     ui/widgets/ScrollJumpButton.cpp
     ui/widgets/ScrollJumpButton.h
-)
-
-file(GLOB SEED_INPUTS
-    "${CMAKE_SOURCE_DIR}/data/seed_base.sql"
-    "${CMAKE_SOURCE_DIR}/data/areas/*.sql"
-)
-
-add_custom_command(
-    OUTPUT "${CMAKE_SOURCE_DIR}/data/seed.sql"
-    COMMAND Python3::Interpreter "${CMAKE_SOURCE_DIR}/dev/build/combine_seed.py"
-    DEPENDS ${SEED_INPUTS} "${CMAKE_SOURCE_DIR}/dev/build/combine_seed.py"
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Combining seed SQL files -> data/seed.sql"
-    VERBATIM
-)
-
-qt_add_resources(l2p-poe1 "dbdata"
-    PREFIX "/db"
-    BASE "${CMAKE_SOURCE_DIR}/data"
-    FILES
-        "${CMAKE_SOURCE_DIR}/data/schema.sql"
-        "${CMAKE_SOURCE_DIR}/data/seed.sql"
 )
 
 qt_add_resources(l2p-poe1 "resources"
@@ -170,7 +144,10 @@ if(GO_EXECUTABLE)
     else()
         set(_service_out "${CMAKE_CURRENT_BINARY_DIR}/poe-info-service")
     endif()
-    file(GLOB_RECURSE _go_sources "${CMAKE_SOURCE_DIR}/poe-info-service/*.go")
+    file(GLOB_RECURSE _go_sources
+        "${CMAKE_SOURCE_DIR}/poe-info-service/*.go"
+        "${CMAKE_SOURCE_DIR}/poe-info-service/*.sql"
+    )
     add_custom_command(
         OUTPUT  "${_service_out}"
         COMMAND "${GO_EXECUTABLE}" build -o "${_service_out}" .

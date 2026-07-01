@@ -4,15 +4,12 @@
 #include "core/PerfProbe.h"
 #include "util/ScopedBudget.h"
 #include "ui/chat/ChatPage.h"
-#include "workers/CloseOrphanSessionsWorker.h"
 #include "ui/log/SessionViewPage.h"
-#include "db/Database.h"
 #include "ui/chat/DmPage.h"
 #include "ui/log/LogPage.h"
 #include "ui/overlay/GameOverlay.h"
 #include "events/LiveEventBus.h"
 #include "events/LiveEventRuleEngine.h"
-#include "workers/LogIngestWorker.h"
 #include "ui/settings/SettingsPage.h"
 #include "services/ServiceManager.h"
 #include "services/PoeInfoClient.h"
@@ -23,13 +20,12 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QScreen>
-#include <QtConcurrent>
-#include <QFuture>
 #include <QDateTime>
 #include <QDebug>
 #include <QElapsedTimer>
-#include <QFileInfo>
 #include <QIcon>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLabel>
 #include <QMenu>
 #include <QStatusBar>
@@ -286,11 +282,31 @@ MainWindow::MainWindow(QWidget *parent)
             dbPath += ".db";
         }
     }
-    connect(&m_dbWatcher, &QFutureWatcher<Database*>::finished, this, &MainWindow::onDatabaseReady);
-    QFuture<Database*> future = QtConcurrent::run([dbPath]() {
-        return new Database(dbPath);
+    const QString installDir = m_config.installDirs.isEmpty() ? QString() : m_config.installDirs.first();
+
+    // poe-info-service owns the database (schema creation/migration and all
+    // Client.txt ingestion) and must be up before any page requests data
+    // through it — start it first and gate the rest of startup on its first
+    // successful connection (onServiceReady), rather than opening a local
+    // Database handle here.
+    m_serviceManager->start(dbPath, installDir);
+    m_poeInfoClient = new PoeInfoClient(m_serviceManager->host(), m_serviceManager->port(), this);
+    m_poeInfoClient->subscribe(QStringLiteral("clientlog"), [](QJsonObject payload) {
+        LiveEvent ev;
+        ev.type      = payload[QStringLiteral("type")].toString();
+        ev.timestamp = payload[QStringLiteral("timestamp")].toString();
+        ev.data      = payload[QStringLiteral("data")].toObject().toVariantMap();
+        LiveEventBus::instance()->dispatch(ev);
     });
-    m_dbWatcher.setFuture(future);
+    connect(m_poeInfoClient, &PoeInfoClient::connected, this, &MainWindow::onServiceReady);
+    if (!m_timingMode) {
+        QTimer::singleShot(10'000, this, [this]() {
+            if (!m_poeInfoClient->isConnected()) {
+                log(QStringLiteral("poe-info-service unavailable"), QStringLiteral("service"),
+                    QStringLiteral("Chat, DM, and session history will be unavailable until it connects."));
+            }
+        });
+    }
 
     m_tracker = WindowTracker::create();
 
@@ -339,7 +355,6 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     delete m_tracker;
-    delete m_db;
 }
 
 void MainWindow::publishPerfHitboxes()
@@ -478,37 +493,24 @@ void MainWindow::onSearchClicked()
     }
 }
 
-void MainWindow::onDatabaseReady()
+void MainWindow::onServiceReady()
 {
-    m_db = m_dbWatcher.result();
-    qDebug() << "[startup] DB open async completed, ok=" << m_db->isOpen();
+    qDebug() << "[startup] poe-info-service connected";
     const bool perfMode = PerfProbe::instance().enabled();
-    if (m_db->isOpen()) {
-        if (!m_timingMode && !perfMode) {
-            scheduleLogIngestion();
-        }
-        m_chatPage->setShowGuildTags(m_config.showGuildTags);
-        m_dmPage->setShowGuildTags(m_config.showGuildTags);
 
-        const QString logPath = m_config.installDirs.isEmpty()
-            ? QString()
-            : m_config.installDirs.first() + "/logs/Client.txt";
-        m_serviceManager->start(m_db->path(), logPath);
+    m_chatPage->setShowGuildTags(m_config.showGuildTags);
+    m_dmPage->setShowGuildTags(m_config.showGuildTags);
 
-        m_poeInfoClient = new PoeInfoClient(m_serviceManager->host(), m_serviceManager->port(), this);
-        m_chatPage->setPoeInfoClient(m_poeInfoClient);
-        m_dmPage->setPoeInfoClient(m_poeInfoClient);
-        m_logPage->setPoeInfoClient(m_poeInfoClient);
-        m_sessionViewPage->setPoeInfoClient(m_poeInfoClient);
+    m_chatPage->setPoeInfoClient(m_poeInfoClient);
+    m_dmPage->setPoeInfoClient(m_poeInfoClient);
+    m_logPage->setPoeInfoClient(m_poeInfoClient);
+    m_sessionViewPage->setPoeInfoClient(m_poeInfoClient);
 
-        // Schedule initial preloads for the current page, and background-create
-        // the settings page so its landing screen is instant on first click.
-        if (!m_timingMode && !perfMode) {
-            schedulePreloads(m_stack->currentIndex());
-            QTimer::singleShot(800, this, &MainWindow::ensureSettingsPage);
-        }
-    } else {
-        log("Database error", "db", m_db->lastError());
+    // Schedule initial preloads for the current page, and background-create
+    // the settings page so its landing screen is instant on first click.
+    if (!m_timingMode && !perfMode) {
+        schedulePreloads(m_stack->currentIndex());
+        QTimer::singleShot(800, this, &MainWindow::ensureSettingsPage);
     }
 }
 
@@ -598,71 +600,26 @@ void MainWindow::onPollTimer()
         }
     }
 
-    if (m_db && m_db->isOpen()) {
-        if (anyRunning && !m_liveWorker) {
-            // Game is running but we have no live tail — start one.
-            // Prefer the exact dir from the first detected instance; fall back to configured dirs.
-            const QStringList candidates = !states[0].installDir.isEmpty()
-                ? QStringList{states[0].installDir}
-                : m_config.installDirs;
-            for (const QString &dir : candidates) {
-                if (QFileInfo::exists(dir + "/logs/Client.txt")) {
-                    startLiveIngest(dir);
-                    break;
+    // Close sessions for installs where the game is no longer running.
+    // poe-info-service owns ingestion and the sessions table; this just tells
+    // it which installs are currently running.
+    if (m_poeInfoClient && m_poeInfoClient->isConnected() && !m_orphanCloseInFlight) {
+        m_orphanCloseInFlight = true;
+        QJsonArray paths;
+        for (const QString &dir : m_runningInstallDirs)
+            paths.append(dir);
+        m_poeInfoClient->request(QStringLiteral("sessions.closeOrphans"),
+            QJsonObject{{QStringLiteral("running_install_paths"), paths}},
+            [this](QJsonObject payload, QString error) {
+                m_orphanCloseInFlight = false;
+                if (!error.isEmpty())
+                    return;
+                if (payload[QStringLiteral("closed")].toInt() > 0) {
+                    m_logPage->markDirty();
+                    m_sessionViewPage->markDirty();
                 }
-            }
-        } else if (!anyRunning && m_liveWorker) {
-            // Game closed — drain any remaining log content then stop.
-            stopLiveIngest();
-            m_logPage->markDirty();
-            m_sessionViewPage->markDirty();
-        }
-
-        // Close sessions for installs where the game is no longer running.
-        // Only run when no batch ingest is in flight so we're caught up with the log.
-        if (!m_liveWorker) {
-            bool ingestActive = false;
-            for (const auto &t : m_taskManager->tasks()) {
-                if (t.name.startsWith("Ingest ")
-                        && (t.status == TaskStatus::Pending
-                            || t.status == TaskStatus::Running
-                            || t.status == TaskStatus::Monitoring)) {
-                    ingestActive = true;
-                    break;
-                }
-            }
-            if (!ingestActive) {
-                // Don't queue another close task if the previous one is still pending/running.
-                bool orphanCloseActive = false;
-                for (const auto &t : m_taskManager->tasks()) {
-                    if (t.id == m_orphanCloseTaskId
-                            && (t.status == TaskStatus::Pending
-                                || t.status == TaskStatus::Running
-                                || t.status == TaskStatus::Monitoring)) {
-                        orphanCloseActive = true;
-                        break;
-                    }
-                }
-                if (!orphanCloseActive) {
-                    auto *worker = new CloseOrphanSessionsWorker(
-                        m_db->path(), m_runningInstallDirs);
-                    connect(worker, &CloseOrphanSessionsWorker::sessionsClosed,
-                            this,   &MainWindow::onOrphanSessionsClosed,
-                            Qt::QueuedConnection);
-                    m_orphanCloseTaskId = m_taskManager->submit(
-                        QStringLiteral("Close orphan sessions"),
-                        TaskKind::DbWrite, worker);
-                }
-            }
-        }
+            });
     }
-
-}
-
-void MainWindow::onOrphanSessionsClosed(int count)
-{
-    if (count > 0)
-        m_logPage->markDirty();
 }
 
 void MainWindow::onTrayActivated(QSystemTrayIcon::ActivationReason reason)
@@ -692,19 +649,6 @@ void MainWindow::log(const QString &title, const QString &tag,
     m_sessionViewPage->addNotification(title, tag, message, style);
 }
 
-void MainWindow::scheduleLogIngestion()
-{
-    for (const QString &dir : m_config.installDirs)
-        maybeIngestClientLog(dir);
-}
-
-// Returns true for routine background tasks that should never surface in the
-// status bar (too frequent or too low-level to be meaningful to the user).
-static bool isSilentTask(const TaskRecord &r)
-{
-    return r.name == QLatin1String("Close orphan sessions");
-}
-
 void MainWindow::onTaskUpdated(int id)
 {
     const QList<TaskRecord> &all = m_taskManager->tasks();
@@ -712,7 +656,6 @@ void MainWindow::onTaskUpdated(int id)
     int active = 0, totalPct = 0, running = 0;
     QString activeLabel;
     for (const auto &r : all) {
-        if (isSilentTask(r)) continue;
         if (r.status != TaskStatus::Pending && r.status != TaskStatus::Running)
             continue;
         ++active;
@@ -720,7 +663,7 @@ void MainWindow::onTaskUpdated(int id)
             totalPct += r.percent;
             ++running;
             if (activeLabel.isEmpty())
-                activeLabel = r.name.startsWith("Ingest ") ? "parsing logs" : r.name;
+                activeLabel = r.name;
         }
     }
 
@@ -736,18 +679,9 @@ void MainWindow::onTaskUpdated(int id)
     // All tasks done — show completion for the one that just finished.
     for (const auto &r : all) {
         if (r.id != id) continue;
-        if (isSilentTask(r)) break;  // no status bar update for silent tasks
         const QString t = QTime::currentTime().toString("HH:mm");
         if (r.status == TaskStatus::Finished || r.status == TaskStatus::Monitoring) {
-            if (r.name.startsWith("Ingest ")) {
-                qDebug() << "[task]" << r.name
-                         << (r.status == TaskStatus::Monitoring ? "→ Monitoring" : "→ Finished");
-                setStatusContent(QString());   // let idle message take over
-                m_logPage->markDirty();
-                m_sessionViewPage->markDirty();
-            } else {
-                setStatusContent(QStringLiteral("%1 · %2").arg(t, r.name));
-            }
+            setStatusContent(QStringLiteral("%1 · %2").arg(t, r.name));
         } else if (r.status == TaskStatus::Failed) {
             setStatusContent(QStringLiteral("%1 · Failed").arg(t));
         } else if (r.status == TaskStatus::Cancelled) {
@@ -769,72 +703,5 @@ void MainWindow::refreshStatusBar()
         m_statusLabel->setText(!m_runningPids.isEmpty() ? "Waiting for new game info" : "Waiting for game launch");
     } else {
         m_statusLabel->setText(m_lastStatusContent);
-    }
-}
-
-void MainWindow::maybeIngestClientLog(const QString &installDir, bool liveMode)
-{
-    const QString logPath = installDir + "/logs/Client.txt";
-    if (!QFileInfo::exists(logPath))
-        return;
-
-    const QString taskName = QStringLiteral("Ingest Client.txt");
-    for (const TaskRecord &t : m_taskManager->tasks()) {
-        if (t.name == taskName
-                && (t.status == TaskStatus::Pending
-                    || t.status == TaskStatus::Running
-                    || t.status == TaskStatus::Monitoring)) {
-            if (liveMode) {
-                // Cancel the existing batch worker so live mode can take over
-                // from its last committed offset.
-                m_taskManager->cancel(t.id);
-            } else {
-                return;  // batch already running, don't duplicate
-            }
-            break;
-        }
-    }
-
-    const Database::InstallState inst = m_db->upsertInstall(installDir);
-    if (inst.id < 0)
-        return;
-
-    // Skip unchanged files in batch mode only — in live mode we always watch.
-    if (!liveMode) {
-        const QFileInfo fi(logPath);
-        const bool alreadyIngested = inst.fileModifiedAt > 0
-            && inst.fileModifiedAt == fi.lastModified().toSecsSinceEpoch()
-            && inst.fileSize       == fi.size();
-        if (alreadyIngested)
-            return;
-    }
-
-    const qint64 resumeOffset = inst.lastByteOffset;
-
-    auto *worker = new LogIngestWorker(
-        m_db->path(), inst.id, logPath, resumeOffset, m_config.channelNames, liveMode);
-
-    if (liveMode) {
-        connect(worker, &LogIngestWorker::liveEventParsed,
-                LiveEventBus::instance(), &LiveEventBus::dispatch,
-                Qt::QueuedConnection);
-    }
-
-    m_taskManager->submit(taskName, TaskKind::DbWrite, worker);
-
-    if (liveMode)
-        m_liveWorker = worker;
-}
-
-void MainWindow::startLiveIngest(const QString &installDir)
-{
-    maybeIngestClientLog(installDir, /*liveMode=*/true);
-}
-
-void MainWindow::stopLiveIngest()
-{
-    if (m_liveWorker) {
-        m_liveWorker->finalize();
-        m_liveWorker = nullptr;
     }
 }
