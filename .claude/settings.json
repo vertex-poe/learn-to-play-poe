@@ -62,7 +62,8 @@
       "Bash(go version *)",
       "Bash(go mod *)",
       "Bash(go build *)",
-      "Bash(just service-build *)"
+      "Bash(just service-build *)",
+      "Bash(just service-test *)"
     ]
   }
 }

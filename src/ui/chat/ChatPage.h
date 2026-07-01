@@ -8,6 +8,7 @@
 #include <QWidget>
 
 struct LiveEvent;
+class PoeInfoClient;
 class QueryService;
 class QCheckBox;
 class QLabel;
@@ -25,6 +26,7 @@ public:
     explicit ChatPage(QWidget *parent = nullptr);
 
     void setQueryService(QueryService *qs);
+    void setPoeInfoClient(PoeInfoClient *client);
     void setShowGuildTags(bool show);
     void reload();
     void preload();
@@ -44,6 +46,7 @@ private:
     void triggerLoadIfNeeded();
     void rebuild();
     void applyChats(const QList<Database::ChatRecord> &records);
+    void showError(const QString &msg);
     void openFilterPanel();
     void refreshFilterPanel();
     void scrollToBottom();
@@ -56,7 +59,8 @@ private:
     static constexpr int kPageStep     = 50;
     static constexpr int kMaxWindow    = 300;
 
-    QueryService *m_queryService{};
+    QueryService  *m_queryService{};
+    PoeInfoClient *m_poeInfoClient{};
     QScrollArea  *m_scroll{};
     QWidget      *m_content{};
     QVBoxLayout  *m_contentLayout{};

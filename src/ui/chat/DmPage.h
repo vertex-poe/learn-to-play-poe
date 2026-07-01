@@ -7,6 +7,7 @@
 #include <QWidget>
 
 struct LiveEvent;
+class PoeInfoClient;
 class QueryService;
 class QLabel;
 class QPushButton;
@@ -23,6 +24,7 @@ public:
     explicit DmPage(QWidget *parent = nullptr);
 
     void setQueryService(QueryService *qs);
+    void setPoeInfoClient(PoeInfoClient *client);
     void setShowGuildTags(bool show);
     void reload();
     void preload();
@@ -44,6 +46,7 @@ private:
     void triggerLoadIfNeeded();
     void rebuild();
     void applyWhispers(const QList<Database::WhisperRecord> &whispers);
+    void showError(const QString &msg);
     void openFilterPanel();
     void refreshFilterPanel();
     void filterLeafSelected(const QString &name);
@@ -55,7 +58,8 @@ private:
     static constexpr int kPageStep     = 50;
     static constexpr int kMaxWindow    = 300;
 
-    QueryService *m_queryService{};
+    QueryService  *m_queryService{};
+    PoeInfoClient *m_poeInfoClient{};
     QLabel       *m_conversationLabel{};
     QPushButton  *m_filterBtn{};
     QString       m_filterPlayer;

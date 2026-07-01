@@ -12,6 +12,7 @@ import (
 	"github.com/MovingCairn/poe-info-service/internal/hub"
 	"github.com/MovingCairn/poe-info-service/internal/parser"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
+	"github.com/MovingCairn/poe-info-service/internal/query"
 	"github.com/MovingCairn/poe-info-service/internal/store"
 	"github.com/MovingCairn/poe-info-service/internal/tailer"
 	"github.com/gorilla/websocket"
@@ -20,15 +21,18 @@ import (
 type Config struct {
 	Version   string
 	StartTime int64
+	Bind      string // default "127.0.0.1"
 	Port      int
 	CacheDir  string
 	LogPath   string
+	DbPath    string // path to the l2p SQLite database
 }
 
 type server struct {
 	cfg      Config
 	hub      *hub.Hub
 	store    *store.Store
+	queryDB  *query.DB
 	started  time.Time
 	shutdown context.CancelFunc
 	upgrader websocket.Upgrader
@@ -37,7 +41,10 @@ type server struct {
 // Run negotiates singleton ownership, then either starts serving or yields to
 // the existing instance.
 func Run(cfg Config) error {
-	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
+	if cfg.Bind == "" {
+		cfg.Bind = "127.0.0.1"
+	}
+	addr := fmt.Sprintf("%s:%d", cfg.Bind, cfg.Port)
 
 	dialer := websocket.Dialer{HandshakeTimeout: 2 * time.Second}
 	conn, _, err := dialer.Dial("ws://"+addr+"/ws", nil)
@@ -119,6 +126,14 @@ func serve(cfg Config, listener net.Listener) error {
 		return fmt.Errorf("open store: %w", err)
 	}
 
+	var qdb *query.DB
+	if cfg.DbPath != "" {
+		qdb, err = query.Open(cfg.DbPath)
+		if err != nil {
+			log.Printf("warn: cannot open l2p db %q: %v", cfg.DbPath, err)
+		}
+	}
+
 	h := hub.New()
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -131,10 +146,11 @@ func serve(cfg Config, listener net.Listener) error {
 	}
 
 	srv := &server{
-		cfg:      cfg,
-		hub:      h,
-		store:    st,
-		started:  time.Now(),
+		cfg:     cfg,
+		hub:     h,
+		store:   st,
+		queryDB: qdb,
+		started: time.Now(),
 		shutdown: cancel,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -153,6 +169,9 @@ func serve(cfg Config, listener net.Listener) error {
 		log.Println("shutting down...")
 		st.Checkpoint()
 		httpSrv.Shutdown(context.Background())
+		if qdb != nil {
+			qdb.Close()
+		}
 		st.Close()
 	}()
 
@@ -331,6 +350,12 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 			}),
 		})
 
+	case "chat.messages":
+		s.handleChatMessages(c, msg)
+
+	case "dm.messages":
+		s.handleDmMessages(c, msg)
+
 	default:
 		s.send(c, proto.Message{
 			Type:  proto.TypeResponse,
@@ -338,6 +363,61 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 			Error: "unknown method: " + msg.Method,
 		})
 	}
+}
+
+func (s *server) handleChatMessages(c *hub.Client, msg proto.Message) {
+	if s.queryDB == nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "no db configured"})
+		return
+	}
+	var params struct {
+		Channels   []string `json:"channels"`
+		IncludeDMs bool     `json:"include_dms"`
+		Limit      int      `json:"limit"`
+		Offset     int      `json:"offset"`
+		FromDate   string   `json:"from_date"`
+		ToDate     string   `json:"to_date"`
+	}
+	if err := json.Unmarshal(msg.Payload, &params); err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: " + err.Error()})
+		return
+	}
+	records, err := s.queryDB.FetchChats(params.Channels, params.IncludeDMs, params.Limit, params.Offset, params.FromDate, params.ToDate)
+	if err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
+	}
+	s.send(c, proto.Message{
+		Type:    proto.TypeResponse,
+		ID:      msg.ID,
+		Payload: mustMarshal(map[string]any{"records": records}),
+	})
+}
+
+func (s *server) handleDmMessages(c *hub.Client, msg proto.Message) {
+	if s.queryDB == nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "no db configured"})
+		return
+	}
+	var params struct {
+		PlayerFilter string `json:"player_filter"`
+		Limit        int    `json:"limit"`
+		Offset       int    `json:"offset"`
+	}
+	if err := json.Unmarshal(msg.Payload, &params); err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: " + err.Error()})
+		return
+	}
+	records, err := s.queryDB.FetchWhispers(params.PlayerFilter, params.Limit, params.Offset)
+	if err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
+	}
+	s.send(c, proto.Message{
+		Type:    proto.TypeResponse,
+		ID:      msg.ID,
+		Payload: mustMarshal(map[string]any{"records": records}),
+	})
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {

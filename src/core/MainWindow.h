@@ -14,6 +14,8 @@ class QLabel;
 class QStackedWidget;
 
 class QMenu;
+class PoeInfoClient;
+class ServiceManager;
 class ChatPage;
 class SessionViewPage;
 class DmPage;
@@ -93,6 +95,8 @@ private:
     bool          m_timingMode{false};
     Database     *m_db{};
     QueryService *m_queryService{};
+    ServiceManager *m_serviceManager{};
+    PoeInfoClient  *m_poeInfoClient{};
 
     SessionViewPage    *m_sessionViewPage{};
     TaskManager        *m_taskManager{};

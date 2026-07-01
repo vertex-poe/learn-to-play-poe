@@ -78,6 +78,10 @@ qt_add_executable(l2p-poe1
     ui/settings/SettingsPage.h
     ui/widgets/ListEditor.cpp
     ui/widgets/ListEditor.h
+    services/ServiceManager.cpp
+    services/ServiceManager.h
+    services/PoeInfoClient.cpp
+    services/PoeInfoClient.h
     ui/widgets/NotificationWidget.cpp
     ui/widgets/NotificationWidget.h
     ui/widgets/NotificationsPanel.cpp
@@ -180,7 +184,7 @@ elseif (UNIX)
 endif()
 
 target_include_directories(l2p-poe1 PRIVATE ${_qtkeychain_src} ${_qtkeychain_bin})
-find_package(Qt6 COMPONENTS Core Gui Widgets Svg WebEngineWidgets Network Concurrent REQUIRED)
+find_package(Qt6 COMPONENTS Core Gui Widgets Svg WebEngineWidgets Network Concurrent WebSockets REQUIRED)
 
 target_link_libraries(l2p-poe1 PRIVATE
     Qt6::Core
@@ -190,6 +194,7 @@ target_link_libraries(l2p-poe1 PRIVATE
     Qt6::WebEngineWidgets
     Qt6::Network
     Qt6::Concurrent
+    Qt6::WebSockets
     tomlplusplus::tomlplusplus
     unofficial::sqlite3::sqlite3
     qt6keychain

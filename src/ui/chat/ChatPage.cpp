@@ -1,10 +1,16 @@
 #include "ui/chat/ChatPage.h"
 #include "db/Database.h"
 #include "db/QueryService.h"
+#include "services/PoeInfoClient.h"
 #include "ui/widgets/ScrollJumpButton.h"
 #include "ui/Theme.h"
 #include "events/LiveEvent.h"
 #include "events/LiveEventBus.h"
+
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QPointer>
 
 #include <functional>
 #include <QCheckBox>
@@ -516,12 +522,23 @@ void ChatPage::setQueryService(QueryService *qs)
     triggerLoadIfNeeded();
 }
 
+void ChatPage::setPoeInfoClient(PoeInfoClient *client)
+{
+    m_poeInfoClient = client;
+    connect(client, &PoeInfoClient::connected, this, [this] {
+        if (isVisible()) reload();
+        else m_dirty = true;
+    });
+}
+
 void ChatPage::setShowGuildTags(bool show)
 {
     if (m_showGuildTags == show) return;
     m_showGuildTags = show;
-    if (isVisible() && m_queryService) rebuild();
-    else m_dirty = true;
+    if (isVisible() && m_poeInfoClient && m_poeInfoClient->isConnected())
+        rebuild();
+    else
+        m_dirty = true;
 }
 
 void ChatPage::reload()
@@ -535,21 +552,23 @@ void ChatPage::reload()
 
 void ChatPage::triggerLoadIfNeeded()
 {
-    if (m_dirty && m_queryService && isVisible()) {
-        m_loadingOverlay->setGeometry(m_view->geometry());
-        m_loadingOverlay->show();
-        m_loadingOverlay->raise();
+    if (!m_dirty || !isVisible()) return;
+    m_loadingOverlay->setGeometry(m_view->geometry());
+    m_loadingOverlay->show();
+    m_loadingOverlay->raise();
+    if (m_poeInfoClient && m_poeInfoClient->isConnected()) {
         QTimer::singleShot(0, this, [this] {
-            if (m_dirty && m_queryService) reload();
+            if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected()) reload();
         });
     }
+    // If not connected: overlay stays visible; reload fires when connected() signal arrives.
 }
 
 void ChatPage::preload()
 {
-    if (!m_dirty || !m_queryService || m_rebuildInFlight) return;
+    if (!m_dirty || !m_poeInfoClient || !m_poeInfoClient->isConnected() || m_rebuildInFlight) return;
     QTimer::singleShot(0, this, [this] {
-        if (m_dirty && m_queryService && !isVisible()) reload();
+        if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected() && !isVisible()) reload();
     });
 }
 
@@ -614,7 +633,7 @@ void ChatPage::updateFilterLabel()
 
 void ChatPage::rebuild()
 {
-    if (!m_queryService) return;
+    if (!m_poeInfoClient || !m_poeInfoClient->isConnected()) { m_dirty = true; return; }
     if (m_rebuildInFlight) { m_dirty = true; return; }
     m_dirty           = false;
     m_rebuildInFlight = true;
@@ -631,11 +650,39 @@ void ChatPage::rebuild()
         }
     }
 
-    m_queryService->fetchChats(channels, includeDms, m_limit, m_fromDate, m_toDate, m_windowOffset,
-        [this](QList<Database::ChatRecord> records) {
-            m_rebuildInFlight = false;
-            applyChats(records);
-            if (m_dirty) QTimer::singleShot(0, this, [this] { rebuild(); });
+    QJsonArray chanArr;
+    for (QChar ch : channels) chanArr.append(QString(ch));
+    const QJsonObject params{
+        {QStringLiteral("channels"),    chanArr},
+        {QStringLiteral("include_dms"), includeDms},
+        {QStringLiteral("limit"),       m_limit},
+        {QStringLiteral("offset"),      m_windowOffset},
+        {QStringLiteral("from_date"),   m_fromDate},
+        {QStringLiteral("to_date"),     m_toDate},
+    };
+    m_poeInfoClient->request(QStringLiteral("chat.messages"), params,
+        [self = QPointer<ChatPage>(this)](QJsonObject payload, QString error) {
+            if (!self) return;
+            self->m_rebuildInFlight = false;
+            if (!error.isEmpty()) {
+                self->showError(QStringLiteral("Could not load messages: ") + error);
+                return;
+            }
+            QList<Database::ChatRecord> records;
+            for (const QJsonValue &v : payload[QStringLiteral("records")].toArray()) {
+                const QJsonObject obj = v.toObject();
+                Database::ChatRecord r;
+                r.source     = obj[QStringLiteral("source")].toString();
+                r.channel    = obj[QStringLiteral("channel")].toString();
+                r.playerName = obj[QStringLiteral("player_name")].toString();
+                r.guildTag   = obj[QStringLiteral("guild_tag")].toString();
+                r.message    = obj[QStringLiteral("message")].toString();
+                r.occurredAt = obj[QStringLiteral("occurred_at")].toString();
+                records.append(r);
+            }
+            self->applyChats(records);
+            if (self && self->m_dirty)
+                QTimer::singleShot(0, self.data(), [self] { if (self) self->rebuild(); });
         });
 }
 
@@ -736,6 +783,24 @@ void ChatPage::applyChats(const QList<Database::ChatRecord> &records)
     } else {
         QTimer::singleShot(0, this, &ChatPage::scrollToBottom);
     }
+}
+
+void ChatPage::showError(const QString &msg)
+{
+    auto *content = new QWidget;
+    auto *layout  = new QVBoxLayout(content);
+    layout->addStretch(1);
+    auto *lbl = new QLabel(msg, content);
+    lbl->setAlignment(Qt::AlignCenter);
+    lbl->setWordWrap(true);
+    layout->addWidget(lbl);
+    layout->addStretch(1);
+
+    m_loadingOverlay->hide();
+    delete m_content;
+    m_content       = content;
+    m_contentLayout = layout;
+    m_scroll->setWidget(content);
 }
 
 void ChatPage::openFilterPanel()

@@ -15,6 +15,8 @@
 #include "events/LiveEventRuleEngine.h"
 #include "workers/LogIngestWorker.h"
 #include "ui/settings/SettingsPage.h"
+#include "services/ServiceManager.h"
+#include "services/PoeInfoClient.h"
 #include "workers/TaskManager.h"
 #include "ui/TaskPanel.h"
 #include "platform/WindowTracker.h"
@@ -64,7 +66,8 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowIcon(QIcon(":/icons/vertex-icon.png"));
     resize(720, 480);
 
-    m_taskManager = new TaskManager(this);
+    m_taskManager    = new TaskManager(this);
+    m_serviceManager = new ServiceManager(this);
 
     m_sessionViewPage = new SessionViewPage(this);
     m_taskPanel = new TaskPanel(m_taskManager, this);
@@ -492,6 +495,15 @@ void MainWindow::onDatabaseReady()
         m_chatPage->setShowGuildTags(m_config.showGuildTags);
         m_dmPage->setQueryService(m_queryService);
         m_dmPage->setShowGuildTags(m_config.showGuildTags);
+
+        const QString logPath = m_config.installDirs.isEmpty()
+            ? QString()
+            : m_config.installDirs.first() + "/logs/Client.txt";
+        m_serviceManager->start(m_db->path(), logPath);
+
+        m_poeInfoClient = new PoeInfoClient(m_serviceManager->host(), m_serviceManager->port(), this);
+        m_chatPage->setPoeInfoClient(m_poeInfoClient);
+        m_dmPage->setPoeInfoClient(m_poeInfoClient);
 
         // Schedule initial preloads for the current page, and background-create
         // the settings page so its landing screen is instant on first click.

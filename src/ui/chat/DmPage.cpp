@@ -1,10 +1,16 @@
 #include "ui/chat/DmPage.h"
 #include "db/Database.h"
 #include "db/QueryService.h"
+#include "services/PoeInfoClient.h"
 #include "ui/widgets/ScrollJumpButton.h"
 #include "ui/Theme.h"
 #include "events/LiveEvent.h"
 #include "events/LiveEventBus.h"
+
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QPointer>
 
 #include <functional>
 #include <QDate>
@@ -481,12 +487,23 @@ void DmPage::setQueryService(QueryService *qs)
     triggerLoadIfNeeded();
 }
 
+void DmPage::setPoeInfoClient(PoeInfoClient *client)
+{
+    m_poeInfoClient = client;
+    connect(client, &PoeInfoClient::connected, this, [this] {
+        if (isVisible()) reload();
+        else m_dirty = true;
+    });
+}
+
 void DmPage::setShowGuildTags(bool show)
 {
     if (m_showGuildTags == show) return;
     m_showGuildTags = show;
-    if (isVisible() && m_queryService) rebuild();
-    else m_dirty = true;
+    if (isVisible() && m_poeInfoClient && m_poeInfoClient->isConnected())
+        rebuild();
+    else
+        m_dirty = true;
 }
 
 void DmPage::reload()
@@ -500,21 +517,23 @@ void DmPage::reload()
 
 void DmPage::triggerLoadIfNeeded()
 {
-    if (m_dirty && m_queryService && isVisible()) {
-        m_loadingOverlay->setGeometry(m_view->geometry());
-        m_loadingOverlay->show();
-        m_loadingOverlay->raise();
+    if (!m_dirty || !isVisible()) return;
+    m_loadingOverlay->setGeometry(m_view->geometry());
+    m_loadingOverlay->show();
+    m_loadingOverlay->raise();
+    if (m_poeInfoClient && m_poeInfoClient->isConnected()) {
         QTimer::singleShot(0, this, [this] {
-            if (m_dirty && m_queryService) reload();
+            if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected()) reload();
         });
     }
+    // If not connected: overlay stays visible; reload fires when connected() signal arrives.
 }
 
 void DmPage::preload()
 {
-    if (!m_dirty || !m_queryService || m_rebuildInFlight) return;
+    if (!m_dirty || !m_poeInfoClient || !m_poeInfoClient->isConnected() || m_rebuildInFlight) return;
     QTimer::singleShot(0, this, [this] {
-        if (m_dirty && m_queryService && !isVisible()) reload();
+        if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected() && !isVisible()) reload();
     });
 }
 
@@ -710,7 +729,7 @@ void DmPage::filterLeafSelected(const QString &name)
 
 void DmPage::rebuild()
 {
-    if (!m_queryService) return;
+    if (!m_poeInfoClient || !m_poeInfoClient->isConnected()) { m_dirty = true; return; }
     if (m_rebuildInFlight) { m_dirty = true; return; }
     m_dirty           = false;
     m_rebuildInFlight = true;
@@ -724,11 +743,33 @@ void DmPage::rebuild()
         }
     }
 
-    m_queryService->fetchWhispers(m_filterPlayer, m_limit, m_windowOffset,
-        [this](QList<Database::WhisperRecord> whispers) {
-            m_rebuildInFlight = false;
-            applyWhispers(whispers);
-            if (m_dirty) QTimer::singleShot(0, this, [this] { rebuild(); });
+    const QJsonObject params{
+        {QStringLiteral("player_filter"), m_filterPlayer},
+        {QStringLiteral("limit"),         m_limit},
+        {QStringLiteral("offset"),        m_windowOffset},
+    };
+    m_poeInfoClient->request(QStringLiteral("dm.messages"), params,
+        [self = QPointer<DmPage>(this)](QJsonObject payload, QString error) {
+            if (!self) return;
+            self->m_rebuildInFlight = false;
+            if (!error.isEmpty()) {
+                self->showError(QStringLiteral("Could not load messages: ") + error);
+                return;
+            }
+            QList<Database::WhisperRecord> whispers;
+            for (const QJsonValue &v : payload[QStringLiteral("records")].toArray()) {
+                const QJsonObject obj = v.toObject();
+                Database::WhisperRecord r;
+                r.direction  = obj[QStringLiteral("direction")].toString();
+                r.playerName = obj[QStringLiteral("player_name")].toString();
+                r.guildTag   = obj[QStringLiteral("guild_tag")].toString();
+                r.message    = obj[QStringLiteral("message")].toString();
+                r.occurredAt = obj[QStringLiteral("occurred_at")].toString();
+                whispers.append(r);
+            }
+            self->applyWhispers(whispers);
+            if (self && self->m_dirty)
+                QTimer::singleShot(0, self.data(), [self] { if (self) self->rebuild(); });
         });
 }
 
@@ -829,6 +870,24 @@ void DmPage::applyWhispers(const QList<Database::WhisperRecord> &whispers)
     } else {
         QTimer::singleShot(0, this, &DmPage::scrollToBottom);
     }
+}
+
+void DmPage::showError(const QString &msg)
+{
+    auto *content = new QWidget;
+    auto *layout  = new QVBoxLayout(content);
+    layout->addStretch(1);
+    auto *lbl = new QLabel(msg, content);
+    lbl->setAlignment(Qt::AlignCenter);
+    lbl->setWordWrap(true);
+    layout->addWidget(lbl);
+    layout->addStretch(1);
+
+    m_loadingOverlay->hide();
+    delete m_content;
+    m_content       = content;
+    m_contentLayout = layout;
+    m_scroll->setWidget(content);
 }
 
 void DmPage::resizeEvent(QResizeEvent *e)
