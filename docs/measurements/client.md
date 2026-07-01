@@ -1,7 +1,7 @@
 # Client.txt Ingest — Measurements
 
 **Date**: 2026-06-22  
-**Source**: `[ingest]` lines in `l2p-poe1.log`, single real-world run
+**Source**: `[ingest]` lines in `l2p-poe.log`, single real-world run
 
 ---
 

@@ -11,7 +11,7 @@ FetchContent_Declare(qtkeychain
 FetchContent_MakeAvailable(qtkeychain)
 FetchContent_GetProperties(qtkeychain SOURCE_DIR _qtkeychain_src BINARY_DIR _qtkeychain_bin)
 
-qt_add_executable(l2p-poe1
+qt_add_executable(l2p-poe
     main.cpp
     core/AppConfig.cpp
     core/AppConfig.h
@@ -84,14 +84,14 @@ qt_add_executable(l2p-poe1
     ui/widgets/ScrollJumpButton.h
 )
 
-qt_add_resources(l2p-poe1 "resources"
+qt_add_resources(l2p-poe "resources"
     PREFIX "/icons"
     BASE "${CMAKE_SOURCE_DIR}/assets/logo"
     FILES
         "${CMAKE_SOURCE_DIR}/assets/logo/vertex-icon.png"
 )
 
-qt_add_resources(l2p-poe1 "svgicons"
+qt_add_resources(l2p-poe "svgicons"
     PREFIX "/icons"
     BASE "${CMAKE_SOURCE_DIR}/assets/icons"
     FILES
@@ -128,7 +128,7 @@ qt_add_resources(l2p-poe1 "svgicons"
         "${CMAKE_SOURCE_DIR}/assets/icons/branch.svg"
 )
 
-qt_add_resources(l2p-poe1 "brandsvg"
+qt_add_resources(l2p-poe "brandsvg"
     PREFIX "/brand"
     BASE "${CMAKE_SOURCE_DIR}/assets/vertex-industries"
     FILES
@@ -136,7 +136,7 @@ qt_add_resources(l2p-poe1 "brandsvg"
 )
 
 # Build poe-info-service (Go) alongside the Qt app so it's available for tests
-# and the runtime loader (ServiceManager looks for it next to l2p-poe1.exe).
+# and the runtime loader (ServiceManager looks for it next to l2p-poe.exe).
 find_program(GO_EXECUTABLE go)
 if(GO_EXECUTABLE)
     if(WIN32)
@@ -159,7 +159,7 @@ if(GO_EXECUTABLE)
         VERBATIM
     )
     add_custom_target(poe_info_service_bin ALL DEPENDS "${_service_out}")
-    add_dependencies(l2p-poe1 poe_info_service_bin)
+    add_dependencies(l2p-poe poe_info_service_bin)
 else()
     message(WARNING "go not found — poe-info-service will not be built; tests requiring it will fail")
 endif()
@@ -171,23 +171,23 @@ add_custom_target(validate_doc_urls
     COMMENT "Validating docsSiteUrl paths"
     VERBATIM
 )
-add_dependencies(l2p-poe1 validate_doc_urls)
+add_dependencies(l2p-poe validate_doc_urls)
 
-target_include_directories(l2p-poe1 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(l2p-poe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 if (WIN32)
-    target_sources(l2p-poe1 PRIVATE platform/WindowTrackerWindows.cpp platform/OverlayKeepalive.cpp platform/OverlayKeepalive.h platform/l2p-poe1.rc platform/l2p-poe1.manifest)
-    target_link_libraries(l2p-poe1 PRIVATE psapi dbghelp)
+    target_sources(l2p-poe PRIVATE platform/WindowTrackerWindows.cpp platform/OverlayKeepalive.cpp platform/OverlayKeepalive.h platform/l2p-poe.rc platform/l2p-poe.manifest)
+    target_link_libraries(l2p-poe PRIVATE psapi dbghelp)
 elseif (UNIX)
-    target_sources(l2p-poe1 PRIVATE platform/WindowTrackerLinux.cpp)
+    target_sources(l2p-poe PRIVATE platform/WindowTrackerLinux.cpp)
     find_package(X11 REQUIRED)
-    target_link_libraries(l2p-poe1 PRIVATE X11::X11)
+    target_link_libraries(l2p-poe PRIVATE X11::X11)
 endif()
 
-target_include_directories(l2p-poe1 PRIVATE ${_qtkeychain_src} ${_qtkeychain_bin})
+target_include_directories(l2p-poe PRIVATE ${_qtkeychain_src} ${_qtkeychain_bin})
 find_package(Qt6 COMPONENTS Core Gui Widgets Svg WebEngineWidgets Network Concurrent WebSockets REQUIRED)
 
-target_link_libraries(l2p-poe1 PRIVATE
+target_link_libraries(l2p-poe PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
@@ -204,22 +204,22 @@ target_link_libraries(l2p-poe1 PRIVATE
 # On Windows, copy the dynamically linked qtkeychain DLL next to the executable
 # so that tests (and the app) can run without STATUS_DLL_NOT_FOUND (0xC0000135).
 if(WIN32)
-    add_custom_command(TARGET l2p-poe1 POST_BUILD
+    add_custom_command(TARGET l2p-poe POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:qt6keychain>
-        $<TARGET_FILE_DIR:l2p-poe1>
+        $<TARGET_FILE_DIR:l2p-poe>
     )
 endif()
 
 # --- Install / deploy ---
-install(TARGETS l2p-poe1
+install(TARGETS l2p-poe
     RUNTIME DESTINATION .
     BUNDLE  DESTINATION .
     LIBRARY DESTINATION .
 )
 
 qt_generate_deploy_app_script(
-    TARGET l2p-poe1
+    TARGET l2p-poe
     OUTPUT_SCRIPT deploy_script
     NO_UNSUPPORTED_PLATFORM_ERROR
 )

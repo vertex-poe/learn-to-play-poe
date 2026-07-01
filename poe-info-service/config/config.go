@@ -48,7 +48,7 @@ func Load(dir string) Config {
 }
 
 // LoadChannelNames reads the [chat_channel_names] table (channel number ->
-// user-defined label) from l2p-poe1's own config toml, mirroring
+// user-defined label) from l2p-poe's own config toml, mirroring
 // AppConfig::channelNames on the C++ side. Returns an empty map if the file
 // is missing or the section is absent — channel labels are cosmetic, so any
 // failure here is silent rather than fatal.

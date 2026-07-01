@@ -374,7 +374,7 @@ void MainWindow::setupTray()
 
     m_tray = new QSystemTrayIcon(icon, this);
     m_tray->setContextMenu(m_trayMenu);
-    m_tray->setToolTip("Learn to Play PoE1");
+    m_tray->setToolTip("Learn to Play PoE");
     connect(m_tray, &QSystemTrayIcon::activated,
             this, &MainWindow::onTrayActivated);
     m_tray->show();

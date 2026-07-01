@@ -220,7 +220,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     PerfProbe::instance().markDebug("main_after_app");
     
-    app.setApplicationName("Learn to Play PoE1");
+    app.setApplicationName("Learn to Play PoE");
     app.setApplicationVersion("0.1.0");
     app.setQuitOnLastWindowClosed(false);
 

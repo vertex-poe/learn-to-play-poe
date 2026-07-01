@@ -1,6 +1,6 @@
 # CLI Reference
 
-`l2p-poe1` can be invoked headlessly from the command line. Any unrecognised
+`l2p-poe` can be invoked headlessly from the command line. Any unrecognised
 invocation falls through to the GUI.
 
 ---
@@ -8,7 +8,7 @@ invocation falls through to the GUI.
 ## `ingest`
 
 ```
-l2p-poe1 ingest
+l2p-poe ingest
 ```
 
 Reads every `Client.txt` log found in configured install directories and
@@ -26,7 +26,7 @@ the result as JSON. Nothing is written to the database.
 **Batch (JSON file or stdin):**
 
 ```
-l2p-poe1 dialog hash [file.json]
+l2p-poe dialog hash [file.json]
 ```
 
 Input is a JSON array of objects with `npc_name` and `message` keys.
@@ -53,7 +53,7 @@ Output:
 **Single entry (direct args):**
 
 ```
-l2p-poe1 dialog hash "NPC Name" "message text"
+l2p-poe dialog hash "NPC Name" "message text"
 ```
 
 Same output format, one element in the array.
@@ -69,7 +69,7 @@ Prints a count of newly inserted vs already-present rows.
 **Batch (JSON file or stdin):**
 
 ```
-l2p-poe1 dialog ingest [file.json]
+l2p-poe dialog ingest [file.json]
 ```
 
 Uses the same input format as `dialog hash`.
@@ -77,20 +77,20 @@ Uses the same input format as `dialog hash`.
 **Single entry (direct args):**
 
 ```
-l2p-poe1 dialog ingest "NPC Name" "message text"
+l2p-poe dialog ingest "NPC Name" "message text"
 ```
 
 **Example workflow** — hash first to check output, then ingest:
 
 ```sh
 # Inspect hashes without writing
-l2p-poe1 dialog hash npc_dialog.json
+l2p-poe dialog hash npc_dialog.json
 
 # Write to DB
-l2p-poe1 dialog ingest npc_dialog.json
+l2p-poe dialog ingest npc_dialog.json
 
 # Or pipe directly
-l2p-poe1 dialog hash npc_dialog.json | l2p-poe1 dialog ingest
+l2p-poe dialog hash npc_dialog.json | l2p-poe dialog ingest
 ```
 
 > Note: the piped form re-hashes already-hashed output. The input schema

@@ -95,7 +95,8 @@
       "WebSearch",
       "Bash(gofmt -w *)",
       "Bash(gofmt -l *)",
-      "Bash(gofmt -d *)"
+      "Bash(gofmt -d *)",
+      "Bash(just clean *)"
     ]
   }
 }

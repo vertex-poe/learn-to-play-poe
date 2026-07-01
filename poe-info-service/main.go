@@ -22,7 +22,7 @@ func main() {
 		installDir = flag.String("install-dir", "", "PoE install directory (identifies the installs row)")
 		logPath    = flag.String("log-path", "", "Path to Client.txt (e.g. C:\\Games\\PoE\\logs\\Client.txt)")
 		dbPath     = flag.String("db-path", "", "Path to l2p SQLite database")
-		configPath = flag.String("config-path", "", "Path to l2p-poe1's own config toml (for chat channel labels)")
+		configPath = flag.String("config-path", "", "Path to l2p-poe's own config toml (for chat channel labels)")
 		port       = flag.Int("port", fileCfg.Port, "TCP port to listen on")
 		bind       = flag.String("bind", fileCfg.Bind, "Bind address (default 127.0.0.1)")
 		cacheDir   = flag.String("cache-dir", defaultCacheDir(), "Directory for SQLite DB and state files")

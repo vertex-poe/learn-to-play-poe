@@ -1,6 +1,6 @@
 #pragma once
 
-// UI responsiveness budgets for learn-to-play-poe1.
+// UI responsiveness budgets for learn-to-play-poe.
 //
 // These are wall-clock milliseconds measured from a defined start event to a
 // defined end event. Tests use the median of several runs to dampen noise.

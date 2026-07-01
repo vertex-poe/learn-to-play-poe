@@ -49,7 +49,7 @@ void StartupTimingTest::sessionListVisible()
     constexpr int runs = 10;
 
     for (int i = 0; i < runs; ++i) {
-        // File-based IPC: l2p-poe1.exe is a GUI subsystem app with no stdout
+        // File-based IPC: l2p-poe.exe is a GUI subsystem app with no stdout
         // handle when launched as a child process on Windows.
         const QString logPath = tmpDir.path() + QString("/timing_%1.log").arg(i);
         qputenv("L2P_STARTUP_TIMING_DB", dbPath.toUtf8());

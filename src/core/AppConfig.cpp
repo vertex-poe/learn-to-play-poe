@@ -66,20 +66,20 @@ QString AppConfig::configPath()
     // of deep inside the build tree, making dev ergonomics nicer.
     const QString cwd = QDir::currentPath();
     if (QFile::exists(cwd + "/Justfile"))
-        return cwd + "/l2p-poe1.toml";
+        return cwd + "/l2p-poe.toml";
 
     if (qApp) {
-        return QCoreApplication::applicationDirPath() + "/l2p-poe1.toml";
+        return QCoreApplication::applicationDirPath() + "/l2p-poe.toml";
     }
 
 #ifdef Q_OS_WIN
     wchar_t path[MAX_PATH];
     if (GetModuleFileNameW(NULL, path, MAX_PATH)) {
-        return QFileInfo(QString::fromWCharArray(path)).absolutePath() + "/l2p-poe1.toml";
+        return QFileInfo(QString::fromWCharArray(path)).absolutePath() + "/l2p-poe.toml";
     }
 #endif
 
-    return QDir::currentPath() + "/l2p-poe1.toml";
+    return QDir::currentPath() + "/l2p-poe.toml";
 }
 
 AppConfig AppConfig::load()

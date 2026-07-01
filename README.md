@@ -10,7 +10,7 @@ A desktop companion for Path of Exile 1 that surfaces and guides the information
 
 ---
 
-***[Issues](https://github.com/vertex-poe1/learn-to-play-poe1/issues)* are only for bugs with the intended functionality of an existing implemented feature, for everything else use *[Discussions](https://github.com/vertex-poe1/learn-to-play-poe1/discussions)*, including feature requests, installation and program support.**
+***[Issues](https://github.com/vertex-poe/learn-to-play-poe/issues)* are only for bugs with the intended functionality of an existing implemented feature, for everything else use *[Discussions](https://github.com/vertex-poe/learn-to-play-poe/discussions)*, including feature requests, installation and program support.**
 
 ---
 

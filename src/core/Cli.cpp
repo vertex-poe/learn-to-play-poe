@@ -76,8 +76,8 @@ static QString dbPath()
 // ---------------------------------------------------------------------------
 // dialog hash
 //
-//   l2p-poe1 dialog hash [file.json]
-//   l2p-poe1 dialog hash "NPC Name" "message text"
+//   l2p-poe dialog hash [file.json]
+//   l2p-poe dialog hash "NPC Name" "message text"
 // ---------------------------------------------------------------------------
 
 static int runDialogHash(int argc, char *argv[])
@@ -104,8 +104,8 @@ static int runDialogHash(int argc, char *argv[])
 // ---------------------------------------------------------------------------
 // dialog ingest
 //
-//   l2p-poe1 dialog ingest [file.json]
-//   l2p-poe1 dialog ingest "NPC Name" "message text"
+//   l2p-poe dialog ingest [file.json]
+//   l2p-poe dialog ingest "NPC Name" "message text"
 // ---------------------------------------------------------------------------
 
 static int runDialogIngest(int argc, char *argv[])
@@ -158,10 +158,10 @@ static void printUsage()
 {
     QTextStream err(stderr);
     err << "usage:\n"
-        << "  l2p-poe1 dialog hash [file.json]\n"
-        << "  l2p-poe1 dialog hash <npc_name> <message>\n"
-        << "  l2p-poe1 dialog ingest [file.json]\n"
-        << "  l2p-poe1 dialog ingest <npc_name> <message>\n";
+        << "  l2p-poe dialog hash [file.json]\n"
+        << "  l2p-poe dialog hash <npc_name> <message>\n"
+        << "  l2p-poe dialog ingest [file.json]\n"
+        << "  l2p-poe dialog ingest <npc_name> <message>\n";
 }
 
 int cliDispatch(int argc, char *argv[])

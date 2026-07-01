@@ -19,6 +19,6 @@ signals:
     void sessionDeleted(bool ok);
 
 private:
-    static constexpr const char *kService = "l2p-poe1";
+    static constexpr const char *kService = "l2p-poe";
     static constexpr const char *kKey     = "poesessid";
 };

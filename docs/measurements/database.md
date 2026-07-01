@@ -31,7 +31,7 @@ Consistent with the project's existing approach (`tomlplusplus` is already pulle
 CMake usage:
 ```cmake
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
-target_link_libraries(l2p-poe1 PRIVATE unofficial::sqlite3::sqlite3)
+target_link_libraries(l2p-poe PRIVATE unofficial::sqlite3::sqlite3)
 ```
 Installed version: `3.53.2` (with `json1` extension). See [vcpkg.json](../../vcpkg.json) and [src/CMakeLists.txt](../../src/CMakeLists.txt).
 

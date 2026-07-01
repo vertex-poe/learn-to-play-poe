@@ -4,7 +4,7 @@
 /vcpkg_installed
 
 # Ignore configuration file
-l2p-poe1.toml
+l2p-poe.toml
 
 _reference/
 _live/

@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
-  "name": "l2p-poe1",
+  "name": "l2p-poe",
   "version": "0.1.0",
   "builtin-baseline": "e6ed7c5be05eaedc2d06ee3e51bd059409429c5e",
   "dependencies": [

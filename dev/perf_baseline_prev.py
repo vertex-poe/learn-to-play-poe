@@ -33,7 +33,7 @@ def main(preset: str) -> int:
     worktree  = root / "build" / "perf-prev-worktree"
     prev_build = root / "build" / f"{preset}-prev"
     prev_bin  = prev_build / "bin"
-    exe_name  = "l2p-poe1.exe" if sys.platform == "win32" else "l2p-poe1"
+    exe_name  = "l2p-poe.exe" if sys.platform == "win32" else "l2p-poe"
     prev_app  = prev_bin / exe_name
 
     results_path  = root / "build" / preset / "perf_results.json"
@@ -82,8 +82,8 @@ def main(preset: str) -> int:
             f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE={prev_bin}",
         ], cwd=root)
 
-        print(f"\n[perf-baseline-prev] Building l2p-poe1 from HEAD~1...")
-        run(["cmake", "--build", str(prev_build), "--target", "l2p-poe1"], cwd=root)
+        print(f"\n[perf-baseline-prev] Building l2p-poe from HEAD~1...")
+        run(["cmake", "--build", str(prev_build), "--target", "l2p-poe"], cwd=root)
 
         if not prev_app.exists():
             print(f"Error: expected app at {prev_app} after build", file=sys.stderr)

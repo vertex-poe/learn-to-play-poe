@@ -7,10 +7,10 @@
   <assemblyIdentity
     version="0.1.0.0"
     processorArchitecture="*"
-    name="LearnToPlayPoE1"
+    name="LearnToPlayPoE"
     type="win32"/>
 
-  <description>Learn to Play PoE1</description>
+  <description>Learn to Play PoE</description>
 
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>

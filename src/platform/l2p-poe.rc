@@ -14,12 +14,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName",      "MovingCairn"
-            VALUE "FileDescription",  "Learn to Play PoE1"
+            VALUE "FileDescription",  "Learn to Play PoE"
             VALUE "FileVersion",      "0.1.0.0"
-            VALUE "InternalName",     "l2p-poe1"
+            VALUE "InternalName",     "l2p-poe"
             VALUE "LegalCopyright",   "Copyright (C) 2024 MovingCairn"
-            VALUE "OriginalFilename", "l2p-poe1.exe"
-            VALUE "ProductName",      "Learn to Play PoE1"
+            VALUE "OriginalFilename", "l2p-poe.exe"
+            VALUE "ProductName",      "Learn to Play PoE"
             VALUE "ProductVersion",   "0.1.0.0"
         END
     END

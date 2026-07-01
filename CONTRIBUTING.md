@@ -100,7 +100,7 @@ Subsequent builds are fast: Ninja skips anything unchanged and exits immediately
 #### 6. Run
 
 ```bash
-./build/windows-msvc/src/l2p-poe1.exe
+./build/windows-msvc/src/l2p-poe.exe
 ```
 
 ## Task runner

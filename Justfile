@@ -1,4 +1,4 @@
-# Learn to Play PoE1 — task runner
+# Learn to Play PoE — task runner
 # Install: winget install Casey.Just  |  scoop install just  |  cargo install just
 
 set windows-shell := ["pwsh", "-NoLogo", "-Command"]
@@ -20,9 +20,9 @@ build preset=default_preset:
     $vcvars = "$vs\VC\Auxiliary\Build\vcvarsall.bat"; \
     cmd /c "`"$vcvars`" x64 >NUL 2>&1 && cmake --preset {{preset}} && cmake --build --preset {{preset}}"; \
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; \
-    Remove-Item -Path "bin/l2p-poe1.exe" -ErrorAction SilentlyContinue; \
+    Remove-Item -Path "bin/l2p-poe.exe" -ErrorAction SilentlyContinue; \
     New-Item -ItemType Directory -Force -Path "bin" | Out-Null; \
-    Copy-Item -Path "build/{{preset}}/src/l2p-poe1.exe" -Destination "bin/" -Force -ErrorAction SilentlyContinue; \
+    Copy-Item -Path "build/{{preset}}/src/l2p-poe.exe" -Destination "bin/" -Force -ErrorAction SilentlyContinue; \
     Copy-Item -Path "build/{{preset}}/src/poe-info-service.exe" -Destination "bin/" -Force -ErrorAction SilentlyContinue; \
     Copy-Item -Path "build/{{preset}}/src/*.dll" -Destination "bin/" -Force -ErrorAction SilentlyContinue
 
@@ -91,14 +91,14 @@ all preset=default_preset: (test preset)
 # Build and run the app
 [windows]
 run preset=default_preset: (build preset)
-    Copy-Item -Path "build/{{preset}}/src/l2p-poe1.exe" -Destination "bin/" -Force -ErrorAction Stop; \
+    Copy-Item -Path "build/{{preset}}/src/l2p-poe.exe" -Destination "bin/" -Force -ErrorAction Stop; \
     Copy-Item -Path "build/{{preset}}/src/poe-info-service.exe" -Destination "bin/" -Force -ErrorAction SilentlyContinue; \
     Copy-Item -Path "build/{{preset}}/src/*.dll" -Destination "bin/" -Force -ErrorAction SilentlyContinue; \
-    bin/l2p-poe1.exe
+    bin/l2p-poe.exe
 
 [unix]
 run preset=default_preset: (build preset)
-    build/{{preset}}/src/l2p-poe1
+    build/{{preset}}/src/l2p-poe
 
 # Install to dist/ and run windeployqt / macdeployqt via cmake --install
 package preset=default_preset: (build preset)
@@ -106,11 +106,11 @@ package preset=default_preset: (build preset)
 
 # Linux: package as AppImage (requires linuxdeployqt on PATH)
 package-linux preset=default_preset: (package preset)
-    linuxdeployqt dist/{{preset}}/l2p-poe1 -appimage
+    linuxdeployqt dist/{{preset}}/l2p-poe -appimage
 
 # macOS: package .app bundle into a DMG (macdeployqt is included with Qt)
 package-mac preset=default_preset: (build preset)
-    macdeployqt build/{{preset}}/src/l2p-poe1.app -dmg
+    macdeployqt build/{{preset}}/src/l2p-poe.app -dmg
 
 # Windows: build Inno Setup installer (requires ISCC on PATH, run after `just package`)
 installer preset=default_preset: (package preset)

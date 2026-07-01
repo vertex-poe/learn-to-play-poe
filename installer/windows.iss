@@ -1,12 +1,12 @@
-; Inno Setup 6 script for Learn to Play PoE1
+; Inno Setup 6 script for Learn to Play PoE
 ; Prerequisites: Inno Setup 6 (https://jrsoftware.org/isinfo.php)
 ; Build:  ISCC installer\windows.iss   (or: just installer)
-; Output: installer\dist\l2p-poe1-0.1.0-setup.exe
+; Output: installer\dist\l2p-poe-0.1.0-setup.exe
 
-#define AppName      "Learn to Play PoE1"
+#define AppName      "Learn to Play PoE"
 #define AppVersion   "0.1.0"
 #define AppPublisher "MovingCairn"
-#define AppExeName   "l2p-poe1.exe"
+#define AppExeName   "l2p-poe.exe"
 #define DistDir      "..\dist\windows-mingw"
 
 [Setup]
@@ -17,7 +17,7 @@ AppPublisher={#AppPublisher}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 OutputDir=dist
-OutputBaseFilename=l2p-poe1-{#AppVersion}-setup
+OutputBaseFilename=l2p-poe-{#AppVersion}-setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

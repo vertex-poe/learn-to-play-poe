@@ -49,7 +49,7 @@ private:
         qputenv("L2P_STARTUP_TIMING_DB", dbPath.toUtf8());
 
         // Write timing markers to a file instead of stdout.
-        // l2p-poe1.exe is a GUI subsystem app (WIN32_EXECUTABLE) and has no
+        // l2p-poe.exe is a GUI subsystem app (WIN32_EXECUTABLE) and has no
         // stdout handle when launched as a child process on Windows.
         QTemporaryDir logDir;
         QVERIFY(logDir.isValid());

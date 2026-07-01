@@ -152,7 +152,7 @@ CATEGORIES_SQL = [
 def find_client_txt():
     if len(sys.argv) > 1:
         return Path(sys.argv[1])
-    toml = ROOT / "l2p-poe1.toml"
+    toml = ROOT / "l2p-poe.toml"
     if toml.exists():
         text = toml.read_text(encoding="utf-8")
         block = re.search(r'install_dirs\s*=\s*\[([^\]]*)\]', text, re.DOTALL)
@@ -161,7 +161,7 @@ def find_client_txt():
                 p = Path(d) / "logs" / "Client.txt"
                 if p.exists():
                     return p
-    print("error: no Client.txt found — pass path as argument or set install_dirs in l2p-poe1.toml",
+    print("error: no Client.txt found — pass path as argument or set install_dirs in l2p-poe.toml",
           file=sys.stderr)
     sys.exit(1)
 

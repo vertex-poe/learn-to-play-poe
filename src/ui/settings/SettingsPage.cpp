@@ -595,11 +595,11 @@ void SettingsPage::buildAboutPage(QWidget *parent)
 
     auto *copyrightLabel = new QLabel(
         "© 2026 Vertex Industries. All rights reserved.<br>"
-        "Available under <a href=\"https://github.com/vertex-poe1/learn-to-play-poe1/blob/main/LICENSE\""
+        "Available under <a href=\"https://github.com/vertex-poe/learn-to-play-poe/blob/main/LICENSE\""
         " style=\"color: #787060;\">AGPL-3.0</a>"
-        " — contact us for <a href=\"https://github.com/vertex-poe1/learn-to-play-poe1/blob/main/LICENSE-ALTERNATE\""
+        " — contact us for <a href=\"https://github.com/vertex-poe/learn-to-play-poe/blob/main/LICENSE-ALTERNATE\""
         " style=\"color: #787060;\">alternate licensing</a>.<br>"
-        "See <a href=\"https://github.com/vertex-poe1/learn-to-play-poe1/blob/main/NOTICE\""
+        "See <a href=\"https://github.com/vertex-poe/learn-to-play-poe/blob/main/NOTICE\""
         " style=\"color: #787060;\">NOTICE</a>"
         " for third-party attributions.",
         aboutContent);

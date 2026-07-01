@@ -59,7 +59,7 @@ jobs:
           $deploy = "$build\deploy"
           New-Item -ItemType Directory -Force -Path $deploy
 
-          Copy-Item "$src\l2p-poe1.exe" $deploy
+          Copy-Item "$src\l2p-poe.exe" $deploy
 
           # Copy vcpkg / FetchContent runtime DLLs that cmake placed next to the exe.
           Get-ChildItem "$src\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $deploy
@@ -98,7 +98,7 @@ jobs:
               --compiler-runtime `
               --no-translations `
               --dir $deploy `
-              "$deploy\l2p-poe1.exe"
+              "$deploy\l2p-poe.exe"
             if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with exit code $LASTEXITCODE" }
           }
           finally {
@@ -119,20 +119,20 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.version }}"
           Compress-Archive -Path "build\ci-release\deploy\*" `
-            -DestinationPath "build\ci-release\l2p-poe1-$version.zip"
+            -DestinationPath "build\ci-release\l2p-poe-$version.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: l2p-poe1-${{ steps.version.outputs.version }}
-          path: build\ci-release\l2p-poe1-${{ steps.version.outputs.version }}.zip
+          name: l2p-poe-${{ steps.version.outputs.version }}
+          path: build\ci-release\l2p-poe-${{ steps.version.outputs.version }}.zip
           retention-days: 30
 
       - name: Create draft release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@2bb465e97f322d3cb2a965294d483e0d26a67aa9 # v3.0.1
         with:
-          files: build\ci-release\l2p-poe1-${{ steps.version.outputs.version }}.zip
+          files: build\ci-release\l2p-poe-${{ steps.version.outputs.version }}.zip
           generate_release_notes: true
           draft: true
           prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
