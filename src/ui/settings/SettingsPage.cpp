@@ -145,10 +145,10 @@ namespace
 
 } // namespace
 
-SettingsPage::SettingsPage(AppConfig &config, QWidget *parent)
+SettingsPage::SettingsPage(AppConfig &config, PoeInfoClient *poeInfoClient, QWidget *parent)
     : QWidget(parent), m_config(config)
 {
-    m_accountStore = new PoeAccountStore(this);
+    m_accountStore = new PoeAccountStore(poeInfoClient, this);
 
     // ---- Header -------------------------------------------------------
     m_backBtn = new QPushButton("← Back", this);
@@ -881,7 +881,7 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
         } else {
             auto *win = new PoeLoginWindow(m_config, this);
             connect(win, &PoeLoginWindow::sessionCaptured,
-                    m_accountStore, &PoeAccountStore::writeSession);
+                    m_accountStore, &PoeAccountStore::storeSession);
         } });
 
     {
@@ -945,13 +945,13 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
     m_accountsUaCopyBtn->setVisible(m_config.debugMode);
 
     parentLayout->addWidget(accountsContent);
-    connect(m_accountStore, &PoeAccountStore::sessionRead, this,
-            [this](const QString &poesessid)
+    connect(m_accountStore, &PoeAccountStore::sessionChecked, this,
+            [this](bool present)
             {
-                m_hasSession = !poesessid.isEmpty();
+                m_hasSession = present;
                 updateAccountButton();
             });
-    connect(m_accountStore, &PoeAccountStore::sessionWritten, this,
+    connect(m_accountStore, &PoeAccountStore::sessionStored, this,
             [this](bool ok)
             {
                 if (ok)
@@ -960,7 +960,7 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
                     updateAccountButton();
                 }
             });
-    m_accountStore->readSession();
+    m_accountStore->checkSession();
     m_accountsUaLabel->setVisible(m_config.debugMode);
     m_accountsUaDisplay->setVisible(m_config.debugMode);
     m_accountsUaCopyBtn->setVisible(m_config.debugMode);

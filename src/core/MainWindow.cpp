@@ -422,7 +422,7 @@ void MainWindow::ensureSettingsPage()
 {
     if (m_settingsPage)
         return;
-    m_settingsPage = new SettingsPage(m_config, this);
+    m_settingsPage = new SettingsPage(m_config, m_poeInfoClient, this);
     connect(m_settingsPage, &SettingsPage::configChanged,
             this, &MainWindow::onConfigChanged);
     QWidget *placeholder = m_stack->widget(TabSettings);

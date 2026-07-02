@@ -3,22 +3,28 @@
 #include <QObject>
 #include <QString>
 
+class PoeInfoClient;
+
+// Hands POESESSID off to poe-info-service and asks it whether one is already
+// stored, rather than persisting it in this app — poe-info-service is the
+// sole owner of the credential per ADR-004/ADR-005 and never returns the
+// value itself, only presence.
 class PoeAccountStore : public QObject
 {
     Q_OBJECT
 public:
-    explicit PoeAccountStore(QObject *parent = nullptr);
+    explicit PoeAccountStore(PoeInfoClient *client, QObject *parent = nullptr);
 
-    void readSession();
-    void writeSession(const QString &poesessid);
+    void checkSession();
+    void storeSession(const QString &poesessid);
     void deleteSession();
 
 signals:
-    void sessionRead(const QString &poesessid); // empty = not found
-    void sessionWritten(bool ok);
+    void sessionChecked(bool present);
+    void sessionStored(bool ok);
     void sessionDeleted(bool ok);
 
 private:
-    static constexpr const char *kService = "l2p-poe";
-    static constexpr const char *kKey     = "poesessid";
+    PoeInfoClient *m_client{};
+    static constexpr const char *kKey = "poesessid";
 };

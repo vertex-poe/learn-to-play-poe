@@ -64,48 +64,14 @@ jobs:
           # Copy vcpkg / FetchContent runtime DLLs that cmake placed next to the exe.
           Get-ChildItem "$src\*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination $deploy
 
-          # qt6keychain is built via FetchContent and its DLL lands in _deps/qtkeychain-build/,
-          # not $src. Find it anywhere under the build tree (excluding $deploy to avoid a
-          # self-copy error) and copy it into the deploy dir ourselves.
-          $keychain = Get-ChildItem "$build" -Recurse -Filter "qt6keychain*.dll" `
-            -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notlike "*\deploy\*" } |
-            Select-Object -First 1
-          if (-not $keychain) { throw "qt6keychain.dll not found under $build" }
-          Write-Host "Found: $($keychain.FullName)"
-          Copy-Item $keychain.FullName -Destination $deploy -Force
-
           # Deploy Qt runtime dependencies.
-          # NOTE: windeployqt matches DLLs by filename: anything named "Qt6*"/"qt6*" is
-          # assumed to be an official Qt module living in $QT_ROOT_DIR\bin. qt6keychain.dll
-          # is a third-party FetchContent lib that happens to use the "qt6" prefix, so
-          # windeployqt prepends $QT_ROOT_DIR\bin to its lookup path, fails to open it there,
-          # and aborts with exit code 1. --ignore-library-errors does NOT suppress this
-          # particular failure in Qt 6.11's windeployqt.
-          #
-          # Fix: stage qt6keychain.dll where windeployqt expects to find it ($QT_ROOT_DIR\bin)
-          # before running it. windeployqt then resolves it like any Qt module and scans its
-          # dependencies normally. We remove it afterward to leave the Qt install untouched.
-          $qtBin = "$env:QT_ROOT_DIR\bin"
-          $stagedKeychain = "$qtBin\$($keychain.Name)"
-          $stagedKeychainPreexisted = Test-Path $stagedKeychain
-          if (-not $stagedKeychainPreexisted) {
-            Copy-Item $keychain.FullName -Destination $stagedKeychain -Force
-          }
-          try {
-            & "$qtBin\windeployqt.exe" `
-              --release `
-              --compiler-runtime `
-              --no-translations `
-              --dir $deploy `
-              "$deploy\l2p-poe.exe"
-            if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with exit code $LASTEXITCODE" }
-          }
-          finally {
-            if (-not $stagedKeychainPreexisted) {
-              Remove-Item $stagedKeychain -Force -ErrorAction SilentlyContinue
-            }
-          }
+          & "$env:QT_ROOT_DIR\bin\windeployqt.exe" `
+            --release `
+            --compiler-runtime `
+            --no-translations `
+            --dir $deploy `
+            "$deploy\l2p-poe.exe"
+          if ($LASTEXITCODE -ne 0) { throw "windeployqt failed with exit code $LASTEXITCODE" }
 
           # Ensure VC redistributable is present (windeployqt --compiler-runtime should
           # copy it, but fall back to downloading if it doesn't)

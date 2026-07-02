@@ -1,41 +1,37 @@
 #include "util/PoeAccountStore.h"
 
-#include <keychain.h>
+#include "services/PoeInfoClient.h"
 
-PoeAccountStore::PoeAccountStore(QObject *parent)
-    : QObject(parent)
+#include <QJsonObject>
+
+PoeAccountStore::PoeAccountStore(PoeInfoClient *client, QObject *parent)
+    : QObject(parent), m_client(client)
 {}
 
-void PoeAccountStore::readSession()
+void PoeAccountStore::checkSession()
 {
-    auto *job = new QKeychain::ReadPasswordJob(QLatin1String(kService), this);
-    job->setAutoDelete(true);
-    job->setKey(QLatin1String(kKey));
-    connect(job, &QKeychain::Job::finished, this, [this, job]() {
-        emit sessionRead(job->error() == QKeychain::NoError ? job->textData() : QString{});
+    m_client->request(QStringLiteral("credentials.has"),
+                       {{QStringLiteral("key"), QLatin1String(kKey)}},
+                       [this](QJsonObject payload, QString error) {
+        emit sessionChecked(error.isEmpty() && payload[QStringLiteral("present")].toBool());
     });
-    job->start();
 }
 
-void PoeAccountStore::writeSession(const QString &poesessid)
+void PoeAccountStore::storeSession(const QString &poesessid)
 {
-    auto *job = new QKeychain::WritePasswordJob(QLatin1String(kService), this);
-    job->setAutoDelete(true);
-    job->setKey(QLatin1String(kKey));
-    job->setTextData(poesessid);
-    connect(job, &QKeychain::Job::finished, this, [this, job]() {
-        emit sessionWritten(job->error() == QKeychain::NoError);
+    m_client->request(QStringLiteral("credentials.store"),
+                       {{QStringLiteral("key"), QLatin1String(kKey)},
+                        {QStringLiteral("value"), poesessid}},
+                       [this](QJsonObject /*payload*/, QString error) {
+        emit sessionStored(error.isEmpty());
     });
-    job->start();
 }
 
 void PoeAccountStore::deleteSession()
 {
-    auto *job = new QKeychain::DeletePasswordJob(QLatin1String(kService), this);
-    job->setAutoDelete(true);
-    job->setKey(QLatin1String(kKey));
-    connect(job, &QKeychain::Job::finished, this, [this, job]() {
-        emit sessionDeleted(job->error() == QKeychain::NoError);
+    m_client->request(QStringLiteral("credentials.delete"),
+                       {{QStringLiteral("key"), QLatin1String(kKey)}},
+                       [this](QJsonObject /*payload*/, QString error) {
+        emit sessionDeleted(error.isEmpty());
     });
-    job->start();
 }

@@ -16,17 +16,37 @@
 
 [Chat & Direct Messages](docs/rationales/chat.md) is the most substantive: it explains why a chat log viewer exists, the three-tier feature arc (log viewer → in-game overlay → tab-out send client), and how the shift of trade traffic to the Merchant Tab made whisper history more legible and therefore more worth building for.
 
+### poe-info-service
+
+[`poe-info-service/`](poe-info-service/) is a separate Go binary this app depends on for `Client.txt` parsing and GGG API access — see [ADR-006](docs/decisions/006-poe-info-service.md) for why it's a standalone service rather than app-internal logic. It has its own [CONTRIBUTING.md](poe-info-service/CONTRIBUTING.md) and its own ADRs under [`poe-info-service/docs/decisions/`](poe-info-service/docs/decisions/), since its process lifecycle, distribution, and API versioning are decided independently of any one addon that depends on it.
+
 ## How it works
 
-The core pipeline is short:
+`Client.txt` tailing/parsing and all database ownership live in
+[`poe-info-service`](poe-info-service/), a separate Go binary this app
+depends on rather than implements itself — see
+[ADR-006](docs/decisions/006-poe-info-service.md) for why, and
+[`poe-info-service/CONTRIBUTING.md`](poe-info-service/CONTRIBUTING.md) for how
+that service works internally. This app's pipeline:
 
-1. **`LogIngestWorker`** tails `Client.txt`, parsing new lines as they arrive and writing structured rows into SQLite via `Database`. Ingest is idempotent — re-reading the same file is always safe.
-2. **`LiveEventBus`** receives parsed events in real time and routes them through the user's configured rules (`LiveEventRuleEngine`), firing notifications or overlay updates.
-3. **UI pages** (`ChatPage`, `DmPage`, `NotificationsPanel`, `SettingsPage`) query the database directly or subscribe to the event bus for live updates.
-4. **`GameOverlay`** renders a transparent Qt window positioned over the game. Its hit-test mask is updated whenever the overlay's layout changes, keeping non-widget areas click-through.
-5. **`WindowTracker`** watches the game's window position so the overlay follows it across monitors and window moves.
+1. **`ServiceManager`** starts the shared `poe-info-service` instance (or
+   connects to whichever instance already won the singleton election) and
+   keeps it alive for as long as this app needs it.
+2. **`PoeInfoClient`** is this app's WebSocket client to that service —
+   `request()` for one-shot queries (chat/DM history, session data,
+   credential storage) and `subscribe()` for live events.
+3. **`LiveEventBus`** receives events forwarded from `PoeInfoClient`'s
+   `clientlog` subscription and routes them through the user's configured
+   rules (`LiveEventRuleEngine`), firing notifications or overlay updates.
+4. **UI pages** (`ChatPage`, `DmPage`, `NotificationsPanel`, `SettingsPage`)
+   query `poe-info-service` through `PoeInfoClient` or subscribe to the event
+   bus for live updates. No page opens the database directly.
+5. **`GameOverlay`** renders a transparent Qt window positioned over the game. Its hit-test mask is updated whenever the overlay's layout changes, keeping non-widget areas click-through.
+6. **`WindowTracker`** watches the game's window position so the overlay follows it across monitors and window moves.
 
-All data originates from `Client.txt`. There is no network access, no GGG API calls, and no game-process interaction of any kind beyond reading a file the game writes itself.
+This app never calls GGG's web APIs or opens the SQLite database directly —
+both go through `poe-info-service`, so the rate-limit budget and cache are
+shared with any other addon using the same service on the machine.
 
 ## Building
 
@@ -124,7 +144,12 @@ The project uses [`just`](https://just.systems/) as a task runner. Install it wi
 | `just package-linux` | Package as AppImage (requires `linuxdeployqt` on PATH) |
 | `just package-mac` | Package as a `.app` DMG (macOS) |
 | `just installer` | Build an Inno Setup installer (Windows; requires `ISCC` on PATH) |
+| `just service-build` | Build only `poe-info-service`, into `bin/` |
+| `just service-test` | `go test ./...` for `poe-info-service` only |
+| `just service-run -- <args>` | Build and run `poe-info-service` standalone, e.g. for log-tracing without the GUI |
 | `just clean` | Delete all build and dist artifacts |
+
+`just build`, `just run`, and `just test` already include `poe-info-service` — the `service-*` recipes above are for working on it in isolation. See [`poe-info-service/CONTRIBUTING.md`](poe-info-service/CONTRIBUTING.md) for details on that service.
 
 Run `just` with no arguments to list all available recipes.
 

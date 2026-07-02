@@ -1,15 +1,5 @@
 find_package(tomlplusplus CONFIG REQUIRED)
 # unofficial-sqlite3 is found in the root CMakeLists so tests/ can also use it.
-include(FetchContent)
-set(BUILD_WITH_QT6          ON  CACHE BOOL "" FORCE)
-set(BUILD_TRANSLATIONS      OFF CACHE BOOL "" FORCE)
-set(BUILD_TEST_APPLICATION  OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(qtkeychain
-    GIT_REPOSITORY https://github.com/frankosterfeld/qtkeychain.git
-    GIT_TAG        0.14.3
-)
-FetchContent_MakeAvailable(qtkeychain)
-FetchContent_GetProperties(qtkeychain SOURCE_DIR _qtkeychain_src BINARY_DIR _qtkeychain_bin)
 
 qt_add_executable(l2p-poe
     main.cpp
@@ -126,6 +116,7 @@ qt_add_resources(l2p-poe "svgicons"
         "${CMAKE_SOURCE_DIR}/assets/icons/fleur-de-lis-shield.svg"
         "${CMAKE_SOURCE_DIR}/assets/icons/cattle-skull.svg"
         "${CMAKE_SOURCE_DIR}/assets/icons/branch.svg"
+        "${CMAKE_SOURCE_DIR}/assets/icons/stopwatch-fill.svg"
 )
 
 qt_add_resources(l2p-poe "brandsvg"
@@ -191,7 +182,6 @@ elseif (UNIX)
     target_link_libraries(l2p-poe PRIVATE X11::X11)
 endif()
 
-target_include_directories(l2p-poe PRIVATE ${_qtkeychain_src} ${_qtkeychain_bin})
 find_package(Qt6 COMPONENTS Core Gui Widgets Svg WebEngineWidgets Network Concurrent WebSockets REQUIRED)
 
 target_link_libraries(l2p-poe PRIVATE
@@ -205,18 +195,7 @@ target_link_libraries(l2p-poe PRIVATE
     Qt6::WebSockets
     tomlplusplus::tomlplusplus
     unofficial::sqlite3::sqlite3
-    qt6keychain
 )
-
-# On Windows, copy the dynamically linked qtkeychain DLL next to the executable
-# so that tests (and the app) can run without STATUS_DLL_NOT_FOUND (0xC0000135).
-if(WIN32)
-    add_custom_command(TARGET l2p-poe POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:qt6keychain>
-        $<TARGET_FILE_DIR:l2p-poe>
-    )
-endif()
 
 # --- Install / deploy ---
 install(TARGETS l2p-poe

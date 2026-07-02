@@ -55,12 +55,20 @@ PoeLoginWindow::PoeLoginWindow(const AppConfig &config, QWidget *parent, Mode mo
     layout->setContentsMargins(0, 0, 0, 0);
 
     // Show and raise BEFORE WebEngine spawns its renderer so the window is
-    // visible immediately and Windows doesn't mark the app as "Not Responding".
+    // visible immediately. A fixed, modest size rather than showMaximized():
+    // maximizing (especially on a large/high-DPI display) forces WebEngine to
+    // stand up a much bigger GPU compositor surface before first paint, slow
+    // enough that Windows' hang detector flags the window as "Not Responding"
+    // before any content appears at all.
+    constexpr int kWidth  = 1024;
+    constexpr int kHeight = 800;
     QScreen *screen = parent ? parent->window()->screen()
                               : QGuiApplication::primaryScreen();
-    if (screen)
-        setGeometry(screen->availableGeometry());
-    showMaximized();
+    const QRect avail = screen ? screen->availableGeometry() : QRect(0, 0, kWidth, kHeight);
+    QRect geom(0, 0, qMin(kWidth, avail.width()), qMin(kHeight, avail.height()));
+    geom.moveCenter(avail.center());
+    setGeometry(geom);
+    show();
     raise();
     activateWindow();
 
@@ -79,9 +87,14 @@ PoeLoginWindow::PoeLoginWindow(const AppConfig &config, QWidget *parent, Mode mo
         // Named persistent profile: Cloudflare's cf_clearance cookie and other
         // storage survive across app launches, so subsequent logins skip the
         // challenge entirely.
-        // profile must outlive view+page; view is added after profile so Qt's
-        // reverse-order child deletion destroys view→page before profile.
-        auto *profile = new QWebEngineProfile(QStringLiteral("l2p-poe-login"), this);
+        // profile must outlive page (a QWebEnginePage keeps using its profile
+        // until it is actually destroyed). QObject deletes children in
+        // insertion order, not reverse, so parenting profile to `this`
+        // alongside view got this backwards — profile would be destroyed
+        // before view/page, producing "Release of profile requested but
+        // WebEnginePage still not deleted". Leave profile parentless and
+        // delete it explicitly once view (and therefore page) is gone.
+        auto *profile = new QWebEngineProfile(QStringLiteral("l2p-poe-login"));
 
         // Use the native Chromium UA with the QtWebEngine token stripped.
         // The declared Chrome version then matches actual engine capabilities,
@@ -109,6 +122,7 @@ PoeLoginWindow::PoeLoginWindow(const AppConfig &config, QWidget *parent, Mode mo
 
         auto *view = new QWebEngineView(this);
         auto *page = new QWebEnginePage(profile, view);  // child of view, not this
+        connect(view, &QObject::destroyed, profile, &QObject::deleteLater);
 
         // Inject anti-bot overrides before any page script runs.
         QWebEngineScript antiBot;
@@ -121,15 +135,40 @@ PoeLoginWindow::PoeLoginWindow(const AppConfig &config, QWidget *parent, Mode mo
 
         view->setPage(page);
 
+        qDebug() << "[login] profile persistentStoragePath=" << profile->persistentStoragePath()
+                 << "cachePath=" << profile->cachePath()
+                 << "offTheRecord=" << profile->isOffTheRecord();
+
+        connect(page, &QWebEnginePage::loadStarted, this, [page]() {
+            qDebug() << "[login] loadStarted url=" << page->requestedUrl();
+        });
+        connect(view, &QWebEngineView::renderProcessTerminated, this,
+                [](QWebEnginePage::RenderProcessTerminationStatus status, int exitCode) {
+            // A crashed/killed renderer is the classic cause of a page that
+            // loads (console output and all) but never paints anything —
+            // there is no separate "blank" signal, so this is the only way
+            // to tell that case apart from a genuinely empty page.
+            qDebug() << "[login] renderProcessTerminated status=" << status
+                     << "exitCode=" << exitCode;
+        });
+
         // cookieReady gates the POESESSID listener: the persistent profile fires
         // cookieAdded for every cookie it loads from disk (including stale sessions
         // from previous runs). We only want cookies set after the page loads.
         auto retried     = std::make_shared<bool>(false);
         auto cookieReady = std::make_shared<bool>(false);
         connect(page, &QWebEnginePage::loadFinished, this,
-                [view, retried, cookieReady](bool ok) {
+                [page, view, retried, cookieReady](bool ok) {
+            qDebug() << "[login] loadFinished ok=" << ok << "url=" << page->url()
+                     << "title=" << page->title();
             if (ok) {
                 *cookieReady = true;
+                // Confirms whether the DOM actually has content, independent
+                // of whether the widget visibly painted it.
+                page->toHtml([](const QString &html) {
+                    qDebug() << "[login] document.html length=" << html.length()
+                             << "preview=" << html.left(200);
+                });
             } else if (!*retried) {
                 *retried = true;
                 qDebug() << "[login] load failed, retrying after 1.5s";
@@ -154,6 +193,7 @@ PoeLoginWindow::PoeLoginWindow(const AppConfig &config, QWidget *parent, Mode mo
                                        : QStringLiteral("https://www.pathofexile.com/login");
         view->load(QUrl(url));
         layout->addWidget(view);
-        qDebug() << "[login] loading" << url;
+        qDebug() << "[login] loading" << url << "view size=" << view->size()
+                 << "visible=" << view->isVisible();
     });
 }

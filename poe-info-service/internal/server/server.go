@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/MovingCairn/poe-info-service/internal/creds"
 	"github.com/MovingCairn/poe-info-service/internal/hub"
 	"github.com/MovingCairn/poe-info-service/internal/ingest"
 	"github.com/MovingCairn/poe-info-service/internal/parser"
@@ -436,6 +437,15 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 	case "sessions.closeOrphans":
 		s.handleCloseOrphanSessions(c, msg)
 
+	case "credentials.store":
+		s.handleCredentialsStore(c, msg)
+
+	case "credentials.has":
+		s.handleCredentialsHas(c, msg)
+
+	case "credentials.delete":
+		s.handleCredentialsDelete(c, msg)
+
 	default:
 		s.send(c, proto.Message{
 			Type:  proto.TypeResponse,
@@ -652,6 +662,73 @@ func (s *server) handleCloseOrphanSessions(c *hub.Client, msg proto.Message) {
 		Type:    proto.TypeResponse,
 		ID:      msg.ID,
 		Payload: mustMarshal(map[string]any{"closed": closed}),
+	})
+}
+
+// handleCredentialsStore lets a client hand a secret (POESESSID today, future
+// OAuth tokens later) to this service to own from then on. Per ADR-004, the
+// value itself is never logged and never sent back to any client.
+func (s *server) handleCredentialsStore(c *hub.Client, msg proto.Message) {
+	var params struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(msg.Payload, &params); err != nil || params.Key == "" {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: key required"})
+		return
+	}
+	if err := creds.Store(creds.ServiceName, params.Key, params.Value); err != nil {
+		log.Printf("credentials.store error id=%s key=%s: %v", msg.ID, params.Key, err)
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
+	}
+	s.send(c, proto.Message{
+		Type:    proto.TypeResponse,
+		ID:      msg.ID,
+		Payload: mustMarshal(map[string]bool{"ok": true}),
+	})
+}
+
+// handleCredentialsHas reports only whether a credential is present, never
+// its value — clients ask "do we have one stored", not "give it to me".
+func (s *server) handleCredentialsHas(c *hub.Client, msg proto.Message) {
+	var params struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(msg.Payload, &params); err != nil || params.Key == "" {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: key required"})
+		return
+	}
+	_, err := creds.Get(creds.ServiceName, params.Key)
+	if err != nil && err != creds.ErrNotFound {
+		log.Printf("credentials.has error id=%s key=%s: %v", msg.ID, params.Key, err)
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
+	}
+	s.send(c, proto.Message{
+		Type:    proto.TypeResponse,
+		ID:      msg.ID,
+		Payload: mustMarshal(map[string]bool{"present": err == nil}),
+	})
+}
+
+func (s *server) handleCredentialsDelete(c *hub.Client, msg proto.Message) {
+	var params struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(msg.Payload, &params); err != nil || params.Key == "" {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: key required"})
+		return
+	}
+	if err := creds.Delete(creds.ServiceName, params.Key); err != nil {
+		log.Printf("credentials.delete error id=%s key=%s: %v", msg.ID, params.Key, err)
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
+	}
+	s.send(c, proto.Message{
+		Type:    proto.TypeResponse,
+		ID:      msg.ID,
+		Payload: mustMarshal(map[string]bool{"ok": true}),
 	})
 }
 

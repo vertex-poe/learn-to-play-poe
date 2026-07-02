@@ -203,6 +203,13 @@ int main(int argc, char *argv[])
     // Chromium flag details: https://peter.sh/experiments/chromium-command-line-switches/#disable-blink-features
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-blink-features=AutomationControlled");
 
+    // Required before QApplication is constructed: without it, QtWebEngineView
+    // (used by PoeLoginWindow) can successfully load and execute a page's JS
+    // — console output and all — while never actually compositing a frame
+    // onto the widget, leaving it permanently blank/white with no error.
+    // https://doc.qt.io/qt-6/qtwebengine-features.html#opengl
+    QApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
+
     PerfProbe::instance().markDebug("main_before_app");
 #ifdef Q_OS_WIN
     // Force Windows QPA to use a dark background brush and dark immersive titlebars,

@@ -13,6 +13,7 @@ class QListWidget;
 class QPushButton;
 class QStackedWidget;
 class PoeAccountStore;
+class PoeInfoClient;
 struct LiveEventRule;
 
 class SettingsPage : public QWidget
@@ -20,7 +21,7 @@ class SettingsPage : public QWidget
     Q_OBJECT
 
 public:
-    explicit SettingsPage(AppConfig &config, QWidget *parent = nullptr);
+    explicit SettingsPage(AppConfig &config, PoeInfoClient *poeInfoClient, QWidget *parent = nullptr);
 
     // Background-build all sub-pages at low priority so they're instant when clicked.
     void preloadSubPages(QObject* requestor);

@@ -110,7 +110,14 @@
       "Bash(xargs grep -ln * -i)",
       "Bash(gh api *)",
       "WebFetch(*)",
-      "Bash(gh repo *)"
+      "Bash(gh repo *)",
+      "Bash(go env *)",
+      "Bash(go list *)",
+      "Bash(go get *)",
+      "Bash(go doc *)",
+      "Bash(just gui-build *)",
+      "Bash(find . -iname * -not -path *)",
+      "Bash(grep -rn *)"
     ],
     "additionalDirectories": [
       "\\tmp"
