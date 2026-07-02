@@ -7,6 +7,7 @@ Everything here can be considered aspirational and will likely never see the lig
 ## Goal: Maintenance
 
 - [ ] Switch CI aqtinstall from pinned git hash to a stable release once Qt 6.11 is properly supported (currently using `bbfb1f7c` of miurahr/aqtinstall as a workaround; check after 2026-08-01; see `.github/workflows/ci-windows.yml`)
+- [ ] CI perf baseline should track the last *successful* run instead of just the most recent one: `restore-keys: perf-ci-windows-` in `.github/workflows/ci-windows.yml` matches by prefix regardless of whether that run's perf comparison passed, so a regression can get saved as the new baseline and mask the next regression against it
 
 ## Goal: Basic Features
 

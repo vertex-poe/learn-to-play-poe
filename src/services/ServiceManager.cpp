@@ -10,6 +10,15 @@
 
 #include <toml++/toml.hpp>
 
+#ifdef Q_OS_WIN
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#elif defined(Q_OS_LINUX)
+#include <csignal>
+#include <sys/prctl.h>
+#endif
+
 ServiceManager::ServiceManager(QObject *parent)
     : QObject(parent)
 {
@@ -66,6 +75,11 @@ void ServiceManager::start(const QString &dbPath, const QString &installDir)
     m_process = new QProcess(this);
     m_process->setProgram(binary);
     m_process->setArguments(args);
+#ifdef Q_OS_LINUX
+    // If we die without running stop() (crash, force-kill, etc.), make the
+    // kernel kill the child too instead of leaving it to squat m_port.
+    m_process->setChildProcessModifier([] { prctl(PR_SET_PDEATHSIG, SIGKILL); });
+#endif
     m_process->start();
 
     if (!m_process->waitForStarted(3000)) {
@@ -75,10 +89,38 @@ void ServiceManager::start(const QString &dbPath, const QString &installDir)
         return;
     }
     qDebug() << "ServiceManager: started poe-info-service pid" << m_process->processId();
+
+#ifdef Q_OS_WIN
+    // Assign the child to a job object with KILL_ON_JOB_CLOSE so Windows tears
+    // it down if we die without running stop() — otherwise it leaks and squats
+    // m_port, and the next launch's client silently can't connect.
+    m_jobHandle = CreateJobObjectW(nullptr, nullptr);
+    if (m_jobHandle) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(m_jobHandle, JobObjectExtendedLimitInformation, &info, sizeof(info));
+
+        HANDLE hProcess = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE,
+                                       static_cast<DWORD>(m_process->processId()));
+        if (hProcess) {
+            if (!AssignProcessToJobObject(m_jobHandle, hProcess))
+                qWarning() << "ServiceManager: failed to assign poe-info-service to job object";
+            CloseHandle(hProcess);
+        } else {
+            qWarning() << "ServiceManager: failed to open poe-info-service process handle";
+        }
+    }
+#endif
 }
 
 void ServiceManager::stop()
 {
+#ifdef Q_OS_WIN
+    if (m_jobHandle) {
+        CloseHandle(static_cast<HANDLE>(m_jobHandle));
+        m_jobHandle = nullptr;
+    }
+#endif
     if (!m_process)
         return;
     m_process->terminate();

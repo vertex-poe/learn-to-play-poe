@@ -346,8 +346,8 @@ ChatPage::ChatPage(QWidget *parent)
             openFilterPanel();
     });
 
-    auto *cbRow = new QWidget(this);
-    auto *cbBox = new QHBoxLayout(cbRow);
+    m_cbRow = new QWidget(this);
+    auto *cbBox = new QHBoxLayout(m_cbRow);
     cbBox->setContentsMargins(Theme::spacingSm, Theme::spacingXs, Theme::spacingXs, Theme::spacingXs);
     cbBox->setSpacing(Theme::spacingBase);
     cbBox->addWidget(m_cbLocal);
@@ -357,26 +357,16 @@ ChatPage::ChatPage(QWidget *parent)
     cbBox->addWidget(m_cbTrade);
     cbBox->addWidget(m_cbGuild);
     cbBox->addStretch(1);
-    cbBox->addWidget(m_filterBtn);
 
-    const auto onToggle = [this] {
-        m_limit        = kInitialLimit;
-        m_windowOffset = 0;
-        m_fromDate.clear();
-        m_toDate.clear();
-        updateFilterLabel();
-        if (isVisible()) rebuild();
-        else m_dirty = true;
-    };
     for (QCheckBox *cb : {m_cbGlobal, m_cbParty, m_cbDm, m_cbTrade, m_cbGuild})
-        connect(cb, &QCheckBox::toggled, this, onToggle);
+        connect(cb, &QCheckBox::toggled, this, [this] { applyFilterChange(); });
 
     updateFilterLabel();
 
     // ---- Separator ----------------------------------------------------------
-    auto *sep = new QFrame(this);
-    sep->setFrameShape(QFrame::HLine);
-    sep->setFrameShadow(QFrame::Sunken);
+    m_cbRowSep = new QFrame(this);
+    m_cbRowSep->setFrameShape(QFrame::HLine);
+    m_cbRowSep->setFrameShadow(QFrame::Sunken);
 
     // ---- Scroll area --------------------------------------------------------
     m_scroll = new QScrollArea(this);
@@ -448,25 +438,54 @@ ChatPage::ChatPage(QWidget *parent)
     m_view->addWidget(m_scroll);
     m_view->addWidget(m_filterPanel);
 
-    // ---- Chat / DMs segment strip -------------------------------------------
+    // ---- View shortcut strip -------------------------------------------------
     auto *segRow = new QWidget(this);
     auto *segBox = new QHBoxLayout(segRow);
     segBox->setContentsMargins(Theme::spacingSm, Theme::spacingXs, Theme::spacingXs, Theme::spacingXs);
-    segBox->setSpacing(0);
+    segBox->setSpacing(Theme::spacingSm);
 
-    auto *chatBtn = new QPushButton("Chat", segRow);
-    chatBtn->setFlat(true);
-    QFont boldF = chatBtn->font();
-    boldF.setBold(true);
-    chatBtn->setFont(boldF);
+    const auto makeSegBtn = [&](const QString &text) {
+        auto *btn = new QPushButton(text, segRow);
+        btn->setFlat(true);
+        segBox->addWidget(btn);
+        return btn;
+    };
 
-    auto *dmsBtn = new QPushButton("DMs", segRow);
-    dmsBtn->setFlat(true);
-    connect(dmsBtn, &QPushButton::clicked, this, &ChatPage::viewDmsRequested);
-
-    segBox->addWidget(chatBtn);
-    segBox->addWidget(dmsBtn);
+    m_presetCombinedBtn = makeSegBtn("Combined");
+    m_presetLocalBtn    = makeSegBtn("Local");
+    m_presetGlobalBtn   = makeSegBtn("Global");
+    m_presetPartyBtn    = makeSegBtn("Party");
+    m_presetTradeBtn    = makeSegBtn("Trade");
+    m_presetGuildBtn    = makeSegBtn("Guild");
     segBox->addStretch(1);
+    m_presetDmsBtn      = makeSegBtn("DMs");
+    segBox->addWidget(m_filterBtn);
+
+    m_presetLocalBtn->setEnabled(false);
+    m_presetLocalBtn->setToolTip("Local chat is not yet captured from the log");
+
+    const auto colorizeSegBtn = [](QPushButton *btn, const QColor &c) {
+        btn->setStyleSheet(QStringLiteral(
+            "QPushButton { color: %1; } QPushButton:disabled { color: %2; }")
+            .arg(c.name(), Theme::textDisabled.name()));
+    };
+    colorizeSegBtn(m_presetLocalBtn,  channelColor("!"));
+    colorizeSegBtn(m_presetGlobalBtn, channelColor("#"));
+    colorizeSegBtn(m_presetPartyBtn,  channelColor("%"));
+    colorizeSegBtn(m_presetTradeBtn,  channelColor("$"));
+    colorizeSegBtn(m_presetGuildBtn,  channelColor("&"));
+    colorizeSegBtn(m_presetDmsBtn,    channelColor("@from"));
+
+    connect(m_presetCombinedBtn, &QPushButton::clicked, this, &ChatPage::applyCombinedPreset);
+    connect(m_presetLocalBtn,  &QPushButton::clicked, this, [this] { applyChannelPreset(QLatin1Char('!')); });
+    connect(m_presetGlobalBtn, &QPushButton::clicked, this, [this] { applyChannelPreset(QLatin1Char('#')); });
+    connect(m_presetPartyBtn,  &QPushButton::clicked, this, [this] { applyChannelPreset(QLatin1Char('%')); });
+    connect(m_presetTradeBtn,  &QPushButton::clicked, this, [this] { applyChannelPreset(QLatin1Char('$')); });
+    connect(m_presetGuildBtn,  &QPushButton::clicked, this, [this] { applyChannelPreset(QLatin1Char('&')); });
+    connect(m_presetDmsBtn,    &QPushButton::clicked, this, &ChatPage::viewDmsRequested);
+
+    updatePresetHighlight();
+    setChannelRowVisible(true);
 
     auto *segSep = new QFrame(this);
     segSep->setFrameShape(QFrame::HLine);
@@ -478,8 +497,8 @@ ChatPage::ChatPage(QWidget *parent)
     vbox->setSpacing(0);
     vbox->addWidget(segRow);
     vbox->addWidget(segSep);
-    vbox->addWidget(cbRow);
-    vbox->addWidget(sep);
+    vbox->addWidget(m_cbRow);
+    vbox->addWidget(m_cbRowSep);
     vbox->addWidget(m_view, 1);
 
     // ---- Live rebuild timer -------------------------------------------------
@@ -621,6 +640,83 @@ void ChatPage::updateFilterLabel()
         m_filterBtn->setText(QStringLiteral("Filtered: %1").arg(label));
     } else {
         m_filterBtn->setText("Filter");
+    }
+}
+
+void ChatPage::applyFilterChange()
+{
+    m_limit        = kInitialLimit;
+    m_windowOffset = 0;
+    m_fromDate.clear();
+    m_toDate.clear();
+    updateFilterLabel();
+    updatePresetHighlight();
+    if (isVisible()) rebuild();
+    else m_dirty = true;
+}
+
+void ChatPage::applyCombinedPreset()
+{
+    for (QCheckBox *cb : {m_cbLocal, m_cbGlobal, m_cbParty, m_cbDm, m_cbTrade, m_cbGuild})
+        cb->blockSignals(true);
+    for (QCheckBox *cb : {m_cbLocal, m_cbGlobal, m_cbParty, m_cbDm, m_cbTrade, m_cbGuild})
+        cb->setChecked(true);
+    for (QCheckBox *cb : {m_cbLocal, m_cbGlobal, m_cbParty, m_cbDm, m_cbTrade, m_cbGuild})
+        cb->blockSignals(false);
+    setChannelRowVisible(true);
+    applyFilterChange();
+}
+
+void ChatPage::applyChannelPreset(QChar channel)
+{
+    for (QCheckBox *cb : {m_cbLocal, m_cbGlobal, m_cbParty, m_cbDm, m_cbTrade, m_cbGuild})
+        cb->blockSignals(true);
+    m_cbLocal->setChecked(channel  == QLatin1Char('!'));
+    m_cbGlobal->setChecked(channel == QLatin1Char('#'));
+    m_cbParty->setChecked(channel  == QLatin1Char('%'));
+    m_cbDm->setChecked(false);
+    m_cbTrade->setChecked(channel  == QLatin1Char('$'));
+    m_cbGuild->setChecked(channel  == QLatin1Char('&'));
+    for (QCheckBox *cb : {m_cbLocal, m_cbGlobal, m_cbParty, m_cbDm, m_cbTrade, m_cbGuild})
+        cb->blockSignals(false);
+    setChannelRowVisible(false);
+    applyFilterChange();
+}
+
+void ChatPage::setChannelRowVisible(bool visible)
+{
+    m_cbRow->setVisible(visible);
+    m_cbRowSep->setVisible(visible);
+}
+
+void ChatPage::updatePresetHighlight()
+{
+    const bool local  = m_cbLocal->isChecked();
+    const bool global = m_cbGlobal->isChecked();
+    const bool party  = m_cbParty->isChecked();
+    const bool dm     = m_cbDm->isChecked();
+    const bool trade  = m_cbTrade->isChecked();
+    const bool guild  = m_cbGuild->isChecked();
+
+    QPushButton *active = nullptr;
+    if (local && global && party && dm && trade && guild)
+        active = m_presetCombinedBtn;
+    else if (local && !global && !party && !dm && !trade && !guild)
+        active = m_presetLocalBtn;
+    else if (!local && global && !party && !dm && !trade && !guild)
+        active = m_presetGlobalBtn;
+    else if (!local && !global && party && !dm && !trade && !guild)
+        active = m_presetPartyBtn;
+    else if (!local && !global && !party && !dm && trade && !guild)
+        active = m_presetTradeBtn;
+    else if (!local && !global && !party && !dm && !trade && guild)
+        active = m_presetGuildBtn;
+
+    for (QPushButton *btn : {m_presetCombinedBtn, m_presetLocalBtn, m_presetGlobalBtn,
+                              m_presetPartyBtn, m_presetTradeBtn, m_presetGuildBtn}) {
+        QFont f = btn->font();
+        f.setBold(btn == active);
+        btn->setFont(f);
     }
 }
 

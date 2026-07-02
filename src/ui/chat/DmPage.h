@@ -8,6 +8,7 @@
 
 struct LiveEvent;
 class PoeInfoClient;
+class QComboBox;
 class QLabel;
 class QPushButton;
 class QScrollArea;
@@ -29,6 +30,7 @@ public:
 
 signals:
     void dataLoaded();
+    void backRequested();
 
 public slots:
     void onLiveWhisper(const LiveEvent &event, bool bulk);
@@ -57,7 +59,8 @@ private:
     static constexpr int kMaxWindow    = 300;
 
     PoeInfoClient *m_poeInfoClient{};
-    QLabel       *m_conversationLabel{};
+    QComboBox    *m_conversationCombo{};
+    QPushButton  *m_backToChatBtn{};
     QPushButton  *m_filterBtn{};
     QString       m_filterPlayer;
     QScrollArea  *m_scroll{};

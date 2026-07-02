@@ -26,4 +26,10 @@ private:
     QProcess *m_process{};
     QString   m_host{QStringLiteral("127.0.0.1")};
     int       m_port{47652};
+#ifdef Q_OS_WIN
+    // Job object the child is assigned to so Windows kills it automatically
+    // if this process dies without running stop() (crash, force-kill, etc.);
+    // otherwise the child leaks and squats m_port for the next launch.
+    void *m_jobHandle{nullptr};
+#endif
 };

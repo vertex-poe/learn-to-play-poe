@@ -12,6 +12,8 @@
 #include <QPointer>
 
 #include <functional>
+#include <QColor>
+#include <QComboBox>
 #include <QDate>
 #include <QEnterEvent>
 #include <QFrame>
@@ -28,6 +30,14 @@
 #include <QStackedWidget>
 #include <QTimer>
 #include <QVBoxLayout>
+
+// Deterministically maps a player name to a distinct, legible-on-dark hue so
+// each conversation partner reads as a consistent color in the combined view.
+static QColor colorForName(const QString &name)
+{
+    const int hue = static_cast<int>(qHash(name) % 360);
+    return QColor::fromHsl(hue, 150, 170);
+}
 
 // ---- DateSeparator ----------------------------------------------------------
 
@@ -79,7 +89,8 @@ public:
     WhisperBubble(const QString &direction, const QString &playerName,
                   const QString &guildTag,  const QString &message,
                   const QString &time,      bool showName,
-                  bool showGuildTag, QWidget *parent = nullptr)
+                  bool showGuildTag, const QColor &personColor,
+                  QWidget *parent = nullptr)
         : QWidget(parent)
         , m_direction(direction)
         , m_playerName(playerName)
@@ -88,6 +99,7 @@ public:
         , m_time(time)
         , m_showName(showName)
         , m_showGuildTag(showGuildTag)
+        , m_personColor(personColor)
     {
         QSizePolicy sp(QSizePolicy::Expanding, QSizePolicy::Preferred);
         sp.setHeightForWidth(true);
@@ -165,8 +177,9 @@ protected:
         // Name row
         if (m_showName) {
             const int nh = QFontMetrics(boldF).height();
+            const QColor nameColor = m_personColor.isValid() ? m_personColor : fg;
             p.setFont(boldF);
-            p.setPen(fg);
+            p.setPen(nameColor);
             const QString guildPrefix = (m_showGuildTag && !m_guildTag.isEmpty())
                 ? QStringLiteral("<%1> ").arg(m_guildTag)
                 : QString{};
@@ -174,7 +187,7 @@ protected:
             int textX = bx + kPad;
             if (out) {
                 const QPixmap pix = Theme::renderSvgIcon(
-                    QStringLiteral(":/icons/chevron-bar-right.svg"), fg, {nh, nh}, devicePixelRatioF());
+                    QStringLiteral(":/icons/chevron-bar-right.svg"), nameColor, {nh, nh}, devicePixelRatioF());
                 p.drawPixmap(QRect(textX, y, nh, nh), pix, QRect(0, 0, pix.width(), pix.height()));
                 textX += nh + 4;
             }
@@ -217,6 +230,7 @@ private:
     QString m_time;
     bool    m_showName;
     bool    m_showGuildTag;
+    QColor  m_personColor;
 };
 
 // ---- Filter panel helpers ---------------------------------------------------
@@ -341,8 +355,17 @@ private:
 DmPage::DmPage(QWidget *parent)
     : QWidget(parent)
 {
-    // ---- Header row: conversation label + filter button --------------------
-    m_conversationLabel = new QLabel("All Combined", this);
+    // ---- Header row: conversation picker + filter button --------------------
+    m_conversationCombo = new QComboBox(this);
+    m_conversationCombo->addItem("All Combined");
+    connect(m_conversationCombo, &QComboBox::activated, this, [this](int index) {
+        const QString name = index <= 0 ? QString() : m_conversationCombo->itemText(index);
+        onPlayerSelected(name);
+    });
+
+    m_backToChatBtn = new QPushButton("← Back", this);
+    m_backToChatBtn->setFlat(true);
+    connect(m_backToChatBtn, &QPushButton::clicked, this, &DmPage::backRequested);
 
     m_filterBtn = new QPushButton("Filter", this);
     m_filterBtn->setFlat(true);
@@ -358,8 +381,9 @@ DmPage::DmPage(QWidget *parent)
     auto *headerBox = new QHBoxLayout(headerRow);
     headerBox->setContentsMargins(Theme::spacingSm, Theme::spacingXs, Theme::spacingXs, Theme::spacingXs);
     headerBox->setSpacing(Theme::spacingSm);
-    headerBox->addWidget(m_conversationLabel);
+    headerBox->addWidget(m_conversationCombo);
     headerBox->addStretch(1);
+    headerBox->addWidget(m_backToChatBtn);
     headerBox->addWidget(m_filterBtn);
 
     auto *headerSep = new QFrame(this);
@@ -562,10 +586,7 @@ void DmPage::onPlayerSelected(const QString &name)
 {
     if (m_filterPlayer == name) return;
     m_filterPlayer = name;
-    if (name.isEmpty())
-        m_conversationLabel->setText("All Combined");
-    else
-        m_conversationLabel->setText(QStringLiteral("Conversation with %1").arg(name));
+    m_conversationCombo->setCurrentText(name.isEmpty() ? QStringLiteral("All Combined") : name);
     m_limit        = kInitialLimit;
     m_windowOffset = 0;
     rebuild();
@@ -780,6 +801,28 @@ void DmPage::applyWhispers(const QList<Database::WhisperRecord> &whispers)
 {
     const bool showNames = m_filterPlayer.isEmpty();
 
+    // Assign each conversation partner present in this window a stable color,
+    // and refresh the person-picker dropdown to match who is currently loaded.
+    QMap<QString, QColor> senderColors;
+    QStringList names;
+    for (const auto &w : whispers) {
+        if (!senderColors.contains(w.playerName)) {
+            senderColors.insert(w.playerName, colorForName(w.playerName));
+            names << w.playerName;
+        }
+    }
+    names.sort(Qt::CaseInsensitive);
+
+    m_conversationCombo->blockSignals(true);
+    m_conversationCombo->clear();
+    m_conversationCombo->addItem("All Combined");
+    for (const QString &name : names)
+        m_conversationCombo->addItem(name);
+    for (int i = 1; i < m_conversationCombo->count(); ++i)
+        m_conversationCombo->setItemData(i, senderColors.value(m_conversationCombo->itemText(i)), Qt::ForegroundRole);
+    m_conversationCombo->setCurrentText(m_filterPlayer.isEmpty() ? QStringLiteral("All Combined") : m_filterPlayer);
+    m_conversationCombo->blockSignals(false);
+
     auto *content       = new QWidget;
     auto *contentLayout = new QVBoxLayout(content);
     contentLayout->setContentsMargins(Theme::spacingSm, Theme::spacingSm,
@@ -814,9 +857,10 @@ void DmPage::applyWhispers(const QList<Database::WhisperRecord> &whispers)
             contentLayout->addWidget(new DateSeparator(date, content));
         }
         const QString time = w.occurredAt.mid(11, 5);
+        const QColor personColor = showNames ? senderColors.value(w.playerName) : QColor();
         contentLayout->addWidget(
             new WhisperBubble(w.direction, w.playerName, w.guildTag, w.message,
-                              time, showNames, m_showGuildTags, content));
+                              time, showNames, m_showGuildTags, personColor, content));
     }
 
     // "Load next 50" at the bottom — only when window is slid away from newest.

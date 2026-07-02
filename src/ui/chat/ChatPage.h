@@ -10,6 +10,7 @@
 struct LiveEvent;
 class PoeInfoClient;
 class QCheckBox;
+class QFrame;
 class QLabel;
 class QPushButton;
 class QScrollArea;
@@ -52,6 +53,11 @@ private:
     void updateScrollDownBtn();
     QSet<QChar> activeChannels() const;
     void updateFilterLabel();
+    void applyFilterChange();
+    void applyCombinedPreset();
+    void applyChannelPreset(QChar channel);
+    void updatePresetHighlight();
+    void setChannelRowVisible(bool visible);
 
     static constexpr int kInitialLimit = 100;
     static constexpr int kPageStep     = 50;
@@ -82,6 +88,16 @@ private:
     QCheckBox   *m_cbTrade{};
     QCheckBox   *m_cbGuild{};
     QPushButton *m_filterBtn{};
+    QWidget     *m_cbRow{};
+    QFrame      *m_cbRowSep{};
+
+    QPushButton *m_presetCombinedBtn{};
+    QPushButton *m_presetLocalBtn{};
+    QPushButton *m_presetGlobalBtn{};
+    QPushButton *m_presetPartyBtn{};
+    QPushButton *m_presetDmsBtn{};
+    QPushButton *m_presetTradeBtn{};
+    QPushButton *m_presetGuildBtn{};
 
     QLabel           *m_loadingOverlay{};
     ScrollJumpButton *m_scrollDownBtn{};

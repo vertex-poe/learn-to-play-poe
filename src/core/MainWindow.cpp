@@ -236,6 +236,11 @@ MainWindow::MainWindow(QWidget *parent)
             {
                 m_stack->setCurrentIndex(TabDms);
                 schedulePreloads(TabDms); });
+    connect(m_dmPage, &DmPage::backRequested,
+            this, [this]
+            {
+                m_stack->setCurrentIndex(TabChats);
+                schedulePreloads(TabChats); });
     connect(m_logPage, &LogPage::sessionPreviewRequested,
             this, [this](qint64 sessionId, const QString &startedAt)
             { m_sessionViewPage->preloadSession(sessionId, startedAt); });
