@@ -65,6 +65,8 @@ jobs:
         with:
           path: build/ci/perf_baseline.json
           key: perf-ci-windows-never-matches
+          # Only successful runs save a cache entry (see "Save perf baseline" below),
+          # so the prefix match here always resolves to the last successful run.
           restore-keys: perf-ci-windows-
 
       - name: Generate perf baseline from HEAD~1 (cache miss only)
@@ -77,13 +79,12 @@ jobs:
       - name: Compare perf vs baseline
         run: python3 dev/perf_compare.py build/ci/perf_baseline.json build/ci/perf_results.json
 
+      # Only reached if perf comparison passed, so a regression never gets saved
+      # as the new baseline and masked from the next run's comparison.
       - name: Record perf baseline for next run
-        if: always()
         run: cmake -E copy build/ci/perf_results.json build/ci/perf_baseline.json
-        continue-on-error: true
 
       - name: Save perf baseline
-        if: always()
         uses: actions/cache/save@v4
         with:
           path: build/ci/perf_baseline.json
