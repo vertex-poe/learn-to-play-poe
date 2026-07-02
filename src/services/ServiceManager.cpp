@@ -72,6 +72,8 @@ void ServiceManager::start(const QString &dbPath, const QString &installDir)
     if (!serviceLog.isEmpty())
         args << "--service-log" << QString::fromUtf8(serviceLog);
 
+    qDebug() << "ServiceManager: launching" << binary << args;
+
     m_process = new QProcess(this);
     m_process->setProgram(binary);
     m_process->setArguments(args);
@@ -80,6 +82,12 @@ void ServiceManager::start(const QString &dbPath, const QString &installDir)
     // kernel kill the child too instead of leaving it to squat m_port.
     m_process->setChildProcessModifier([] { prctl(PR_SET_PDEATHSIG, SIGKILL); });
 #endif
+    connect(m_process, &QProcess::finished, this,
+            [](int exitCode, QProcess::ExitStatus status) {
+        qDebug() << "ServiceManager: poe-info-service exited, code" << exitCode
+                  << "status" << (status == QProcess::NormalExit ? "normal" : "crashed")
+                  << "(this is expected if an incumbent instance won singleton negotiation)";
+    });
     m_process->start();
 
     if (!m_process->waitForStarted(3000)) {
@@ -88,7 +96,8 @@ void ServiceManager::start(const QString &dbPath, const QString &installDir)
         m_process = nullptr;
         return;
     }
-    qDebug() << "ServiceManager: started poe-info-service pid" << m_process->processId();
+    qDebug() << "ServiceManager: started poe-info-service pid" << m_process->processId()
+              << "host" << m_host << "port" << m_port;
 
 #ifdef Q_OS_WIN
     // Assign the child to a job object with KILL_ON_JOB_CLOSE so Windows tears

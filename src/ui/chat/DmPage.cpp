@@ -511,6 +511,10 @@ void DmPage::setPoeInfoClient(PoeInfoClient *client)
         if (isVisible()) reload();
         else m_dirty = true;
     });
+    // See ChatPage::setPoeInfoClient: connect() above only catches future
+    // connections, so if we're already connected by the time we're wired up,
+    // check directly instead of waiting on a signal that already fired.
+    triggerLoadIfNeeded();
 }
 
 void DmPage::setShowGuildTags(bool show)

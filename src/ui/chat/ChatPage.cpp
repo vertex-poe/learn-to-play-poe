@@ -6,6 +6,7 @@
 #include "events/LiveEvent.h"
 #include "events/LiveEventBus.h"
 
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -538,9 +539,16 @@ void ChatPage::setPoeInfoClient(PoeInfoClient *client)
 {
     m_poeInfoClient = client;
     connect(client, &PoeInfoClient::connected, this, [this] {
+        qDebug() << "ChatPage: poe-info-service connected, visible" << isVisible();
         if (isVisible()) reload();
         else m_dirty = true;
     });
+    // The connected() signal above only fires on the *next* connection; if the
+    // client is already connected by the time we're wired up (the common case —
+    // connecting is async and startup shows the window well before it resolves),
+    // that connect() misses the emission that would have driven the initial
+    // load. Explicitly check current state, same as LogPage/SessionViewPage do.
+    triggerLoadIfNeeded();
 }
 
 void ChatPage::setShowGuildTags(bool show)
@@ -568,6 +576,8 @@ void ChatPage::triggerLoadIfNeeded()
     m_loadingOverlay->setGeometry(m_view->geometry());
     m_loadingOverlay->show();
     m_loadingOverlay->raise();
+    qDebug() << "ChatPage: triggerLoadIfNeeded, hasClient" << (m_poeInfoClient != nullptr)
+              << "connected" << (m_poeInfoClient && m_poeInfoClient->isConnected());
     if (m_poeInfoClient && m_poeInfoClient->isConnected()) {
         QTimer::singleShot(0, this, [this] {
             if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected()) reload();
@@ -722,7 +732,11 @@ void ChatPage::updatePresetHighlight()
 
 void ChatPage::rebuild()
 {
-    if (!m_poeInfoClient || !m_poeInfoClient->isConnected()) { m_dirty = true; return; }
+    if (!m_poeInfoClient || !m_poeInfoClient->isConnected()) {
+        qDebug() << "ChatPage::rebuild: no client / not connected, deferring (dirty=true)";
+        m_dirty = true;
+        return;
+    }
     if (m_rebuildInFlight) { m_dirty = true; return; }
     m_dirty           = false;
     m_rebuildInFlight = true;
@@ -749,11 +763,14 @@ void ChatPage::rebuild()
         {QStringLiteral("from_date"),   m_fromDate},
         {QStringLiteral("to_date"),     m_toDate},
     };
+    qDebug() << "ChatPage::rebuild: requesting chat.messages, channels" << channels.size()
+              << "includeDms" << includeDms << "limit" << m_limit << "offset" << m_windowOffset;
     m_poeInfoClient->request(QStringLiteral("chat.messages"), params,
         [self = QPointer<ChatPage>(this)](QJsonObject payload, QString error) {
             if (!self) return;
             self->m_rebuildInFlight = false;
             if (!error.isEmpty()) {
+                qDebug() << "ChatPage::rebuild: chat.messages error:" << error;
                 self->showError(QStringLiteral("Could not load messages: ") + error);
                 return;
             }
@@ -769,6 +786,7 @@ void ChatPage::rebuild()
                 r.occurredAt = obj[QStringLiteral("occurred_at")].toString();
                 records.append(r);
             }
+            qDebug() << "ChatPage::rebuild: chat.messages returned" << records.size() << "records, applying to UI";
             self->applyChats(records);
             if (self && self->m_dirty)
                 QTimer::singleShot(0, self.data(), [self] { if (self) self->rebuild(); });

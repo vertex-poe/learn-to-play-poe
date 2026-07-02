@@ -103,6 +103,10 @@ Subsequent builds are fast: Ninja skips anything unchanged and exits immediately
 ./build/windows-msvc/src/l2p-poe.exe
 ```
 
+### `bin/`
+
+`just build` and `just run` stage the built binaries into `bin/` at the repo root — this is your personal acceptance-testing copy, separate from the build tree. It keeps its own config (`bin/l2p-poe.toml`) and database, so a `bin/` run never interferes with — or gets clobbered by — a build-tree run, a test run, or vice versa. Only run `bin/l2p-poe.exe` when you deliberately want to acceptance-test a build; for iterative dev/debugging, run straight from `build/<preset>/src/` instead.
+
 ## Task runner
 
 The project uses [`just`](https://just.systems/) as a task runner. Install it with `winget install Casey.Just`, `scoop install just`, or `cargo install just`.

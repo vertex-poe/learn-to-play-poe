@@ -309,10 +309,12 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("client connected from %s, first message type=%q", r.RemoteAddr, first.Type)
 	s.routeMessage(c, first)
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
+			log.Printf("client %s disconnected: %v", r.RemoteAddr, err)
 			return
 		}
 		var msg proto.Message
@@ -460,11 +462,15 @@ func (s *server) handleChatMessages(c *hub.Client, msg proto.Message) {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: " + err.Error()})
 		return
 	}
+	log.Printf("chat.messages request id=%s channels=%v includeDms=%v limit=%d offset=%d from=%q to=%q",
+		msg.ID, params.Channels, params.IncludeDMs, params.Limit, params.Offset, params.FromDate, params.ToDate)
 	records, err := s.queryDB.FetchChats(params.Channels, params.IncludeDMs, params.Limit, params.Offset, params.FromDate, params.ToDate)
 	if err != nil {
+		log.Printf("chat.messages error id=%s: %v", msg.ID, err)
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
 		return
 	}
+	log.Printf("chat.messages ok id=%s: %d records", msg.ID, len(records))
 	s.send(c, proto.Message{
 		Type:    proto.TypeResponse,
 		ID:      msg.ID,

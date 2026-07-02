@@ -101,7 +101,16 @@
       "Bash(git -C * log --oneline -p --follow -- *)",
       "Bash(just --list)",
       "Bash(gh --version)",
-      "Bash(gh auth *)"
+      "Bash(gh auth *)",
+      "Bash(wsl find *)",
+      "Bash(wsl gh run view * --log 2>/dev/null | grep * | wc -l *)",
+      "Bash(./test_perf_metrics.exe)",
+      "Bash(echo \"EXIT CODE: $?\")",
+      "Bash(cmd.exe /c test_perf_metrics.exe)",
+      "Bash(xargs grep -ln * -i)"
+    ],
+    "additionalDirectories": [
+      "\\tmp"
     ]
   }
 }

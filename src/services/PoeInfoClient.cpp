@@ -47,6 +47,8 @@ void PoeInfoClient::request(const QString &method, const QJsonObject &params,
         {QStringLiteral("method"),  method},
         {QStringLiteral("payload"), params},
     };
+    qDebug() << "PoeInfoClient: request id" << id << "method" << method
+              << "connected" << isConnected();
     m_socket->sendTextMessage(QJsonDocument(msg).toJson(QJsonDocument::Compact));
 }
 
@@ -107,14 +109,19 @@ void PoeInfoClient::onTextMessageReceived(const QString &message)
 
     const QString id = obj[QStringLiteral("id")].toString();
     auto it = m_pending.find(id);
-    if (it == m_pending.end())
+    if (it == m_pending.end()) {
+        qDebug() << "PoeInfoClient: response id" << id << "has no matching pending request (late/duplicate?)";
         return;
+    }
 
     auto cb = std::move(it.value());
     m_pending.erase(it);
 
-    cb(obj[QStringLiteral("payload")].toObject(),
-       obj[QStringLiteral("error")].toString());
+    const QJsonObject payload = obj[QStringLiteral("payload")].toObject();
+    const QString error = obj[QStringLiteral("error")].toString();
+    qDebug() << "PoeInfoClient: response id" << id << "error" << error
+              << "payloadKeys" << payload.keys();
+    cb(payload, error);
 }
 
 void PoeInfoClient::tryConnect()

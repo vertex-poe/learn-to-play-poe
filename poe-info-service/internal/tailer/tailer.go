@@ -57,8 +57,9 @@ func (t *Tailer) Run(ctx context.Context) {
 			if newOffset != offset {
 				offset = newOffset
 				t.saveOffset(offset)
-			} else {
+			} else if !t.caughtUp.Load() {
 				t.caughtUp.Store(true)
+				log.Printf("tailer: caught up to EOF at offset %d for %s", offset, t.logPath)
 			}
 		}
 	}
