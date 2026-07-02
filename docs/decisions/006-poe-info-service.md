@@ -1,58 +1,38 @@
-# ADR-006: PoE Information Service — Shared Cache and Priority Queue
+# ADR-006: Depend on the Shared PoE Information Service
 
-**Status**: Decided  
-**Date**: 2026-06-30  
+**Status**: Decided
+**Date**: 2026-07-02
 **Deciders**: MovingCairn
 
 ---
 
 ## Context
 
-This application monitors several data sources on behalf of the user: the game's `Client.log`, rate-limited web APIs (character data, stash contents, economy prices), and potentially others. As the PoE addon ecosystem grows, other tools on the same machine face the same problem — each independently tails the same log file, maintains its own API cache, and manages its own request queue. This creates redundant work, redundant rate-limit consumption, and no coordination between addons.
+This application monitors several data sources on behalf of the user: the game's `Client.log`, and rate-limited web APIs (character data, stash contents, economy prices, legacy trade endpoints). Two problems follow from building that entirely inside this app:
 
-The immediate need is internal: the app's own subsystems (overlay, session tracker, trade monitor, etc.) need a clean way to share fetched data and queue requests without coupling directly to each other. The longer-term opportunity is to extract this into a standalone service that any PoE addon on the machine can use.
+**Client.txt parsing complexity has no natural home.** The log format is unstructured, growing in the variety of events it needs to recognize, and consumed by several unrelated features (overlay, session tracker, trade monitor, and more to come). Left inside the app, parsing logic either gets duplicated per-consumer or becomes a shared internal module that every consumer couples to directly — in both cases the parsing logic and the features that use it stay entangled, and the app owns log-format churn as its own maintenance burden indefinitely.
+
+**API rate limits are a shared, not private, resource.** GGG's web APIs are aggressively rate-limited. If this app maintains its own request budget, that budget is not actually private in practice — any other PoE addon running on the same machine is independently hitting the same endpoints for overlapping data (character info, prices), and GGG's limits are enforced per-account or per-IP, not per-addon. Every addon acting alone means the same data gets fetched redundantly, and the effective budget available to any one of them shrinks in proportion to how many others are also running. This app duplicating requests that another addon already made is pure waste, and vice versa.
+
+Building a general-purpose, cross-addon service to solve this is out of scope for this app's own codebase to own outright — it's a shared-infrastructure problem, not an app feature. That service is `poe-info-service`, developed alongside this repo; its own design decisions (singleton election, database ownership, distribution and self-update, API versioning, credential custody) are recorded separately in [poe-info-service/docs/decisions/](../../poe-info-service/docs/decisions/), since they concern the service's own architecture rather than this app's.
 
 ## Decision
 
-Introduce a **PoE Information Service** — a lightweight background process that centralises:
+This app depends on `poe-info-service` rather than implementing `Client.log` parsing or PoE web API access as app-internal logic:
 
-1. **A shared cache** for all expensive data sources (web API responses, parsed log state)
-2. **A priority request queue** that all addon clients share, preventing redundant fetches and coordinating rate limits across consumers
+- **Client.txt parsing is centralized behind an event system.** `poe-info-service` owns log tailing and parsing, and publishes discrete, well-defined events over its WebSocket API. This app's features (overlay, session tracker, trade monitor) subscribe to the events they care about; none of them parse raw log lines or own log-format knowledge directly.
+- **API rate limits are shared, not duplicated.** This app's web-API-dependent features go through `poe-info-service`'s shared cache and request queue instead of issuing requests directly. A cache warmed by another addon on the same machine benefits this app for free, and this app warming the cache benefits every other addon using the same service — the rate-limit budget is coordinated across whatever addons are actually running, instead of silently divided by however many happen to be installed.
 
-The service is elected via a singleton protocol: each addon ships a versioned copy of the service binary, and at startup they negotiate — highest version wins, earliest start time breaks ties — so exactly one process runs the server and the rest connect as clients.
+As a consumer of a service this app does not solely own, this app is responsible for:
 
-During alpha, the service lives as a `poe-info-service/` subdirectory of this repo (tightly coupled, co-evolved). It will be extracted into its own repository when its API has stabilised and a second addon consumer exists.
-
-### Shared cache
-
-Every addon independently hitting the same PoE web endpoints wastes API quota and risks rate-limit bans. The service maintains a single SQLite cache (WAL mode) with TTL-based expiry. When any client requests a resource:
-
-- **Cache hit within TTL**: returned immediately from the DB, no network request.
-- **Cache miss or expired**: the service fetches, caches, and returns the result.
-
-All addons benefit from cache entries populated by any other addon. A trade tool warming the economy price cache means this app gets those prices for free, and vice versa.
-
-### Priority request queue
-
-Web API sources are rate-limited and slow. Multiple addons naively issuing concurrent requests for similar data would exhaust the rate limit and produce redundant work. The service serialises outbound requests through a single priority queue:
-
-- Clients attach a priority when submitting a request.
-- The queue deduplicates requests for the same resource (only one in-flight fetch per resource at a time; subsequent requests for the same key wait for the result).
-- The elected server's rate limiter state persists across restarts (stored in SQLite), so a version handoff does not reset the rate limit budget and cause a burst.
-
-`Client.log` is not rate-limited and is handled separately: a single tailer goroutine follows the file and fans events out to all subscribed clients via per-subscriber buffered channels.
-
-## Transport
-
-WebSocket on `127.0.0.1` (fixed port). One protocol for both request/response (correlation IDs) and push subscriptions (topic-based). AHK is the binding constraint on transport choice — it rules out gRPC and makes named pipes painful. Every target language (Qt/C++, Python, AHK, TypeScript/Node) has a usable WebSocket client.
-
-The port bind is the singleton lock. No separate lockfile or named mutex.
+- Bundling a copy of `poe-info-service` and participating in bootstrapping it into the shared install location, per the service's own distribution model.
+- Participating in the shared lifecycle: starting the service if nothing is listening, restarting it if it becomes unresponsive, and sending keep-alives while depending on it.
+- Owning the one capability the service cannot provide itself — capturing `POESESSID` via this app's WebView-based login flow — and handing it to the service. This app never receives session credentials back from the service, and does not need to store them itself for the service's purposes.
+- Building against a specific versioned WebSocket API and accepting that, like any other client, this app is expected to keep working against that version indefinitely if it is never updated to a newer one — a version bump is a deliberate compatibility decision, not something to do casually.
 
 ## Consequences
 
-- **Positive**: Web API quota is shared across all addons, not divided. A single rate limiter means no addon can inadvertently burn quota that another needs.
-- **Positive**: `Client.log` is tailed once regardless of how many addons are running.
-- **Positive**: Cache warm-up by any one addon benefits all others immediately.
-- **Positive**: The priority queue gives this app (or any addon) a way to express urgency — user-triggered lookups can jump ahead of background prefetches.
-- **Negative**: Introduces a service lifecycle dependency. If the elected server crashes and a client is mid-request, clients must handle reconnection and retry. This complexity is bounded by the service's reconnect/backoff protocol.
-- **Negative**: Adds a Go toolchain as a build dependency (separate from the Qt/CMake build). Acceptable given Go's static binary output — the service binary is an artifact, not a linked library.
+- **Positive**: `Client.log` parsing logic lives and evolves in one place, decoupled from any specific feature. This app's features consume events, not raw log lines, and gain new event types without needing their own parsing changes.
+- **Positive**: this app's web-API-dependent features benefit from cache warm-up done by any other addon on the same machine, and rate-limit exhaustion becomes a coordinated problem instead of each addon silently competing for the same limited budget.
+- **Negative**: introduces a runtime dependency whose lifecycle, update cadence, and compatibility guarantees this app does not fully control on its own — those are governed by `poe-info-service`'s own decisions, not this app's.
+- **Negative**: any feature that needs data through `poe-info-service` is bounded by whatever its WebSocket API currently exposes. A feature needing something the service doesn't yet provide requires a change to `poe-info-service`, not just to this app.

@@ -107,7 +107,10 @@
       "Bash(./test_perf_metrics.exe)",
       "Bash(echo \"EXIT CODE: $?\")",
       "Bash(cmd.exe /c test_perf_metrics.exe)",
-      "Bash(xargs grep -ln * -i)"
+      "Bash(xargs grep -ln * -i)",
+      "Bash(gh api *)",
+      "WebFetch(*)",
+      "Bash(gh repo *)"
     ],
     "additionalDirectories": [
       "\\tmp"
