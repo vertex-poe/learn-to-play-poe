@@ -19,15 +19,16 @@ func main() {
 	fileCfg := config.Load(filepath.Dir(exe))
 
 	var (
-		installDir = flag.String("install-dir", "", "PoE install directory (identifies the installs row)")
-		logPath    = flag.String("log-path", "", "Path to Client.txt (e.g. C:\\Games\\PoE\\logs\\Client.txt)")
-		dbPath     = flag.String("db-path", "", "Path to l2p SQLite database")
-		configPath = flag.String("config-path", "", "Path to l2p-poe's own config toml (for chat channel labels)")
-		port       = flag.Int("port", fileCfg.Port, "TCP port to listen on")
-		bind       = flag.String("bind", fileCfg.Bind, "Bind address (default 127.0.0.1)")
-		cacheDir   = flag.String("cache-dir", defaultCacheDir(), "Directory for SQLite DB and state files")
-		serviceLog = flag.String("service-log", os.Getenv("L2P_SERVICE_LOG"), "Path to service debug log file")
-		showVer    = flag.Bool("version", false, "Print version and exit")
+		installDir  = flag.String("install-dir", "", "PoE install directory (identifies the installs row)")
+		logPath     = flag.String("log-path", "", "Path to Client.txt (e.g. C:\\Games\\PoE\\logs\\Client.txt)")
+		dbPath      = flag.String("db-path", "", "Path to l2p SQLite database")
+		configPath  = flag.String("config-path", "", "Path to l2p-poe's own config toml (for chat channel labels)")
+		port        = flag.Int("port", fileCfg.Port, "TCP port to listen on")
+		bind        = flag.String("bind", fileCfg.Bind, "Bind address (default 127.0.0.1)")
+		cacheDir    = flag.String("cache-dir", defaultCacheDir(), "Directory for SQLite DB and state files")
+		serviceLog  = flag.String("service-log", os.Getenv("L2P_SERVICE_LOG"), "Path to service debug log file")
+		idleTimeout = flag.Duration("idle-timeout", server.DefaultIdleTimeout, "Shut down after this long with no client keep-alive or Client.txt activity")
+		showVer     = flag.Bool("version", false, "Print version and exit")
 	)
 	flag.Parse()
 
@@ -61,6 +62,7 @@ func main() {
 		LogPath:      *logPath,
 		DbPath:       *dbPath,
 		ChannelNames: channelNames,
+		IdleTimeout:  *idleTimeout,
 	}
 
 	log.Printf("starting v%s on %s:%d db=%q logPath=%q",

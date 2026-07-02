@@ -4,6 +4,8 @@
 
 Everything here can be considered aspirational and will likely never see the light of day. Item ideas may not be fleshed out and change drastically or be considered an actual bad idea the morning after we wrote it down in the middle of the night.
 
+This file tracks unimplemented work only — once an item is done, remove it rather than checking it off.
+
 ## Goal: Maintenance
 
 - [ ] Switch CI aqtinstall from pinned git hash to a stable release once Qt 6.11 is properly supported (currently using `bbfb1f7c` of miurahr/aqtinstall as a workaround; check after 2026-08-01; see `.github/workflows/ci-windows.yml`)
@@ -12,7 +14,6 @@ Everything here can be considered aspirational and will likely never see the lig
 
 Work items derived from `poe-info-service/docs/decisions/` (ADR-001 through 005) and root `docs/decisions/006-poe-info-service.md`, comparing the decisions against the current implementation.
 
-- [ ] Idle-shutdown with multi-client keep-alive tracking: `server.go`'s `serve()` has no idle timer today — the service must track keep-alives from every connected client (not just its original spawner) and self-shut-down after an interval with none active; the running log tailer should count as an implicit keep-alive while the game itself is open (ADR-001)
 - [ ] Shared, addon-agnostic install location + bootstrap-if-newer: `ServiceManager::start()` (`src/services/ServiceManager.cpp`) currently launches `poe-info-service(.exe)` straight out of this app's own install directory; per ADR-001/ADR-002 the app must instead bootstrap its bundled copy into a shared location only if newer, then always launch the shared copy from there
 - [ ] Replace spawn-tied process lifecycle: `ServiceManager` currently binds the service's life to this app via a Windows Job Object (`KILL_ON_JOB_CLOSE`) and `PR_SET_PDEATHSIG` on Linux; ADR-001 supersedes this with a keep-alive-based model — any client can start or restart the service, and it must outlive whichever addon happened to launch it
 - [ ] Versioned WebSocket API: negotiate a client-facing API version (e.g. `/v1`, `/latest`) at connection handshake, separate from the existing peer singleton-election version check in `proto.go`; once shipped, a version's response shapes are permanent — fields are never removed, renamed, or repurposed (ADR-003)
@@ -21,7 +22,6 @@ Work items derived from `poe-info-service/docs/decisions/` (ADR-001 through 005)
 - [ ] Manual installer: standalone poe-info-service installer for troubleshooting/recovery, installs into the shared location only if what's there isn't already newer (ADR-002)
 - [ ] Binary signing + checksum verification: required before any downloaded or self-installed binary is written to the shared location or executed, regardless of which of the three distribution paths delivered it (ADR-002)
 - [ ] Credential storage package — macOS/Linux backends: `internal/creds` (`Store`/`Get`/`Delete`, build-tag-selected per platform) now has a Windows backend (danieljoos/wincred); still needs keybase/go-keychain (macOS) and godbus/dbus Secret Service (Linux), plus an in-memory backend for automated tests (ADR-005)
-- [x] Credential intake API + retire app-side keychain storage: `credentials.store`/`credentials.has`/`credentials.delete` WS methods let a client hand `POESESSID` to poe-info-service, which owns it via `internal/creds` (Windows/`wincred` only for now); the service never returns the value, only presence. `PoeAccountStore` no longer touches QtKeychain — it captures the cookie via the existing WebView login flow and hands it off. macOS/Linux backends and OAuth token support remain future work (ADR-004/ADR-005)
 - [ ] OAuth PKCE flow: service-initiated OAuth token acquisition via the system's default browser plus a local loopback redirect listener, for providers whose flow allows it, so future data sources (PoE official API, Steam) don't require WebView capability (ADR-004)
 - [ ] Credential expiry/staleness policy: explicitly left open by ADR-004/ADR-005 and not yet the subject of a dedicated ADR — needs its own design pass once the storage mechanism above lands
 

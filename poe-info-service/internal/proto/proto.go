@@ -16,6 +16,7 @@ const (
 	TypeResponse    MessageType = "response"
 	TypePing        MessageType = "ping"
 	TypePong        MessageType = "pong"
+	TypeKeepalive   MessageType = "keepalive"
 )
 
 type Message struct {

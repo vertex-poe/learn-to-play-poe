@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/MovingCairn/poe-info-service/internal/creds"
@@ -47,6 +48,9 @@ var liveBroadcastTypes = map[string]bool{
 	proto.EventAltTabBack:         true,
 }
 
+// DefaultIdleTimeout is used when Config.IdleTimeout is unset (zero).
+const DefaultIdleTimeout = 5 * time.Minute
+
 type Config struct {
 	Version      string
 	StartTime    int64
@@ -57,16 +61,26 @@ type Config struct {
 	LogPath      string         // InstallDir + "/logs/Client.txt"
 	DbPath       string         // path to the l2p SQLite database
 	ChannelNames map[int]string // chat channel number -> user-defined label
+	IdleTimeout  time.Duration  // shut down after this long with no client keep-alive or Client.txt activity; 0 uses DefaultIdleTimeout
 }
 
 type server struct {
-	cfg      Config
-	hub      *hub.Hub
-	store    *store.Store
-	queryDB  *query.DB
-	started  time.Time
-	shutdown context.CancelFunc
-	upgrader websocket.Upgrader
+	cfg          Config
+	hub          *hub.Hub
+	store        *store.Store
+	queryDB      *query.DB
+	started      time.Time
+	shutdown     context.CancelFunc
+	upgrader     websocket.Upgrader
+	lastActivity atomic.Int64 // UnixNano of the last keep-alive from any connected client
+}
+
+// touch records a keep-alive from a connected client, per ADR-001. Called
+// for an explicit keepalive and for any real usage (subscribe, unsubscribe,
+// request) — but deliberately not for a bare ping, which is a connectivity
+// check rather than evidence the client still needs the service running.
+func (s *server) touch() {
+	s.lastActivity.Store(time.Now().UnixNano())
 }
 
 // Run negotiates singleton ownership, then either starts serving or yields to
@@ -174,6 +188,7 @@ func serve(cfg Config, listener net.Listener) error {
 	h := hub.New()
 	ctx, cancel := context.WithCancel(context.Background())
 
+	var t *tailer.Tailer
 	if cfg.LogPath != "" && cfg.InstallDir != "" && qdb != nil {
 		// installs.path stores the install directory (not the Client.txt path),
 		// matching the convention the old C++ Database::upsertInstall used.
@@ -186,7 +201,7 @@ func serve(cfg Config, listener net.Listener) error {
 				log.Printf("warn: cannot start ingest writer: %v", err)
 			} else {
 				eventCh := make(chan string, 512)
-				t := tailer.New(cfg.LogPath, qdb.Raw(), installID, eventCh)
+				t = tailer.New(cfg.LogPath, qdb.Raw(), installID, eventCh)
 				p := parser.New()
 				go t.Run(ctx)
 				go broadcastLogEvents(ctx, h, eventCh, p, writer, t.CaughtUp)
@@ -205,13 +220,24 @@ func serve(cfg Config, listener net.Listener) error {
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
+	srv.touch()
+
+	idleTimeout := cfg.IdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = DefaultIdleTimeout
+	}
+	var tailerActivity func() time.Time
+	if t != nil {
+		tailerActivity = t.LastActivity
+	}
+	go watchIdle(ctx, cancel, srv, tailerActivity, idleTimeout, idleCheckInterval)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", srv.handleWS)
 	mux.HandleFunc("/health", srv.handleHealth)
 
 	httpSrv := &http.Server{Handler: mux}
-	log.Printf("poe-info-service v%s listening on %s", cfg.Version, listener.Addr())
+	log.Printf("poe-info-service v%s listening on %s, idle timeout %s", cfg.Version, listener.Addr(), idleTimeout)
 
 	go func() {
 		<-ctx.Done()
@@ -230,6 +256,42 @@ func serve(cfg Config, listener net.Listener) error {
 	}
 	cancel()
 	return nil
+}
+
+// idleCheckInterval is how often watchIdle re-evaluates activity. It is well
+// below DefaultIdleTimeout so the shutdown fires close to the configured
+// deadline rather than up to a whole extra interval late.
+const idleCheckInterval = 15 * time.Second
+
+// watchIdle shuts the service down once idleTimeout has elapsed since the
+// most recent keep-alive, from either axis ADR-001 requires: a connected
+// client's activity (srv.lastActivity) or the log tailer picking up new
+// Client.txt lines (tailerActivity), which stands in for the game itself
+// being open even with zero addon clients connected. tailerActivity may be
+// nil when no log path is configured, in which case only client activity is
+// considered.
+func watchIdle(ctx context.Context, cancel context.CancelFunc, srv *server, tailerActivity func() time.Time, idleTimeout, checkInterval time.Duration) {
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			lastActive := time.Unix(0, srv.lastActivity.Load())
+			if tailerActivity != nil {
+				if tActive := tailerActivity(); tActive.After(lastActive) {
+					lastActive = tActive
+				}
+			}
+			if time.Since(lastActive) >= idleTimeout {
+				log.Printf("idle for %s with no client keep-alive or Client.txt activity; shutting down", idleTimeout)
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 // broadcastLogEvents drains parsed Client.txt lines, applying each event to
@@ -366,9 +428,18 @@ func (s *server) handlePeer(conn *websocket.Conn, peerHello proto.Message) {
 func (s *server) routeMessage(c *hub.Client, msg proto.Message) {
 	switch msg.Type {
 	case proto.TypePing:
+		// A bare connectivity check is not, by itself, evidence the client
+		// still needs the service running — it does not touch the idle
+		// timer. Clients that want to keep the service alive send an
+		// explicit keepalive (or any real request/subscription).
 		s.send(c, proto.Message{Type: proto.TypePong, ID: msg.ID})
 
+	case proto.TypeKeepalive:
+		s.touch()
+		s.send(c, proto.Message{Type: proto.TypeKeepalive, ID: msg.ID})
+
 	case proto.TypeSubscribe:
+		s.touch()
 		if msg.Topic != "" {
 			s.hub.Subscribe(c, msg.Topic)
 			s.send(c, proto.Message{
@@ -379,11 +450,13 @@ func (s *server) routeMessage(c *hub.Client, msg proto.Message) {
 		}
 
 	case proto.TypeUnsubscribe:
+		s.touch()
 		if msg.Topic != "" {
 			s.hub.Unsubscribe(c, msg.Topic)
 		}
 
 	case proto.TypeRequest:
+		s.touch()
 		s.handleRequest(c, msg)
 	}
 }

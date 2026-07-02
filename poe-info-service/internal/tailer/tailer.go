@@ -19,11 +19,12 @@ const pollInterval = 250 * time.Millisecond
 // the l2p database's installs row for this install, mirroring the columns
 // the old C++ LogIngestWorker maintained.
 type Tailer struct {
-	logPath   string
-	db        *sql.DB
-	installID int64
-	out       chan<- string
-	caughtUp  atomic.Bool
+	logPath      string
+	db           *sql.DB
+	installID    int64
+	out          chan<- string
+	caughtUp     atomic.Bool
+	lastActivity atomic.Int64 // UnixNano of the last poll that read new lines
 }
 
 func New(logPath string, db *sql.DB, installID int64, out chan<- string) *Tailer {
@@ -34,6 +35,18 @@ func New(logPath string, db *sql.DB, installID int64, out chan<- string) *Tailer
 // once since this process started. Callers use this to avoid broadcasting
 // backlog events (replayed after a restart) as if they were live.
 func (t *Tailer) CaughtUp() bool { return t.caughtUp.Load() }
+
+// LastActivity returns the time new lines were last read from the log file,
+// or the zero Time if none have been read yet this run. Per ADR-001, this
+// stands in for "the game itself is open" as an implicit keep-alive even
+// when no addon client is connected.
+func (t *Tailer) LastActivity() time.Time {
+	ns := t.lastActivity.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
+}
 
 func (t *Tailer) Run(ctx context.Context) {
 	offset := t.loadOffset()
@@ -57,6 +70,7 @@ func (t *Tailer) Run(ctx context.Context) {
 			if newOffset != offset {
 				offset = newOffset
 				t.saveOffset(offset)
+				t.lastActivity.Store(time.Now().UnixNano())
 			} else if !t.caughtUp.Load() {
 				t.caughtUp.Store(true)
 				log.Printf("tailer: caught up to EOF at offset %d for %s", offset, t.logPath)
