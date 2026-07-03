@@ -117,6 +117,9 @@ AppConfig AppConfig::load()
             cfg.debugLegacyUserAgentCustom = QString::fromStdString(*v);
         cfg.debugLegacyUserAgentApp = tbl["debug_legacy_user_agent_app"].value_or(AppConfig::kDefaultLegacyUserAgentApp);
         cfg.debugUserAgentQt        = tbl["debug_user_agent_qt"].value_or(AppConfig::kDefaultUserAgentQt);
+        if (auto v = tbl["debug_info_service_host"].value<std::string>())
+            cfg.debugInfoServiceHost = QString::fromStdString(*v);
+        cfg.debugInfoServicePort  = (int)tbl["debug_info_service_port"].value_or<int64_t>(0);
         cfg.useGameOverlay        = tbl["use_game_overlay"].value_or(true);
         cfg.overlayColumns = tbl["overlay_columns"].value_or(1);
         cfg.overlayRows = tbl["overlay_rows"].value_or(0);
@@ -227,6 +230,8 @@ void AppConfig::save() const
     tbl.insert("debug_legacy_user_agent_custom", debugLegacyUserAgentCustom.toStdString());
     tbl.insert("debug_legacy_user_agent_app", debugLegacyUserAgentApp);
     tbl.insert("debug_user_agent_qt",            debugUserAgentQt);
+    tbl.insert("debug_info_service_host",        debugInfoServiceHost.toStdString());
+    tbl.insert("debug_info_service_port",        (int64_t)debugInfoServicePort);
     tbl.insert("use_game_overlay",        useGameOverlay);
     tbl.insert("overlay_columns", overlayColumns);
     tbl.insert("overlay_rows", overlayRows);

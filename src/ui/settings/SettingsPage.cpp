@@ -35,10 +35,13 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSpinBox>
 #include <QStandardItemModel>
 #include <QStackedWidget>
 #include <QSvgRenderer>
 #include <QVBoxLayout>
+
+#include "services/PoeInfoClient.h"
 
 // ---------------------------------------------------------------------------
 // Alert rule helpers (event/action presets)
@@ -146,7 +149,7 @@ namespace
 } // namespace
 
 SettingsPage::SettingsPage(AppConfig &config, PoeInfoClient *poeInfoClient, QWidget *parent)
-    : QWidget(parent), m_config(config)
+    : QWidget(parent), m_config(config), m_poeInfoClient(poeInfoClient)
 {
     m_accountStore = new PoeAccountStore(poeInfoClient, this);
 
@@ -822,6 +825,54 @@ void SettingsPage::buildDebugPage(QWidget *parent)
     }
     debugForm->addRow("Include QtWebEngine token:", m_includeQtToken);
 
+    {
+        auto *sectionLabel = new QLabel("PoE Info Service", debugContent);
+        QFont f = sectionLabel->font();
+        f.setBold(true);
+        sectionLabel->setFont(f);
+        debugForm->addRow(sectionLabel);
+    }
+
+    {
+        auto *clientLabel = new QLabel("Client", debugContent);
+        QFont f = clientLabel->font();
+        f.setBold(true);
+        clientLabel->setFont(f);
+        debugForm->addRow(clientLabel);
+    }
+
+    m_infoServiceHost = new QLineEdit(debugContent);
+    m_infoServiceHost->setPlaceholderText("127.0.0.1 (auto)");
+    m_infoServiceHost->setText(m_config.debugInfoServiceHost);
+    debugForm->addRow("Address:", m_infoServiceHost);
+
+    m_infoServicePort = new QSpinBox(debugContent);
+    m_infoServicePort->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_infoServicePort->setRange(0, 65535);
+    m_infoServicePort->setSpecialValueText("47652 (auto)");
+    m_infoServicePort->setValue(m_config.debugInfoServicePort);
+    debugForm->addRow("Port:", m_infoServicePort);
+
+    {
+        auto *restartNote = new QLabel("Changes take effect after restart.", debugContent);
+        QFont f = restartNote->font();
+        f.setItalic(true);
+        restartNote->setFont(f);
+        debugForm->addRow(restartNote);
+    }
+
+    {
+        auto *serverLabel = new QLabel("Server", debugContent);
+        QFont f = serverLabel->font();
+        f.setBold(true);
+        serverLabel->setFont(f);
+        debugForm->addRow(serverLabel);
+    }
+
+    m_infoServiceDebugLogging = new QCheckBox(debugContent);
+    m_infoServiceDebugLogging->setEnabled(false); // enabled once the current value is known
+    debugForm->addRow("Debug logging:", m_infoServiceDebugLogging);
+
     parentLayout->addWidget(debugContent);
     connect(m_debugLog, &QCheckBox::toggled, this, [this](bool)
             { saveAndEmit(); });
@@ -852,6 +903,48 @@ void SettingsPage::buildDebugPage(QWidget *parent)
             { saveAndEmit(); });
     connect(m_includeQtToken, &QCheckBox::toggled, this, [this](bool)
             { saveAndEmit(); });
+
+    connect(m_infoServiceHost, &QLineEdit::textEdited, this, [this](const QString &)
+            { saveAndEmit(); });
+    connect(m_infoServicePort, &QSpinBox::valueChanged, this, [this](int)
+            { saveAndEmit(); });
+
+    connect(m_infoServiceDebugLogging, &QCheckBox::toggled, this, [this](bool checked)
+            {
+        if (!m_poeInfoClient) return;
+        m_poeInfoClient->request(QStringLiteral("config.set"),
+            {{QStringLiteral("key"), QStringLiteral("debug_logging")},
+             {QStringLiteral("value"), checked}},
+            [this, checked](QJsonObject, QString error) {
+                if (!error.isEmpty() && m_infoServiceDebugLogging) {
+                    // Reflect that the server rejected/couldn't apply the change.
+                    m_infoServiceDebugLogging->blockSignals(true);
+                    m_infoServiceDebugLogging->setChecked(!checked);
+                    m_infoServiceDebugLogging->blockSignals(false);
+                }
+            }); });
+
+    if (m_poeInfoClient) {
+        connect(m_poeInfoClient, &PoeInfoClient::connected, this, &SettingsPage::refreshInfoServiceDebugLogging);
+        if (m_poeInfoClient->isConnected())
+            refreshInfoServiceDebugLogging();
+    }
+}
+
+void SettingsPage::refreshInfoServiceDebugLogging()
+{
+    if (!m_poeInfoClient || !m_infoServiceDebugLogging)
+        return;
+    m_poeInfoClient->request(QStringLiteral("config.get"),
+        {{QStringLiteral("key"), QStringLiteral("debug_logging")}},
+        [this](QJsonObject payload, QString error) {
+            if (!m_infoServiceDebugLogging || !error.isEmpty())
+                return;
+            m_infoServiceDebugLogging->blockSignals(true);
+            m_infoServiceDebugLogging->setChecked(payload[QStringLiteral("value")].toBool());
+            m_infoServiceDebugLogging->blockSignals(false);
+            m_infoServiceDebugLogging->setEnabled(true);
+        });
 }
 
 void SettingsPage::buildAccountsPage(QWidget *parent)
@@ -1393,6 +1486,10 @@ void SettingsPage::saveAndEmit()
                 m_config.debugUserAgentQt = m_includeQtToken->isChecked();
         }
     }
+    if (m_infoServiceHost)
+        m_config.debugInfoServiceHost = m_infoServiceHost->text();
+    if (m_infoServicePort)
+        m_config.debugInfoServicePort = m_infoServicePort->value();
 
     m_config.save();
 

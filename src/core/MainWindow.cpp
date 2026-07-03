@@ -319,7 +319,14 @@ MainWindow::MainWindow(QWidget *parent)
     // successful connection (onServiceReady), rather than opening a local
     // Database handle here.
     m_serviceManager->start(serviceDataDir, installDir);
-    m_poeInfoClient = new PoeInfoClient(m_serviceManager->host(), m_serviceManager->port(), this);
+    // Debug menu lets a developer point the client at a different
+    // poe-info-service instance than the one ServiceManager resolved/spawned
+    // (e.g. a manually-run dev server) without affecting what gets spawned.
+    const QString clientHost = m_config.debugInfoServiceHost.isEmpty()
+                                    ? m_serviceManager->host() : m_config.debugInfoServiceHost;
+    const int clientPort = m_config.debugInfoServicePort > 0
+                                ? m_config.debugInfoServicePort : m_serviceManager->port();
+    m_poeInfoClient = new PoeInfoClient(clientHost, clientPort, this);
     m_poeInfoClient->subscribe(QStringLiteral("clientlog"), [](QJsonObject payload)
                                {
         LiveEvent ev;

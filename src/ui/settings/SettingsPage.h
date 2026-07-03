@@ -7,6 +7,7 @@
 class QCheckBox;
 class QComboBox;
 class QLineEdit;
+class QSpinBox;
 class ListEditor;
 class QLabel;
 class QListWidget;
@@ -56,6 +57,7 @@ private:
     bool alertsEditRuleDialog(LiveEventRule &rule);
 
     AppConfig      &m_config;
+    PoeInfoClient  *m_poeInfoClient{};
     QStackedWidget *m_stack{};
     QPushButton    *m_backBtn{};
     QLabel         *m_titleLabel{};
@@ -108,6 +110,14 @@ private:
     QLineEdit  *m_customUserAgent{};
     QCheckBox  *m_includeToolName{};
     QCheckBox  *m_includeQtToken{};
+
+    // Debug page: PoE Info Service > Client (where to connect)
+    QLineEdit  *m_infoServiceHost{};
+    QSpinBox   *m_infoServicePort{};
+
+    // Debug page: PoE Info Service > Server (live setting on the service itself)
+    QCheckBox  *m_infoServiceDebugLogging{};
+    void refreshInfoServiceDebugLogging();
 
     // Alerts page
     QListWidget *m_alertsList{};

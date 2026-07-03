@@ -31,6 +31,12 @@ struct AppConfig {
     QString debugLegacyUserAgentCustom;
     bool    debugLegacyUserAgentApp{kDefaultLegacyUserAgentApp};
     bool    debugUserAgentQt{kDefaultUserAgentQt};
+    // poe-info-service connection override for debugging (e.g. pointing at a
+    // manually-run instance); empty host / port 0 means "use the address
+    // ServiceManager resolved from poe-info-service.toml". Takes effect on
+    // next launch — PoeInfoClient's socket is constructed once at startup.
+    QString debugInfoServiceHost;
+    int     debugInfoServicePort{0};
     bool useGameOverlay{true};
     int overlayColumns{1};
     int overlayRows{0};
