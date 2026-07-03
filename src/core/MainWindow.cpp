@@ -297,20 +297,28 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_taskManager, &TaskManager::taskAdded, this, &MainWindow::onTaskUpdated);
     connect(m_taskManager, &TaskManager::taskUpdated, this, &MainWindow::onTaskUpdated);
 
-    // Empty unless a perf test harness needs an isolated db file — poe-info-service
-    // resolves its own default location (poe-info-service.db next to
-    // poe-info-service.toml) itself when this isn't set, since it owns the database
-    // (see ServiceManager::start).
-    const QByteArray dbPathOverride = qgetenv("L2P_STARTUP_TIMING_DB");
-    const QString    dbPath         = QString::fromUtf8(dbPathOverride);
-    const QString    installDir     = m_config.installDirs.isEmpty() ? QString() : m_config.installDirs.first();
+    // Empty unless --service-data-dir was passed (e.g. by a perf test harness
+    // wanting an isolated, pre-seeded data dir) — poe-info-service resolves
+    // its own default (see ServiceManager::start) when this isn't set, since
+    // it owns that data, not this app.
+    QString serviceDataDir;
+    {
+        const QStringList args = QCoreApplication::arguments();
+        for (int i = 0; i < args.size(); ++i) {
+            if (args[i] == QStringLiteral("--service-data-dir") && i + 1 < args.size()) {
+                serviceDataDir = args[i + 1];
+                break;
+            }
+        }
+    }
+    const QString installDir = m_config.installDirs.isEmpty() ? QString() : m_config.installDirs.first();
 
     // poe-info-service owns the database (schema creation/migration and all
     // Client.txt ingestion) and must be up before any page requests data
     // through it — start it first and gate the rest of startup on its first
     // successful connection (onServiceReady), rather than opening a local
     // Database handle here.
-    m_serviceManager->start(dbPath, installDir);
+    m_serviceManager->start(serviceDataDir, installDir);
     m_poeInfoClient = new PoeInfoClient(m_serviceManager->host(), m_serviceManager->port(), this);
     m_poeInfoClient->subscribe(QStringLiteral("clientlog"), [](QJsonObject payload)
                                {

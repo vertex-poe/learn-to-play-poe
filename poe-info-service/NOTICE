@@ -1,0 +1,14 @@
+<!-- poe-info-service/NOTICE (markdown) -->
+
+## Disclaimer
+
+This project is not affiliated with, endorsed by, or in any way associated with
+Grinding Gear Games or Path of Exile.
+
+Path of Exile is a trademark of Grinding Gear Games Ltd.
+
+## Acknowledgements
+
+Path of Exile is a remarkable game to build around. Grinding Gear Games has maintained an open relationship with third-party developers — publishing passive skill tree data, providing trade and character APIs, and making `Client.txt` a reliable, structured source of game events. This project exists because of that foundation.
+
+The broader Path of Exile tooling community — loot filter authors, skill planners, trade utilities, map trackers, and currency sites — represents years of accumulated insight into what information players actually need alongside the game. That ecosystem shaped the thinking behind this project.

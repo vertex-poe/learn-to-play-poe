@@ -55,12 +55,18 @@ func ResolveDir(exeDir string) string {
 	return exeDir
 }
 
-// Load reads poe-info-service.toml from dir, returning hardcoded defaults for
-// any key that is absent, and for the file as a whole if it is missing or
+// ResolveFile is ResolveDir plus the default config filename — the config
+// file path used when neither --config nor --data-dir overrides it.
+func ResolveFile(exeDir string) string {
+	return filepath.Join(ResolveDir(exeDir), FileName)
+}
+
+// Load reads the config file at path, returning hardcoded defaults for any
+// key that is absent, and for the file as a whole if it is missing or
 // unparseable.
-func Load(dir string) Config {
+func Load(path string) Config {
 	cfg := Defaults()
-	data, err := os.ReadFile(filepath.Join(dir, FileName))
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return cfg
 	}
@@ -80,19 +86,24 @@ const fileHeader = "" +
 	"# add yourself will be removed the next time this file is saved. Values you set\n" +
 	"# are preserved.\n\n"
 
-// Save atomically (re)writes poe-info-service.toml in dir: it writes to a
-// temp file in the same directory, then renames over the target, so a crash
+// Save atomically (re)writes the config file at path: it writes to a temp
+// file in the same directory, then renames over the target, so a crash
 // mid-write can't leave a corrupt or truncated file behind for a human to
-// find during the exact outage this file exists to help diagnose.
-func Save(dir string, cfg Config) error {
+// find during the exact outage this file exists to help diagnose. Creates
+// the containing directory if it doesn't exist yet — --config/--data-dir
+// may point somewhere that's never been used before.
+func Save(path string, cfg Config) error {
 	body, err := toml.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 	data := append([]byte(fileHeader), body...)
 
-	path := filepath.Join(dir, FileName)
-	tmp, err := os.CreateTemp(dir, FileName+".tmp-*")
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create %q: %w", dir, err)
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("create temp config: %w", err)
 	}

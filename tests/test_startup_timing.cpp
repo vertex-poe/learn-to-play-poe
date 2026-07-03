@@ -33,7 +33,10 @@ void StartupTimingTest::sessionListVisible()
         : QString::fromUtf8(exeOverride);
     QTemporaryDir tmpDir;
     QVERIFY(tmpDir.isValid());
-    const QString dbPath = tmpDir.path() + "/timing.db";
+    // poe-info-service resolves its database as <data-dir>/poe-info-service.db;
+    // pre-seeding it here and passing tmpDir via --service-data-dir points the
+    // whole l2p-poe -> poe-info-service chain at this fixture in one step.
+    const QString dbPath = tmpDir.path() + "/poe-info-service.db";
 
     {
         sqlite3 *db = nullptr;
@@ -52,12 +55,11 @@ void StartupTimingTest::sessionListVisible()
         // File-based IPC: l2p-poe.exe is a GUI subsystem app with no stdout
         // handle when launched as a child process on Windows.
         const QString logPath = tmpDir.path() + QString("/timing_%1.log").arg(i);
-        qputenv("L2P_STARTUP_TIMING_DB", dbPath.toUtf8());
         qputenv("L2P_STARTUP_TIMING_LOG", logPath.toUtf8());
 
         QProcess p;
         p.setProgram(exePath);
-        p.setArguments({"--startup-timing"});
+        p.setArguments({"--startup-timing", "--service-data-dir", tmpDir.path()});
         p.setProcessChannelMode(QProcess::ForwardedChannels);
 
         QElapsedTimer t;

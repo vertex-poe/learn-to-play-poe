@@ -2,7 +2,7 @@
 Run the app headlessly to ingest the configured Client.txt into the database.
 
 Usage:
-    python poe-info-service/dev/ingest_client_log.py
+    python poe-info-service/dev/area_seeds/ingest_client_log.py
 
 BROKEN as of the poe-info-service migration (ADR-006): delegates to
 `bin/l2p-poe.exe ingest`, a CLI verb that no longer exists — l2p-poe's own
@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-EXE = Path(__file__).parent.parent.parent / "bin" / "l2p-poe.exe"
+EXE = Path(__file__).parent.parent.parent.parent / "bin" / "l2p-poe.exe"
 
 
 def main() -> None:

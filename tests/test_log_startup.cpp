@@ -44,10 +44,10 @@ private:
         return QByteArray();
     }
 
-    static void assertStartup(const QString &dbPath)
+    // dataDir is passed to poe-info-service via --service-data-dir; it
+    // resolves the database as <dataDir>/poe-info-service.db itself.
+    static void assertStartup(const QString &dataDir)
     {
-        qputenv("L2P_STARTUP_TIMING_DB", dbPath.toUtf8());
-
         // Write timing markers to a file instead of stdout.
         // l2p-poe.exe is a GUI subsystem app (WIN32_EXECUTABLE) and has no
         // stdout handle when launched as a child process on Windows.
@@ -58,13 +58,13 @@ private:
         qputenv("L2P_STARTUP_TIMING_LOG", logPath.toUtf8());
         qputenv("L2P_SERVICE_LOG",        svcLogPath.toUtf8());
 
-        fprintf(stderr, "[test_log_startup] starting app: db=%s\n",
-                dbPath.toUtf8().constData());
+        fprintf(stderr, "[test_log_startup] starting app: data-dir=%s\n",
+                dataDir.toUtf8().constData());
         fflush(stderr);
 
         QProcess p;
         p.setProgram(QString::fromUtf8(L2P_EXE_PATH));
-        p.setArguments({"--startup-timing"});
+        p.setArguments({"--startup-timing", "--service-data-dir", dataDir});
         p.setProcessChannelMode(QProcess::ForwardedChannels);
         p.start();
         QVERIFY2(p.waitForStarted(10'000), "App process failed to start");
@@ -102,8 +102,8 @@ void LogStartupTest::emptyDatabaseStartup()
     fprintf(stderr, "[test_log_startup] emptyDatabaseStartup\n"); fflush(stderr);
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
-    // Pass a path to a nonexistent file: app creates the DB from scratch (clean-install path).
-    assertStartup(tmp.path() + "/timing.db");
+    // No db file at all yet: poe-info-service creates it from scratch (clean-install path).
+    assertStartup(tmp.path());
 }
 
 void LogStartupTest::populatedDatabaseStartup()
@@ -111,7 +111,7 @@ void LogStartupTest::populatedDatabaseStartup()
     fprintf(stderr, "[test_log_startup] populatedDatabaseStartup\n"); fflush(stderr);
     QTemporaryDir tmp;
     QVERIFY(tmp.isValid());
-    const QString dbPath = tmp.path() + "/timing.db";
+    const QString dbPath = tmp.path() + "/poe-info-service.db";
 
     // Initialise schema then insert two closed sessions so LogPage renders session cards.
     sqlite3 *db = createSchema(dbPath);
@@ -134,7 +134,7 @@ void LogStartupTest::populatedDatabaseStartup()
     sqlite3_exec(db, s2, nullptr, nullptr, nullptr);
     sqlite3_close(db);
 
-    assertStartup(dbPath);
+    assertStartup(tmp.path());
 }
 
 QTEST_GUILESS_MAIN(LogStartupTest)

@@ -2,7 +2,7 @@
 Load all committed seed files into the live database.
 
 Usage:
-    python dev/load_seed_to_db.py
+    python poe-info-service/dev/area_seeds/load_seed_to_db.py
 
 Runs INSERT OR IGNORE so existing rows are never overwritten. The main
 purpose is to backfill type assignments that exist in seed files but not
@@ -13,7 +13,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent.parent.parent
+ROOT = Path(__file__).parent.parent.parent.parent
 DB   = ROOT / "poe-info-service.db"
 DATA = ROOT / "data"
 

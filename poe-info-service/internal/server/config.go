@@ -107,7 +107,7 @@ func (s *server) handleConfigSet(c *hub.Client, msg proto.Message) {
 		s.send(c, proto.Message{
 			Type:  proto.TypeResponse,
 			ID:    msg.ID,
-			Error: params.Key + " is read-only over this API; edit " + config.FileName + " directly and restart",
+			Error: params.Key + " is read-only over this API; edit " + s.cfg.ConfigFilePath + " directly and restart",
 		})
 		return
 	}
@@ -130,9 +130,9 @@ func (s *server) handleConfigSet(c *hub.Client, msg proto.Message) {
 }
 
 // persistConfig writes the server's current effective config to
-// poe-info-service.toml in cfg.ConfigDir.
+// cfg.ConfigFilePath.
 func (s *server) persistConfig() error {
-	return config.Save(s.cfg.ConfigDir, config.Config{
+	return config.Save(s.cfg.ConfigFilePath, config.Config{
 		Bind:         s.cfg.Bind,
 		Port:         s.cfg.Port,
 		DebugLogging: s.debugLogging.Load(),

@@ -94,7 +94,7 @@ database without going through `l2p-poe` at all:
 go run ./poe-info-service \
   --install-dir "C:\Games\PoE" \
   --log-path    "C:\Games\PoE\logs\Client.txt" \
-  --db-path     "C:\path\to\scratch.db" \
+  --data-dir    "C:\path\to\scratch-dir" \
   --service-log "C:\path\to\service-debug.log"
 ```
 

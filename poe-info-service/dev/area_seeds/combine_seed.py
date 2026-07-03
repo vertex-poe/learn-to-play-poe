@@ -6,7 +6,7 @@ poe-info-service/internal/schema/embed.go) — this script's output isn't
 consumed by any build step.
 
 Usage:
-    python dev/build/combine_seed.py
+    python poe-info-service/dev/area_seeds/combine_seed.py
 
 Run gen_area_seed.py (which calls this at the end) when you want to
 regenerate the area fixtures from the live database.
@@ -14,7 +14,7 @@ regenerate the area fixtures from the live database.
 
 from pathlib import Path
 
-DATA = Path(__file__).parent.parent.parent / "poe-info-service" / "internal" / "schema" / "sql"
+DATA = Path(__file__).parent.parent.parent / "internal" / "schema" / "sql"
 
 
 def combine() -> None:

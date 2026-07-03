@@ -87,9 +87,9 @@ private slots:
     void perfSuite();
 
 private:
-    RunResult runOnce(int dt, bool baseline, const QString &dbPath);
+    RunResult runOnce(int dt, bool baseline, const QString &dataDir);
 
-    QString m_dbPath;
+    QString m_dataDir;
 };
 
 // ---------------------------------------------------------------------------
@@ -105,10 +105,14 @@ void PerfMetricsTest::initTestCase()
     QTemporaryDir tmp;
     QVERIFY2(tmp.isValid(), "Failed to create temp dir");
     tmp.setAutoRemove(false); // keep for the lifetime of the test object
-    m_dbPath = tmp.path() + "/perf_test.db";
+    m_dataDir = tmp.path();
+    // poe-info-service resolves its database as <data-dir>/poe-info-service.db;
+    // pre-seeding it here and passing m_dataDir via --service-data-dir points
+    // the whole l2p-poe -> poe-info-service chain at this fixture in one step.
+    const QString dbPath = m_dataDir + "/poe-info-service.db";
 
     sqlite3 *db = nullptr;
-    QVERIFY2(sqlite3_open(m_dbPath.toUtf8().constData(), &db) == SQLITE_OK,
+    QVERIFY2(sqlite3_open(dbPath.toUtf8().constData(), &db) == SQLITE_OK,
              "Failed to open test DB");
 
     QFile schemaFile(QString::fromUtf8(L2P_SCHEMA_SQL_PATH));
@@ -181,7 +185,7 @@ void PerfMetricsTest::initTestCase()
 // runOnce: launch the app for one scenario run and collect milestones
 // ---------------------------------------------------------------------------
 
-RunResult PerfMetricsTest::runOnce(int dt, bool baseline, const QString &dbPath)
+RunResult PerfMetricsTest::runOnce(int dt, bool baseline, const QString &dataDir)
 {
     RunResult result;
 
@@ -204,9 +208,9 @@ RunResult PerfMetricsTest::runOnce(int dt, bool baseline, const QString &dbPath)
         QStringLiteral("--perf-scenario=") + scenario,
         QStringLiteral("--default-tab=%1").arg(dt),
         QStringLiteral("--perf-swap-nav=%1").arg(swapNavIdx),
+        QStringLiteral("--service-data-dir"), dataDir,
     });
     QStringList env = QProcess::systemEnvironment();
-    env << QLatin1String("L2P_STARTUP_TIMING_DB=") + dbPath;
     p.setEnvironment(env);
     p.setProcessChannelMode(QProcess::MergedChannels);
     p.start();
@@ -381,7 +385,7 @@ void PerfMetricsTest::perfSuite()
                 qDebug("perf: dt=%d (%s) scenario=%s run=%d",
                        dt, qPrintable(tab), qPrintable(scen), run + 1);
 
-                const RunResult r = runOnce(dt, baseline, m_dbPath);
+                const RunResult r = runOnce(dt, baseline, m_dataDir);
 
                 QVERIFY2(!r.timedOut,
                          qPrintable(QString("Run timed out: dt=%1 scenario=%2 run=%3")

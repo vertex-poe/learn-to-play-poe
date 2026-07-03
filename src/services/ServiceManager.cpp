@@ -44,7 +44,7 @@ void ServiceManager::loadConfig()
     }
 }
 
-void ServiceManager::start(const QString &dbPath, const QString &installDir)
+void ServiceManager::start(const QString &serviceDataDir, const QString &installDir)
 {
     if (m_process)
         return;
@@ -61,8 +61,8 @@ void ServiceManager::start(const QString &dbPath, const QString &installDir)
     QStringList args;
     args << "--port" << QString::number(m_port)
          << "--bind" << m_host;
-    if (!dbPath.isEmpty())
-        args << "--db-path" << dbPath;
+    if (!serviceDataDir.isEmpty())
+        args << "--data-dir" << serviceDataDir;
     if (!installDir.isEmpty()) {
         args << "--install-dir" << installDir
              << "--log-path"    << installDir + "/logs/Client.txt";

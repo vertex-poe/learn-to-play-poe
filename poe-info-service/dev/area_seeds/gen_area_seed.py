@@ -1,10 +1,10 @@
-# dev/area_seeds/gen_area_seed.py (python)
+# poe-info-service/dev/area_seeds/gen_area_seed.py (python)
 
 """
 Assign area types in the database, then dump one seed file per type.
 
 Usage:
-    python dev/gen_area_seed.py
+    python poe-info-service/dev/area_seeds/gen_area_seed.py
 
 Two phases:
   1. UPDATE areas SET type = ... WHERE type IS NULL
@@ -19,10 +19,9 @@ import sqlite3
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "build"))
 from combine_seed import combine
 
-ROOT = Path(__file__).parent.parent.parent
+ROOT = Path(__file__).parent.parent.parent.parent
 DB   = ROOT / "poe-info-service.db"
 OUT  = ROOT / "poe-info-service" / "internal" / "schema" / "sql" / "areas"
 

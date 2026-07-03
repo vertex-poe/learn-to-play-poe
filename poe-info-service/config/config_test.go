@@ -8,31 +8,44 @@ import (
 )
 
 func TestLoadMissingFileReturnsDefaults(t *testing.T) {
-	cfg := Load(t.TempDir())
+	cfg := Load(filepath.Join(t.TempDir(), FileName))
 	if cfg != Defaults() {
 		t.Errorf("Load of missing file = %+v, want defaults %+v", cfg, Defaults())
 	}
 }
 
 func TestSaveThenLoadRoundTrips(t *testing.T) {
-	dir := t.TempDir()
+	path := filepath.Join(t.TempDir(), FileName)
 	want := Config{Bind: "0.0.0.0", Port: 12345, DebugLogging: true}
 
-	if err := Save(dir, want); err != nil {
+	if err := Save(path, want); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	got := Load(dir)
+	got := Load(path)
+	if got != want {
+		t.Errorf("Load after Save = %+v, want %+v", got, want)
+	}
+}
+
+func TestSaveAcceptsArbitraryFileName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "custom-name.toml")
+	want := Config{Bind: "0.0.0.0", Port: 12345, DebugLogging: true}
+
+	if err := Save(path, want); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got := Load(path)
 	if got != want {
 		t.Errorf("Load after Save = %+v, want %+v", got, want)
 	}
 }
 
 func TestSaveGeneratesComments(t *testing.T) {
-	dir := t.TempDir()
-	if err := Save(dir, Defaults()); err != nil {
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := Save(path, Defaults()); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, FileName))
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -46,7 +59,8 @@ func TestSaveGeneratesComments(t *testing.T) {
 
 func TestSaveLeavesNoTempFileBehind(t *testing.T) {
 	dir := t.TempDir()
-	if err := Save(dir, Defaults()); err != nil {
+	path := filepath.Join(dir, FileName)
+	if err := Save(path, Defaults()); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	entries, err := os.ReadDir(dir)
@@ -101,12 +115,31 @@ func TestResolveDirFallsBackToExeDirWithoutJustfile(t *testing.T) {
 	}
 }
 
+func TestResolveFileJoinsResolveDirAndFileName(t *testing.T) {
+	noJustfileDir := t.TempDir()
+	exeDir := filepath.Join(t.TempDir(), "exe-dir")
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(noJustfileDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(origWd)
+
+	want := filepath.Join(exeDir, FileName)
+	if got := ResolveFile(exeDir); got != want {
+		t.Errorf("ResolveFile = %q, want %q", got, want)
+	}
+}
+
 func TestLoadUnparseableFileReturnsDefaults(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, FileName), []byte("not valid toml {{{"), 0644); err != nil {
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := os.WriteFile(path, []byte("not valid toml {{{"), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	cfg := Load(dir)
+	cfg := Load(path)
 	if cfg != Defaults() {
 		t.Errorf("Load of unparseable file = %+v, want defaults %+v", cfg, Defaults())
 	}

@@ -2,7 +2,7 @@
 Report area codes in the database that have no type assigned.
 
 Usage:
-    python dev/check_area_coverage.py
+    python poe-info-service/dev/area_seeds/check_area_coverage.py
 
 Run after gen_area_seed to see what still needs manual categorization.
 A non-zero exit code signals there are uncategorized areas (useful in scripts).
@@ -12,7 +12,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-DB   = Path(__file__).parent.parent.parent / "poe-info-service.db"
+DB   = Path(__file__).parent.parent.parent.parent / "poe-info-service.db"
 SKIP = {None, "(null)", "(unknown)"}
 
 

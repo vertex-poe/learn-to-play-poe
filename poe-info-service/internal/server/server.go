@@ -8,6 +8,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -58,7 +60,7 @@ type Config struct {
 	StartTime    int64
 	Bind         string // default "127.0.0.1"
 	Port         int
-	ConfigDir    string         // directory holding poe-info-service.toml (ADR-006's sole user-facing config store)
+	ConfigFilePath string       // exact path to the config file (ADR-006's sole user-facing config store) — may not be named poe-info-service.toml if --config overrode it
 	DebugLogging bool           // initial value of the debug_logging setting, read from poe-info-service.toml/flags at startup
 	InstallDir   string         // PoE install directory; identifies the installs row (matches the old C++ convention)
 	LogPath      string         // InstallDir + "/logs/Client.txt"
@@ -173,8 +175,12 @@ func negotiate(conn *websocket.Conn, cfg Config) (shouldTakeOver bool, incumbent
 
 // openDB opens poe-info-service's sole SQLite database: one file, one
 // connection, shared by the store and query packages (ADR-006) rather than
-// each opening its own.
+// each opening its own. Creates the containing directory if it doesn't
+// exist yet — --data-dir may point somewhere that's never been used before.
 func openDB(path string) (*sql.DB, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return nil, fmt.Errorf("create %q: %w", filepath.Dir(path), err)
+	}
 	dsn := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000&_foreign_keys=1"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

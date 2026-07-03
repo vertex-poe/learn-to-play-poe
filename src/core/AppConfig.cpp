@@ -61,6 +61,15 @@ QString AppConfig::effectiveUserAgent() const
 
 QString AppConfig::configPath()
 {
+    // --config overrides everything below with an exact file path.
+    if (qApp) {
+        const QStringList args = QCoreApplication::arguments();
+        for (int i = 0; i < args.size(); ++i) {
+            if (args[i] == QLatin1String("--config") && i + 1 < args.size())
+                return args[i + 1];
+        }
+    }
+
     // If the CWD contains a Justfile it's the project root (e.g. `just run` or an IDE
     // run with CWD set to the repo).  Prefer it so the TOML and DB land there instead
     // of deep inside the build tree, making dev ergonomics nicer.

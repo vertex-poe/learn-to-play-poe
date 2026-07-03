@@ -8,11 +8,17 @@ invocation falls through to normal service startup (see the root project's
 poe-info-service owns the database exclusively (this project's own
 [ADR-006](decisions/006-user-config-storage.md); see also root
 [ADR-006](../../docs/decisions/006-poe-info-service.md) for why `l2p-poe`
-depends on this service rather than touching the database itself) — no CLI
-subcommand here needs a `--db-path` override for casual use; it resolves
-`poe-info-service.db` the same way the running service does (project root
-when launched via `just`/an IDE with CWD set there, otherwise next to the
-executable).
+depends on this service rather than touching the database itself). The
+`dialog ingest` subcommand below always resolves `poe-info-service.db` the
+default way (project root when launched via `just`/an IDE with CWD set
+there, otherwise next to the executable) — it doesn't accept an override.
+
+The long-running service itself (not a subcommand) does accept two
+independent startup flags for this: `--data-dir <dir>` overrides where the
+database (and the config file's default location) lives, and `--config
+<file>` overrides the exact config file path regardless of `--data-dir`.
+Both exist mainly for test isolation — see `l2p-poe --service-data-dir`,
+which forwards to this service's `--data-dir` when launching it.
 
 ---
 
