@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-# dev/refilter_logs.py (python)
+# poe-info-service/dev/log_split/refilter_logs.py (python)
 
 """
 Concurrent log splitter using findstr. Extracts all categories in parallel
 (one findstr process per category, up to os.cpu_count() at a time), then
 creates the remainder with a single combined inverse pass.
 
-Usage: python dev/log_split/refilter_logs.py [path/to/Client.txt]
+Usage: python poe-info-service/dev/log_split/refilter_logs.py [path/to/Client.txt]
 """
 
 import os
@@ -18,7 +18,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-ROOT       = Path(__file__).parent.parent
+# Repo root, for finding l2p-poe.toml (install_dirs) — four levels up from
+# poe-info-service/dev/log_split/. Was two levels up (and pointed at the old
+# dev/ instead of the repo root) before this script moved here; fixed as
+# part of the move rather than carrying the bug to the new location.
+ROOT       = Path(__file__).parent.parent.parent.parent
 OUTDIR     = Path(__file__).parent / "filtered_client"
 OUTDIR_SQL = Path(__file__).parent / "filtered_sql"
 OUT        = Path(__file__).parent / "filtered_client.txt"

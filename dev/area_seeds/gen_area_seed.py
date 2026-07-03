@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "build"))
 from combine_seed import combine
 
 ROOT = Path(__file__).parent.parent.parent
-DB   = ROOT / "l2p-poe.db"
+DB   = ROOT / "poe-info-service.db"
 OUT  = ROOT / "poe-info-service" / "internal" / "schema" / "sql" / "areas"
 
 

@@ -15,6 +15,10 @@ import (
 )
 
 func main() {
+	if code, handled := cliDispatch(os.Args[1:]); handled {
+		os.Exit(code)
+	}
+
 	exe, _ := os.Executable()
 	configDir := config.ResolveDir(filepath.Dir(exe))
 	fileCfg := config.Load(configDir)

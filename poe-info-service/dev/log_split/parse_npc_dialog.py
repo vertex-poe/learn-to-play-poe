@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
-# dev/parse_npc_dialog.py (python)
+# poe-info-service/dev/log_split/parse_npc_dialog.py (python)
 
 """
 Exploratory tool: parses NPC names and their dialog lines from
-dev/filtered_client/dialog.txt, generating a stable SHA-256 hash for each
-unique message.  Filters known player names using whispers and chat logs
-(also derived from Client.txt).
+filtered_client/dialog.txt, hashing each unique message with the same
+canonical algorithm as `l2p-poe dialog hash` (src/util/DialogHash.h):
+NFC-normalise, trim, UTF-8, SHA-256, first 16 hex chars — so hashes here are
+interchangeable with the CLI's. Filters known player names using whispers
+and chat logs (also derived from Client.txt).
 
-Prerequisite: run dev/log_split/refilter_logs.py first to produce the filtered files.
+Prerequisite: run poe-info-service/dev/log_split/refilter_logs.py first to
+produce the filtered files.
 
-Output: dev/log_split/filtered_client/npc_dialog_hashes.json  (gitignored — contains dialog text)
+Output: poe-info-service/dev/log_split/filtered_client/npc_dialog_hashes.json
+(gitignored — contains dialog text)
 """
 
 import hashlib
 import json
 import re
 import sys
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 
@@ -50,14 +55,15 @@ def load_player_names() -> set[str]:
 
 
 def sha256_prefix(text: str, length: int = 16) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()[:length]
+    normalized = unicodedata.normalize("NFC", text).strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:length]
 
 
 def main() -> None:
     if not DIALOG_FILE.exists():
         print(
             f"error: {DIALOG_FILE} does not exist\n"
-            f"Run dev/log_split/refilter_logs.py first to generate the dialog file.",
+            f"Run poe-info-service/dev/log_split/refilter_logs.py first to generate the dialog file.",
             file=sys.stderr,
         )
         sys.exit(1)

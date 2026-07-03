@@ -24,6 +24,7 @@ Work items derived from `poe-info-service/docs/decisions/` (ADR-001 through 005)
 - [ ] Credential storage package — macOS/Linux backends: `internal/creds` (`Store`/`Get`/`Delete`, build-tag-selected per platform) now has a Windows backend (danieljoos/wincred); still needs keybase/go-keychain (macOS) and godbus/dbus Secret Service (Linux), plus an in-memory backend for automated tests (ADR-005)
 - [ ] OAuth PKCE flow: service-initiated OAuth token acquisition via the system's default browser plus a local loopback redirect listener, for providers whose flow allows it, so future data sources (PoE official API, Steam) don't require WebView capability (ADR-004)
 - [ ] Credential expiry/staleness policy: explicitly left open by ADR-004/ADR-005 and not yet the subject of a dedicated ADR — needs its own design pass once the storage mechanism above lands
+- [ ] Fix `poe-info-service/dev/ingest_client_log.py`: it shells out to `bin/l2p-poe.exe ingest`, a CLI verb that no longer exists (`src/core/Cli.cpp` only has `dialog hash`) — a leftover from before poe-info-service owned Client.txt tailing. There's no "run once and exit" ingest mode anymore; poe-info-service only tails continuously while running as a service. Fixing `dev/area_seeds/update_areas.py --ingest` (which calls this script) needs either (a) a real "caught up to EOF" signal exposed over the WebSocket status API that the script can poll and exit on, or (b) accepting a simpler "start the service, sleep a few seconds, exit" heuristic instead
 
 ## Goal: Basic Features
 

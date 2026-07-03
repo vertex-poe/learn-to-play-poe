@@ -21,6 +21,9 @@ tests/perf_baseline.json
 dev/log_split/filtered_client.txt
 dev/log_split/filtered_client/
 dev/log_split/filtered_sql/
+poe-info-service/dev/log_split/filtered_client.txt
+poe-info-service/dev/log_split/filtered_client/
+poe-info-service/dev/log_split/filtered_sql/
 bin/
 logs/
 *.log

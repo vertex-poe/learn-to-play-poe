@@ -1,11 +1,8 @@
 #include "core/Cli.h"
-#include "core/AppConfig.h"
-#include "db/Database.h"
 #include "util/DialogHash.h"
 
 #include <QCoreApplication>
 #include <QFile>
-#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -67,15 +64,6 @@ static QJsonArray hashArray(const QJsonArray &input)
     return out;
 }
 
-// poe-info-service owns this database and names it poe-info-service.db; it
-// resolves the same directory l2p-poe.toml lives in, so deriving the
-// directory from AppConfig::configPath() and swapping in that fixed name
-// points this tool at the same file the running app/service actually uses.
-static QString dbPath()
-{
-    return QFileInfo(AppConfig::configPath()).absolutePath() + "/poe-info-service.db";
-}
-
 // ---------------------------------------------------------------------------
 // dialog hash
 //
@@ -105,66 +93,23 @@ static int runDialogHash(int argc, char *argv[])
 }
 
 // ---------------------------------------------------------------------------
-// dialog ingest
-//
-//   l2p-poe dialog ingest [file.json]
-//   l2p-poe dialog ingest "NPC Name" "message text"
-// ---------------------------------------------------------------------------
-
-static int runDialogIngest(int argc, char *argv[])
-{
-    QCoreApplication app(argc, argv);
-
-    QJsonArray input;
-    if (argc >= 5) {
-        input = argsToArray(
-            QString::fromLocal8Bit(argv[3]),
-            QString::fromLocal8Bit(argv[4]));
-    } else {
-        const QByteArray raw = readInput(argc, argv, 3);
-        if (raw.isEmpty()) return 1;
-        input = parseInputArray(raw);
-        if (input.isEmpty()) return 1;
-    }
-
-    Database db(dbPath());
-    if (!db.isOpen()) {
-        QTextStream(stderr) << "error: " << db.lastError() << "\n";
-        return 1;
-    }
-
-    const QJsonArray hashed = hashArray(input);
-    QList<Database::NpcDialogEntry> entries;
-    entries.reserve(hashed.size());
-    for (const QJsonValue &val : hashed) {
-        const QJsonObject obj = val.toObject();
-        entries.append({
-            obj["message_hash"].toString(),
-            obj["npc_name"].toString(),
-            obj["npc_name_hash"].toString(),
-            {},
-        });
-    }
-
-    const int inserted = db.upsertNpcDialogEntries(entries);
-    QTextStream(stdout)
-        << inserted << " inserted, "
-        << (entries.size() - inserted) << " already present\n";
-    return 0;
-}
-
-// ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
 
+// dialog ingest writes to the database, which poe-info-service owns
+// exclusively (ADR-006) — that subcommand lives on poe-info-service's own
+// CLI now (`poe-info-service dialog ingest`), reading the JSON this
+// `dialog hash` prints. This binary never touches the database.
 static void printUsage()
 {
     QTextStream err(stderr);
     err << "usage:\n"
         << "  l2p-poe dialog hash [file.json]\n"
         << "  l2p-poe dialog hash <npc_name> <message>\n"
-        << "  l2p-poe dialog ingest [file.json]\n"
-        << "  l2p-poe dialog ingest <npc_name> <message>\n";
+        << "\n"
+        << "To write hashed entries into the database, pipe into\n"
+        << "poe-info-service's own CLI instead:\n"
+        << "  l2p-poe dialog hash file.json | poe-info-service dialog ingest\n";
 }
 
 int cliDispatch(int argc, char *argv[])
@@ -176,8 +121,7 @@ int cliDispatch(int argc, char *argv[])
     const QString noun = argc >= 3 ? QString::fromLocal8Bit(argv[2]) : QString();
 
     if (verb == "dialog") {
-        if (noun == "hash")   return runDialogHash(argc, argv);
-        if (noun == "ingest") return runDialogIngest(argc, argv);
+        if (noun == "hash") return runDialogHash(argc, argv);
         QTextStream(stderr) << "error: unknown dialog subcommand '" << noun << "'\n";
         printUsage();
         return 1;

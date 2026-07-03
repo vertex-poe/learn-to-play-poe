@@ -2,11 +2,12 @@
 Orchestrate the full area seed update workflow.
 
 Usage:
-    python dev/update_areas.py           # skip client ingest
-    python dev/update_areas.py --ingest  # run client log ingest first
+    python dev/area_seeds/update_areas.py           # skip client ingest
+    python dev/area_seeds/update_areas.py --ingest  # run client log ingest first
 
 Steps:
-    1. [--ingest] ingest_client_log.py   pull new areas from the running app
+    1. [--ingest] poe-info-service/dev/ingest_client_log.py  pull new areas from the running app
+                  (currently broken — see that script's own docstring and ROADMAP.md)
     2.            load_seed_to_db.py     fold committed seed types back into DB
     3.            gen_area_seed.py       assign types, dump files, combine seed
     4.            check_area_coverage.py report anything still uncategorized
@@ -16,8 +17,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-DEV = Path(__file__).parent
-PY  = sys.executable
+DEV        = Path(__file__).parent
+POE_SVC_DEV = DEV.parent.parent / "poe-info-service" / "dev"
+PY         = sys.executable
 
 
 def run(script: Path) -> None:
@@ -30,7 +32,7 @@ def run(script: Path) -> None:
 
 def main() -> None:
     if "--ingest" in sys.argv:
-        run(DEV / "ingest_client_log.py")
+        run(POE_SVC_DEV / "ingest_client_log.py")
 
     run(DEV / "load_seed_to_db.py")
     run(DEV / "gen_area_seed.py")

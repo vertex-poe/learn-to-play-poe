@@ -19,14 +19,6 @@ public:
     QString lastError() const { return m_lastError; }
     QString path() const { return m_path; }
 
-    struct NpcDialogEntry
-    {
-        QString messageHash;
-        QString npcName;
-        QString npcNameHash;
-        QString label; // may be empty; preserved on conflict
-    };
-
     struct WhisperRecord
     {
         QString direction; // "from" or "to"
@@ -64,11 +56,6 @@ public:
         QString charClass;   // may be empty
         QString installPath; // installs.path — which Client.txt this came from
     };
-
-    // Inserts NPC dialog entries; existing rows (by message_hash) are left
-    // untouched so hand-assigned labels are never overwritten.
-    // Returns the number of rows newly inserted.
-    int upsertNpcDialogEntries(const QList<NpcDialogEntry> &entries);
 
     // Returns whispers ordered by time; optionally filtered to one player.
     // limit > 0 returns only the most recent N messages; offset skips the newest N.

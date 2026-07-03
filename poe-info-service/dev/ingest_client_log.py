@@ -2,11 +2,14 @@
 Run the app headlessly to ingest the configured Client.txt into the database.
 
 Usage:
-    python dev/ingest_client_log.py
+    python poe-info-service/dev/ingest_client_log.py
 
-Delegates entirely to `bin/l2p-poe.exe ingest`, which reads install paths
-from the app's TOML config and tails the log from the last known byte offset.
-This script adds no logic — it exists so the orchestrator has a named step.
+BROKEN as of the poe-info-service migration (ADR-006): delegates to
+`bin/l2p-poe.exe ingest`, a CLI verb that no longer exists — l2p-poe's own
+CLI only has `dialog hash` now (src/core/Cli.cpp), and poe-info-service
+tails Client.txt continuously while running rather than via a one-shot CLI
+command. See ROADMAP.md ("poe-info-service" goal) for what fixing this
+requires. Left as-is (moved, not fixed) pending that work.
 """
 
 import subprocess

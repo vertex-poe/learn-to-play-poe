@@ -12,7 +12,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-DB   = Path(__file__).parent.parent.parent / "l2p-poe.db"
+DB   = Path(__file__).parent.parent.parent / "poe-info-service.db"
 SKIP = {None, "(null)", "(unknown)"}
 
 

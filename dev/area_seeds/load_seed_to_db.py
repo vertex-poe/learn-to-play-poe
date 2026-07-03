@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
-DB   = ROOT / "l2p-poe.db"
+DB   = ROOT / "poe-info-service.db"
 DATA = ROOT / "data"
 
 

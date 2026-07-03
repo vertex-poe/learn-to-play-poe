@@ -3,17 +3,12 @@
 `l2p-poe` can be invoked headlessly from the command line. Any unrecognised
 invocation falls through to the GUI.
 
----
-
-## `ingest`
-
-```
-l2p-poe ingest
-```
-
-Reads every `Client.txt` log found in configured install directories and
-writes new records into the database. Skips files whose size and modification
-time match the last-seen state. Progress is printed to stdout.
+poe-info-service owns the database exclusively (ADR-006) — `l2p-poe` never
+opens it directly, including from its own CLI. Client.txt is tailed and
+ingested continuously by poe-info-service itself while it runs, not via a
+CLI verb here. Subcommands that touch the database, such as `dialog ingest`,
+live on poe-info-service's own CLI instead — see
+[`poe-info-service/docs/cli.md`](../poe-info-service/docs/cli.md).
 
 ---
 
@@ -44,8 +39,8 @@ Output:
 [
   {
     "npc_name": "Nessa",
-    "npc_name_hash": "a3f1c8b2e9d04712",
-    "message_hash":  "7e2a1f9b3c504d81"
+    "npc_name_hash": "489fd650993e6b11",
+    "message_hash":  "28f376a6781b3308"
   }
 ]
 ```
@@ -60,51 +55,22 @@ Same output format, one element in the array.
 
 ---
 
-## `dialog ingest`
+## `dialog ingest` — see poe-info-service's CLI reference
 
-Hashes NPC dialog entries and writes them into the `npc_dialog_entries` table.
-Existing rows are left untouched — hand-assigned labels are never overwritten.
-Prints a count of newly inserted vs already-present rows.
-
-**Batch (JSON file or stdin):**
-
-```
-l2p-poe dialog ingest [file.json]
-```
-
-Uses the same input format as `dialog hash`.
-
-**Single entry (direct args):**
-
-```
-l2p-poe dialog ingest "NPC Name" "message text"
-```
-
-**Example workflow** — hash first to check output, then ingest:
-
-```sh
-# Inspect hashes without writing
-l2p-poe dialog hash npc_dialog.json
-
-# Write to DB
-l2p-poe dialog ingest npc_dialog.json
-
-# Or pipe directly
-l2p-poe dialog hash npc_dialog.json | l2p-poe dialog ingest
-```
-
-> Note: the piped form re-hashes already-hashed output. The input schema
-> for `dialog ingest` is the same as the *input* to `dialog hash` (raw
-> `npc_name`/`message` pairs), not its output. Pipe from the original JSON,
-> not from `dialog hash`.
+Writing hashed entries into `npc_dialog_entries` is **not** an `l2p-poe`
+subcommand — poe-info-service owns the database exclusively (ADR-006), so
+that verb lives on poe-info-service's own CLI. See
+[`poe-info-service/docs/cli.md`](../poe-info-service/docs/cli.md#dialog-ingest)
+for `poe-info-service dialog ingest`'s usage, input format, and the full
+hash-then-ingest workflow.
 
 ---
 
 ## Hash contract
 
-All three code paths that produce dialog hashes — the CLI, the in-app form,
-and the log ingest worker — share the same function (`dialogHash()` in
-`src/DialogHash.h`):
+Two code paths currently produce dialog hashes — `l2p-poe dialog hash` and
+the Python dev script (`poe-info-service/dev/log_split/parse_npc_dialog.py`)
+— and share one algorithm (`dialogHash()` in `src/util/DialogHash.h`):
 
 1. NFC-normalise the text
 2. Trim leading/trailing whitespace
@@ -112,5 +78,5 @@ and the log ingest worker — share the same function (`dialogHash()` in
 4. SHA-256
 5. Take the first 16 hex characters
 
-This means a hash produced in-app, on the command line, or via the Python
-dev script is always identical for the same input string.
+This means a hash produced on the command line or via the Python dev script
+is always identical for the same input string.
