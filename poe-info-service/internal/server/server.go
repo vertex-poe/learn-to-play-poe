@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,6 +20,7 @@ import (
 	"github.com/MovingCairn/poe-info-service/internal/store"
 	"github.com/MovingCairn/poe-info-service/internal/tailer"
 	"github.com/gorilla/websocket"
+	_ "modernc.org/sqlite"
 )
 
 // liveBroadcastTypes are the parsed-event types the old C++ LiveEventBus
@@ -56,10 +58,11 @@ type Config struct {
 	StartTime    int64
 	Bind         string // default "127.0.0.1"
 	Port         int
-	CacheDir     string
+	ConfigDir    string         // directory holding poe-info-service.toml (ADR-006's sole user-facing config store)
+	DebugLogging bool           // initial value of the debug_logging setting, read from poe-info-service.toml/flags at startup
 	InstallDir   string         // PoE install directory; identifies the installs row (matches the old C++ convention)
 	LogPath      string         // InstallDir + "/logs/Client.txt"
-	DbPath       string         // path to the l2p SQLite database
+	DbPath       string         // path to poe-info-service's sole SQLite database (game history + internal state)
 	ChannelNames map[int]string // chat channel number -> user-defined label
 	IdleTimeout  time.Duration  // shut down after this long with no client keep-alive or Client.txt activity; 0 uses DefaultIdleTimeout
 }
@@ -73,6 +76,7 @@ type server struct {
 	shutdown     context.CancelFunc
 	upgrader     websocket.Upgrader
 	lastActivity atomic.Int64 // UnixNano of the last keep-alive from any connected client
+	debugLogging atomic.Bool  // current effective debug_logging setting; client-settable via config.set (ADR-006)
 }
 
 // touch records a keep-alive from a connected client, per ADR-001. Called
@@ -167,29 +171,47 @@ func negotiate(conn *websocket.Conn, cfg Config) (shouldTakeOver bool, incumbent
 	return false, incumbentHello.Version, nil
 }
 
-func serve(cfg Config, listener net.Listener) error {
-	st, err := store.Open(cfg.CacheDir)
+// openDB opens poe-info-service's sole SQLite database: one file, one
+// connection, shared by the store and query packages (ADR-006) rather than
+// each opening its own.
+func openDB(path string) (*sql.DB, error) {
+	dsn := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000&_foreign_keys=1"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return fmt.Errorf("open store: %w", err)
+		return nil, fmt.Errorf("open %q: %w", path, err)
 	}
+	db.SetMaxOpenConns(1) // single connection shared by reads and ingest writes
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ping %q: %w", path, err)
+	}
+	return db, nil
+}
 
-	var qdb *query.DB
-	if cfg.DbPath != "" {
-		qdb, err = query.Open(cfg.DbPath)
-		if err != nil {
-			log.Printf("warn: cannot open l2p db %q: %v", cfg.DbPath, err)
-		} else {
-			log.Printf("opened l2p db %q", cfg.DbPath)
-		}
-	} else {
-		log.Printf("no db path configured; log queries will fail")
+func serve(cfg Config, listener net.Listener) error {
+	if cfg.DbPath == "" {
+		return fmt.Errorf("no db path configured")
+	}
+	db, err := openDB(cfg.DbPath)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	log.Printf("opened poe-info-service database %q", cfg.DbPath)
+
+	st, err := store.New(db)
+	if err != nil {
+		return fmt.Errorf("init store: %w", err)
+	}
+	qdb, err := query.New(db)
+	if err != nil {
+		return fmt.Errorf("init query db: %w", err)
 	}
 
 	h := hub.New()
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var t *tailer.Tailer
-	if cfg.LogPath != "" && cfg.InstallDir != "" && qdb != nil {
+	if cfg.LogPath != "" && cfg.InstallDir != "" {
 		// installs.path stores the install directory (not the Client.txt path),
 		// matching the convention the old C++ Database::upsertInstall used.
 		installID, err := ingest.EnsureInstall(qdb.Raw(), cfg.InstallDir)
@@ -221,6 +243,7 @@ func serve(cfg Config, listener net.Listener) error {
 		},
 	}
 	srv.touch()
+	srv.debugLogging.Store(cfg.DebugLogging)
 
 	idleTimeout := cfg.IdleTimeout
 	if idleTimeout <= 0 {
@@ -244,10 +267,7 @@ func serve(cfg Config, listener net.Listener) error {
 		log.Println("shutting down...")
 		st.Checkpoint()
 		httpSrv.Shutdown(context.Background())
-		if qdb != nil {
-			qdb.Close()
-		}
-		st.Close()
+		db.Close()
 	}()
 
 	if err := httpSrv.Serve(listener); err != http.ErrServerClosed {
@@ -518,6 +538,15 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 
 	case "credentials.delete":
 		s.handleCredentialsDelete(c, msg)
+
+	case "config.list":
+		s.handleConfigList(c, msg)
+
+	case "config.get":
+		s.handleConfigGet(c, msg)
+
+	case "config.set":
+		s.handleConfigSet(c, msg)
 
 	default:
 		s.send(c, proto.Message{

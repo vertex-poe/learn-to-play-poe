@@ -297,21 +297,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_taskManager, &TaskManager::taskAdded, this, &MainWindow::onTaskUpdated);
     connect(m_taskManager, &TaskManager::taskUpdated, this, &MainWindow::onTaskUpdated);
 
-    QString dbPath;
-    {
-        const QByteArray override = qgetenv("L2P_STARTUP_TIMING_DB");
-        if (!override.isEmpty())
-        {
-            dbPath = QString::fromUtf8(override);
-        }
-        else
-        {
-            dbPath = AppConfig::configPath();
-            dbPath.chop(5); // strip ".toml"
-            dbPath += ".db";
-        }
-    }
-    const QString installDir = m_config.installDirs.isEmpty() ? QString() : m_config.installDirs.first();
+    // Empty unless a perf test harness needs an isolated db file — poe-info-service
+    // resolves its own default location (poe-info-service.db next to
+    // poe-info-service.toml) itself when this isn't set, since it owns the database
+    // (see ServiceManager::start).
+    const QByteArray dbPathOverride = qgetenv("L2P_STARTUP_TIMING_DB");
+    const QString    dbPath         = QString::fromUtf8(dbPathOverride);
+    const QString    installDir     = m_config.installDirs.isEmpty() ? QString() : m_config.installDirs.first();
 
     // poe-info-service owns the database (schema creation/migration and all
     // Client.txt ingestion) and must be up before any page requests data

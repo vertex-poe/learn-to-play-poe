@@ -3,32 +3,22 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
-
-	_ "modernc.org/sqlite"
 )
 
+// Store wraps poe-info-service's own internal bookkeeping tables (state,
+// api_cache) on the shared database — poe-info-service.db is one database,
+// not two (ADR-006), so this shares its *sql.DB with the query package
+// rather than opening a separate file.
 type Store struct {
 	db *sql.DB
 }
 
-func Open(dir string) (*Store, error) {
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("create cache dir: %w", err)
-	}
-
-	path := filepath.Join(dir, "poe-info-service.db")
-	dsn := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000"
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
-	}
-	db.SetMaxOpenConns(1) // single writer
-
+// New ensures the state/api_cache tables exist on db and returns a Store
+// wrapping it. Lifecycle (opening and closing the connection) belongs to
+// whoever passed db in, not to Store.
+func New(db *sql.DB) (*Store, error) {
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
-		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return s, nil
@@ -68,9 +58,4 @@ func (s *Store) SetState(key, value string) error {
 // ownership to a new server instance.
 func (s *Store) Checkpoint() {
 	s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
-}
-
-func (s *Store) Close() error {
-	s.Checkpoint()
-	return s.db.Close()
 }

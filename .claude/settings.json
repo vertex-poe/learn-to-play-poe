@@ -117,7 +117,10 @@
       "Bash(go doc *)",
       "Bash(just gui-build *)",
       "Bash(find . -iname * -not -path *)",
-      "Bash(grep -rn *)"
+      "Bash(grep -rn *)",
+      "WebFetch(domain:*)",
+      "Bash(go run *)",
+      "Bash(git status *)"
     ],
     "additionalDirectories": [
       "\\tmp"

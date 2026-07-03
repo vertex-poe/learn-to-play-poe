@@ -5,6 +5,7 @@
 
 #include <QCoreApplication>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -66,11 +67,13 @@ static QJsonArray hashArray(const QJsonArray &input)
     return out;
 }
 
+// poe-info-service owns this database and names it poe-info-service.db; it
+// resolves the same directory l2p-poe.toml lives in, so deriving the
+// directory from AppConfig::configPath() and swapping in that fixed name
+// points this tool at the same file the running app/service actually uses.
 static QString dbPath()
 {
-    QString p = AppConfig::configPath();
-    p.chop(5);
-    return p + ".db";
+    return QFileInfo(AppConfig::configPath()).absolutePath() + "/poe-info-service.db";
 }
 
 // ---------------------------------------------------------------------------

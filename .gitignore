@@ -5,6 +5,7 @@
 
 # Ignore configuration file
 l2p-poe.toml
+poe-info-service.toml
 
 _reference/
 _live/

@@ -16,25 +16,39 @@ import (
 
 func main() {
 	exe, _ := os.Executable()
-	fileCfg := config.Load(filepath.Dir(exe))
+	configDir := config.ResolveDir(filepath.Dir(exe))
+	fileCfg := config.Load(configDir)
+	// Materialize a default poe-info-service.toml on first run, so the file
+	// a human would want to inspect/edit during an outage always exists
+	// (ADR-006) rather than only appearing after the first config.set call.
+	if _, err := os.Stat(filepath.Join(configDir, config.FileName)); os.IsNotExist(err) {
+		if err := config.Save(configDir, fileCfg); err != nil {
+			log.Printf("warn: cannot write default config: %v", err)
+		}
+	}
 
 	var (
-		installDir  = flag.String("install-dir", "", "PoE install directory (identifies the installs row)")
-		logPath     = flag.String("log-path", "", "Path to Client.txt (e.g. C:\\Games\\PoE\\logs\\Client.txt)")
-		dbPath      = flag.String("db-path", "", "Path to l2p SQLite database")
-		configPath  = flag.String("config-path", "", "Path to l2p-poe's own config toml (for chat channel labels)")
-		port        = flag.Int("port", fileCfg.Port, "TCP port to listen on")
-		bind        = flag.String("bind", fileCfg.Bind, "Bind address (default 127.0.0.1)")
-		cacheDir    = flag.String("cache-dir", defaultCacheDir(), "Directory for SQLite DB and state files")
-		serviceLog  = flag.String("service-log", os.Getenv("L2P_SERVICE_LOG"), "Path to service debug log file")
-		idleTimeout = flag.Duration("idle-timeout", server.DefaultIdleTimeout, "Shut down after this long with no client keep-alive or Client.txt activity")
-		showVer     = flag.Bool("version", false, "Print version and exit")
+		installDir   = flag.String("install-dir", "", "PoE install directory (identifies the installs row)")
+		logPath      = flag.String("log-path", "", "Path to Client.txt (e.g. C:\\Games\\PoE\\logs\\Client.txt)")
+		dbPath       = flag.String("db-path", "", "Path to poe-info-service's SQLite database (default: poe-info-service.db next to poe-info-service.toml)")
+		configPath   = flag.String("config-path", "", "Path to l2p-poe's own config toml (for chat channel labels)")
+		port         = flag.Int("port", fileCfg.Port, "TCP port to listen on")
+		bind         = flag.String("bind", fileCfg.Bind, "Bind address (default 127.0.0.1)")
+		debugLogging = flag.Bool("debug-logging", fileCfg.DebugLogging, "Enable verbose debug logging")
+		serviceLog   = flag.String("service-log", os.Getenv("L2P_SERVICE_LOG"), "Path to service debug log file")
+		idleTimeout  = flag.Duration("idle-timeout", server.DefaultIdleTimeout, "Shut down after this long with no client keep-alive or Client.txt activity")
+		showVer      = flag.Bool("version", false, "Print version and exit")
 	)
 	flag.Parse()
 
 	if *showVer {
 		fmt.Println(proto.Version)
 		return
+	}
+
+	resolvedDbPath := *dbPath
+	if resolvedDbPath == "" {
+		resolvedDbPath = filepath.Join(configDir, config.DBFileName)
 	}
 
 	var channelNames map[int]string
@@ -57,10 +71,11 @@ func main() {
 		StartTime:    time.Now().Unix(),
 		Bind:         *bind,
 		Port:         *port,
-		CacheDir:     *cacheDir,
+		ConfigDir:    configDir,
+		DebugLogging: *debugLogging,
 		InstallDir:   *installDir,
 		LogPath:      *logPath,
-		DbPath:       *dbPath,
+		DbPath:       resolvedDbPath,
 		ChannelNames: channelNames,
 		IdleTimeout:  *idleTimeout,
 	}
@@ -71,12 +86,4 @@ func main() {
 	if err := server.Run(cfg); err != nil {
 		log.Fatalf("fatal: %v", err)
 	}
-}
-
-func defaultCacheDir() string {
-	if appData := os.Getenv("APPDATA"); appData != "" {
-		return filepath.Join(appData, "poe-info-service")
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".poe-info-service")
 }

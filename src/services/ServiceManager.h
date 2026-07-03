@@ -12,8 +12,12 @@ public:
     explicit ServiceManager(QObject *parent = nullptr);
     ~ServiceManager() override;
 
-    // installDir is the PoE install directory (may be empty if none configured
-    // yet); the Client.txt path and install identity are both derived from it.
+    // dbPath overrides poe-info-service's default database location; pass an
+    // empty string (the normal case) to let it resolve its own default
+    // (poe-info-service.db next to poe-info-service.toml) — it owns this
+    // database, this app does not. installDir is the PoE install directory
+    // (may be empty if none configured yet); the Client.txt path and install
+    // identity are both derived from it.
     void start(const QString &dbPath, const QString &installDir);
     void stop();
 

@@ -31,23 +31,14 @@ type DB struct {
 	db *sql.DB
 }
 
-// Open opens the l2p SQLite database read-write and ensures its schema is
-// created/migrated. poe-info-service is the sole writer of this database, so
-// opening it is also where schema ownership lives.
-func Open(path string) (*DB, error) {
-	dsn := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000&_foreign_keys=1"
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open %q: %w", path, err)
-	}
-	db.SetMaxOpenConns(1) // single connection shared by reads and ingest writes
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("ping %q: %w", path, err)
-	}
+// New ensures the game-history schema (schema.sql) is created/migrated on
+// db and returns a DB wrapping it. poe-info-service is the sole writer of
+// this database, so this is also where schema ownership lives. db is shared
+// with the store package on the same physical file (ADR-006) — lifecycle
+// (opening and closing the connection) belongs to whoever passed it in.
+func New(db *sql.DB) (*DB, error) {
 	if err := schema.EnsureSchema(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("ensure schema %q: %w", path, err)
+		return nil, fmt.Errorf("ensure schema: %w", err)
 	}
 	return &DB{db: db}, nil
 }
@@ -55,8 +46,6 @@ func Open(path string) (*DB, error) {
 // Raw exposes the underlying *sql.DB so the ingest package can share this
 // connection for writes rather than opening a second one to the same file.
 func (d *DB) Raw() *sql.DB { return d.db }
-
-func (d *DB) Close() error { return d.db.Close() }
 
 // FetchChats mirrors Database::fetchChats from the C++ side. Results are
 // returned in chronological order (oldest first).
