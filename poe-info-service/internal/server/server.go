@@ -73,6 +73,7 @@ type server struct {
 	hub          *hub.Hub
 	store        *store.Store
 	queryDB      *query.DB
+	tailer       *tailer.Tailer // nil when no Client.txt log path is configured
 	started      time.Time
 	shutdown     context.CancelFunc
 	upgrader     websocket.Upgrader
@@ -232,6 +233,7 @@ func serve(cfg Config, listener net.Listener) error {
 				p := parser.New()
 				go t.Run(ctx)
 				go broadcastLogEvents(ctx, h, eventCh, p, writer, t.CaughtUp)
+				go watchCaughtUp(ctx, h, t)
 			}
 		}
 	}
@@ -241,6 +243,7 @@ func serve(cfg Config, listener net.Listener) error {
 		hub:      h,
 		store:    st,
 		queryDB:  qdb,
+		tailer:   t,
 		started:  time.Now(),
 		shutdown: cancel,
 		upgrader: websocket.Upgrader{
@@ -348,6 +351,49 @@ func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, 
 			}
 		case <-ctx.Done():
 			return
+		}
+	}
+}
+
+// ingestStatus derives the human-facing ingestion phase, message, and
+// backlog-replay percent from the tailer's state: no tailer configured means
+// nothing is happening yet; otherwise the tailer's one-way caughtUp latch
+// (see tailer.go) distinguishes backlog replay from live tailing. percent is
+// only populated during backlog replay, and only once a file size is known.
+func ingestStatus(hasTailer, caughtUp bool, offset, size int64) (phase, message string, percent *float64) {
+	if !hasTailer {
+		return "waiting", "waiting", nil
+	}
+	if caughtUp {
+		return "tailing", "waiting for game events", nil
+	}
+	if size > 0 {
+		p := float64(offset) / float64(size) * 100
+		percent = &p
+	}
+	return "ingesting", "ingesting Client.txt", percent
+}
+
+// watchCaughtUp polls the tailer until backlog replay finishes, then
+// publishes a one-shot event on the "ingest" topic so clients know it's now
+// safe to query Client.txt-derived history without racing the backlog.
+func watchCaughtUp(ctx context.Context, h *hub.Hub, t *tailer.Tailer) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if t.CaughtUp() {
+				msg, _ := json.Marshal(proto.Message{
+					Type:    proto.TypeEvent,
+					Topic:   proto.TopicIngest,
+					Payload: mustMarshal(proto.IngestEventPayload{Type: proto.IngestEventCaughtUp}),
+				})
+				h.Publish(proto.TopicIngest, msg)
+				return
+			}
 		}
 	}
 }
@@ -496,9 +542,13 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 		})
 
 	case "status":
-		val, _, _ := s.store.GetState("log_offset")
-		var logOffset int64
-		fmt.Sscanf(val, "%d", &logOffset)
+		var offset, size int64
+		var caughtUp bool
+		if s.tailer != nil {
+			offset, size = s.tailer.Progress()
+			caughtUp = s.tailer.CaughtUp()
+		}
+		phase, message, percent := ingestStatus(s.tailer != nil, caughtUp, offset, size)
 		s.send(c, proto.Message{
 			Type: proto.TypeResponse,
 			ID:   msg.ID,
@@ -506,8 +556,11 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 				Version:   s.cfg.Version,
 				StartTime: s.cfg.StartTime,
 				LogPath:   s.cfg.LogPath,
-				LogOffset: logOffset,
+				LogOffset: offset,
 				Uptime:    time.Since(s.started).Round(time.Second).String(),
+				Phase:     phase,
+				Message:   message,
+				Percent:   percent,
 			}),
 		})
 

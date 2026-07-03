@@ -121,7 +121,8 @@
       "WebFetch(domain:*)",
       "Bash(go run *)",
       "Bash(git status *)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(GOFLAGS=-mod=mod go build *)"
     ],
     "additionalDirectories": [
       "\\tmp"

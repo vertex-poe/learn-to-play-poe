@@ -84,6 +84,43 @@ func TestTailer_ReadsFullFixtureToEOF(t *testing.T) {
 	assertNoMoreLines(t, out, 300*time.Millisecond)
 }
 
+// TestTailer_ProgressTracksBacklogAndReachesFileSizeOnceCaughtUp drives a
+// real fixture file through Tailer.Run and asserts Progress() reports the
+// full file size as both offset and size once backlog replay finishes —
+// the basis for the percent-complete figure the "status" WS method reports
+// while phase=="ingesting".
+func TestTailer_ProgressTracksBacklogAndReachesFileSizeOnceCaughtUp(t *testing.T) {
+	db, installID := newTestDB(t)
+	logPath := filepath.Join(t.TempDir(), "Client.txt")
+	if err := os.WriteFile(logPath, []byte(testfixtures.SampleSession), 0644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	wantSize := int64(len(testfixtures.SampleSession))
+
+	wantLines := testfixtures.SampleSessionLines()
+	out := make(chan string, len(wantLines)+8)
+	tl := New(logPath, db, installID, out)
+
+	if offset, size := tl.Progress(); offset != 0 || size != 0 {
+		t.Fatalf("Progress() before any poll = (%d, %d), want (0, 0)", offset, size)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tl.Run(ctx)
+
+	drainLines(t, out, len(wantLines), 3*time.Second)
+	waitForCaughtUp(t, tl, 2*time.Second)
+
+	offset, size := tl.Progress()
+	if size != wantSize {
+		t.Errorf("Progress() size = %d, want %d", size, wantSize)
+	}
+	if offset != size {
+		t.Errorf("Progress() offset = %d, want it to equal size (%d) once caught up", offset, size)
+	}
+}
+
 // TestTailer_ResumesFromSavedOffsetAfterRestart simulates poe-info-service
 // restarting mid-session: a Tailer catches up to the first half of the
 // fixture, is torn down (offset persisted to the installs row, same as a

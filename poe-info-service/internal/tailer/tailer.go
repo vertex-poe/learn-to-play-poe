@@ -25,6 +25,8 @@ type Tailer struct {
 	out          chan<- string
 	caughtUp     atomic.Bool
 	lastActivity atomic.Int64 // UnixNano of the last poll that read new lines
+	offset       atomic.Int64 // bytes consumed so far
+	fileSize     atomic.Int64 // file size as of the most recent successful poll
 }
 
 func New(logPath string, db *sql.DB, installID int64, out chan<- string) *Tailer {
@@ -48,6 +50,13 @@ func (t *Tailer) LastActivity() time.Time {
 	return time.Unix(0, ns)
 }
 
+// Progress returns bytes consumed and the log file's size as of the most
+// recent poll, for computing backlog-replay percentage. Both are zero until
+// the first poll succeeds.
+func (t *Tailer) Progress() (offset, size int64) {
+	return t.offset.Load(), t.fileSize.Load()
+}
+
 func (t *Tailer) Run(ctx context.Context) {
 	offset := t.loadOffset()
 	log.Printf("tailer: starting at offset %d for %s", offset, t.logPath)
@@ -67,6 +76,7 @@ func (t *Tailer) Run(ctx context.Context) {
 				}
 				continue
 			}
+			t.offset.Store(newOffset)
 			if newOffset != offset {
 				offset = newOffset
 				t.saveOffset(offset)
@@ -93,6 +103,7 @@ func (t *Tailer) poll(ctx context.Context, offset int64) (int64, error) {
 	if err != nil {
 		return offset, err
 	}
+	t.fileSize.Store(fi.Size())
 
 	if fi.Size() < offset {
 		log.Printf("tailer: log file shrank (was %d, now %d), resetting", offset, fi.Size())

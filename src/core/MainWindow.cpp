@@ -327,6 +327,13 @@ MainWindow::MainWindow(QWidget *parent)
         ev.timestamp = payload[QStringLiteral("timestamp")].toString();
         ev.data      = payload[QStringLiteral("data")].toObject().toVariantMap();
         LiveEventBus::instance()->dispatch(ev); });
+    m_poeInfoClient->subscribe(QStringLiteral("ingest"), [this](QJsonObject payload)
+                               {
+        if (payload[QStringLiteral("type")].toString() == QStringLiteral("caught_up")) {
+            m_ingestCaughtUp = true;
+            m_ingestStatusMessage.clear();
+            refreshStatusBar();
+        } });
     connect(m_poeInfoClient, &PoeInfoClient::connected, this, &MainWindow::onServiceReady);
     if (!m_timingMode)
     {
@@ -556,6 +563,8 @@ void MainWindow::onServiceReady()
     m_logPage->setPoeInfoClient(m_poeInfoClient);
     m_sessionViewPage->setPoeInfoClient(m_poeInfoClient);
 
+    requestIngestStatus();
+
     // Push our chat_channel_names as data over the WS API instead of handing
     // poe-info-service a path to l2p-poe.toml to go parse itself (see
     // channels.register in poe-info-service/internal/server/channels.go).
@@ -697,6 +706,12 @@ void MainWindow::onPollTimer()
                                      }
                                  });
     }
+
+    // Keep the backlog-replay percentage fresh while it's still catching up;
+    // stops naturally once requestIngestStatus() sees phase=="tailing" (or
+    // the "ingest" caught_up event fires first).
+    if (m_poeInfoClient && m_poeInfoClient->isConnected() && !m_ingestCaughtUp)
+        requestIngestStatus();
 }
 
 void MainWindow::onTrayActivated(QSystemTrayIcon::ActivationReason reason)
@@ -789,12 +804,46 @@ void MainWindow::setStatusContent(const QString &content)
 
 void MainWindow::refreshStatusBar()
 {
-    if (m_lastStatusContent.isEmpty())
-    {
-        m_statusLabel->setText(!m_runningPids.isEmpty() ? "Waiting for new game info" : "Waiting for game launch");
-    }
-    else
+    if (!m_lastStatusContent.isEmpty())
     {
         m_statusLabel->setText(m_lastStatusContent);
     }
+    else if (!m_ingestStatusMessage.isEmpty())
+    {
+        m_statusLabel->setText(m_ingestStatusMessage);
+    }
+    else
+    {
+        m_statusLabel->setText(!m_runningPids.isEmpty() ? "Waiting for new game info" : "Waiting for game launch");
+    }
+}
+
+// Queries poe-info-service's Client.txt ingestion phase ("waiting" /
+// "ingesting" / "tailing", see proto.StatusPayload). Only the "ingesting"
+// phase is surfaced in the status bar — "waiting" and "tailing" are already
+// communicated at least as well by the existing m_runningPids-based fallback
+// text in refreshStatusBar().
+void MainWindow::requestIngestStatus()
+{
+    if (!m_poeInfoClient)
+        return;
+    m_poeInfoClient->request(QStringLiteral("status"), {}, [this](QJsonObject payload, QString error)
+                              {
+        if (!error.isEmpty())
+            return;
+        const QString phase = payload[QStringLiteral("phase")].toString();
+        m_ingestCaughtUp = (phase == QStringLiteral("tailing"));
+        if (phase != QStringLiteral("ingesting"))
+        {
+            m_ingestStatusMessage.clear();
+        }
+        else
+        {
+            const QString message = payload[QStringLiteral("message")].toString();
+            if (payload.contains(QStringLiteral("percent")))
+                m_ingestStatusMessage = QStringLiteral("%1 (%2%)").arg(message).arg(qRound(payload[QStringLiteral("percent")].toDouble()));
+            else
+                m_ingestStatusMessage = message;
+        }
+        refreshStatusBar(); });
 }

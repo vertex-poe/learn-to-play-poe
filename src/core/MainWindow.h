@@ -79,6 +79,7 @@ private:
     void ensureSettingsPage();
     void setStatusContent(const QString &content);
     void refreshStatusBar();
+    void requestIngestStatus();
 
     AppConfig     m_config;
     bool          m_timingMode{false};
@@ -98,6 +99,8 @@ private:
     SettingsPage       *m_settingsPage{};
     QLabel             *m_statusLabel{};
     QString             m_lastStatusContent;
+    QString             m_ingestStatusMessage; // empty = no override; else shown in status bar
+    bool                m_ingestCaughtUp{false};
 
     WindowTracker   *m_tracker{};
     QTimer          *m_pollTimer{};

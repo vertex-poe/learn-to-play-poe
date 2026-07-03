@@ -71,9 +71,23 @@ const (
 )
 
 type StatusPayload struct {
-	Version   string `json:"version"`
-	StartTime int64  `json:"startTime"`
-	LogPath   string `json:"logPath"`
-	LogOffset int64  `json:"logOffset"`
-	Uptime    string `json:"uptime"`
+	Version   string   `json:"version"`
+	StartTime int64    `json:"startTime"`
+	LogPath   string   `json:"logPath"`
+	LogOffset int64    `json:"logOffset"`
+	Uptime    string   `json:"uptime"`
+	Phase     string   `json:"phase"`             // "waiting" | "ingesting" | "tailing"
+	Message   string   `json:"message"`           // human-readable: "waiting" | "ingesting Client.txt" | "waiting for game events"
+	Percent   *float64 `json:"percent,omitempty"` // 0-100 backlog-replay progress; present only while phase=="ingesting"
 }
+
+// TopicIngest carries a single "caught_up" event once backlog replay of
+// Client.txt finishes and the tailer begins tailing live, so clients know
+// it's now safe to query Client.txt-derived history without racing replay.
+const TopicIngest = "ingest"
+
+type IngestEventPayload struct {
+	Type string `json:"type"` // "caught_up"
+}
+
+const IngestEventCaughtUp = "caught_up"
