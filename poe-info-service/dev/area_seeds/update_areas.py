@@ -6,8 +6,7 @@ Usage:
     python poe-info-service/dev/area_seeds/update_areas.py --ingest  # run client log ingest first
 
 Steps:
-    1. [--ingest] ingest_client_log.py   pull new areas from the running app
-                  (currently broken — see that script's own docstring and ROADMAP.md)
+    1. [--ingest] ingest_client_log.py   pull new areas from Client.txt
     2.            load_seed_to_db.py     fold committed seed types back into DB
     3.            gen_area_seed.py       assign types, dump files, combine seed
     4.            check_area_coverage.py report anything still uncategorized
