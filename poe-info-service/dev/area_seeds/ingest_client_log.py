@@ -59,7 +59,6 @@ def main() -> None:
     result = subprocess.run([
         str(exe), "log", "ingest",
         "--install-dir", str(install_dir),
-        "--config-path", str(TOML),
         "--data-dir", str(ROOT),
     ])
     sys.exit(result.returncode)

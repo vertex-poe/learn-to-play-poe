@@ -81,6 +81,12 @@ func TestEnsureSchema_migratesOldVersion(t *testing.T) {
 	if _, err := db.Exec("ALTER TABLE characters DROP COLUMN played_secs"); err != nil {
 		t.Fatalf("drop played_secs: %v", err)
 	}
+	// schema.sql no longer defines chat_channels.name (dropped by the
+	// fromVersion<7 migration step) — add it back here to reconstruct the
+	// pre-migration shape a real old database would have.
+	if _, err := db.Exec("ALTER TABLE chat_channels ADD COLUMN name TEXT"); err != nil {
+		t.Fatalf("add chat_channels.name: %v", err)
+	}
 	if _, err := db.Exec("PRAGMA user_version = 4"); err != nil {
 		t.Fatalf("set user_version: %v", err)
 	}
@@ -102,5 +108,9 @@ func TestEnsureSchema_migratesOldVersion(t *testing.T) {
 
 	if _, err := db.Exec("SELECT played_secs FROM characters"); err != nil {
 		t.Errorf("played_secs column not restored by migration: %v", err)
+	}
+
+	if _, err := db.Exec("SELECT name FROM chat_channels"); err == nil {
+		t.Error("expected chat_channels.name to be dropped by migration, but it still exists")
 	}
 }

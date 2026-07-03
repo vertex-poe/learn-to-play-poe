@@ -65,7 +65,6 @@ type Config struct {
 	InstallDir   string         // PoE install directory; identifies the installs row (matches the old C++ convention)
 	LogPath      string         // InstallDir + "/logs/Client.txt"
 	DbPath       string         // path to poe-info-service's sole SQLite database (game history + internal state)
-	ChannelNames map[int]string // chat channel number -> user-defined label
 	IdleTimeout  time.Duration  // shut down after this long with no client keep-alive or Client.txt activity; 0 uses DefaultIdleTimeout
 }
 
@@ -224,7 +223,7 @@ func serve(cfg Config, listener net.Listener) error {
 		if err != nil {
 			log.Printf("warn: cannot ensure install row for %q: %v", cfg.InstallDir, err)
 		} else {
-			writer, err := ingest.NewWriter(qdb.Raw(), installID, cfg.ChannelNames)
+			writer, err := ingest.NewWriter(qdb.Raw(), installID)
 			if err != nil {
 				log.Printf("warn: cannot start ingest writer: %v", err)
 			} else {
@@ -553,6 +552,15 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 
 	case "config.set":
 		s.handleConfigSet(c, msg)
+
+	case "channels.register":
+		s.handleChannelsRegister(c, msg)
+
+	case "channels.rename":
+		s.handleChannelsRename(c, msg)
+
+	case "channels.delete":
+		s.handleChannelsDelete(c, msg)
 
 	default:
 		s.send(c, proto.Message{

@@ -75,7 +75,6 @@ func main() {
 	var (
 		installDir   = flag.String("install-dir", "", "PoE install directory (identifies the installs row)")
 		logPath      = flag.String("log-path", "", "Path to Client.txt (e.g. C:\\Games\\PoE\\logs\\Client.txt)")
-		configPath   = flag.String("config-path", "", "Path to l2p-poe's own config toml (for chat channel labels)")
 		port         = flag.Int("port", fileCfg.Port, "TCP port to listen on")
 		bind         = flag.String("bind", fileCfg.Bind, "Bind address (default 127.0.0.1)")
 		debugLogging = flag.Bool("debug-logging", fileCfg.DebugLogging, "Enable verbose debug logging")
@@ -91,11 +90,6 @@ func main() {
 	}
 
 	resolvedDbPath := filepath.Join(dataDir, config.DBFileName)
-
-	var channelNames map[int]string
-	if *configPath != "" {
-		channelNames = config.LoadChannelNames(*configPath)
-	}
 
 	if *serviceLog != "" {
 		f, err := os.OpenFile(*serviceLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -117,7 +111,6 @@ func main() {
 		InstallDir:     *installDir,
 		LogPath:        *logPath,
 		DbPath:         resolvedDbPath,
-		ChannelNames:   channelNames,
 		IdleTimeout:    *idleTimeout,
 	}
 

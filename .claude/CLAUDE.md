@@ -12,6 +12,16 @@
 - Always run `just test` after making code changes
 - Do not ask the user to test until the tests pass
 
+## Deferred Work
+
+- If something is deferred or tabled for later implementation/fixing instead of being done now, add it to `ROADMAP.md` — don't just leave it unmentioned in code or conversation
+- Applies to both `l2p-poe` and `poe-info-service`
+
+## Tests
+
+- When functionality is added, changed, or removed, the associated tests must be added, changed, or removed to match, in the same change
+- Applies to both `l2p-poe` and `poe-info-service`
+
 ## The `bin/` directory
 
 `bin/` is staged only by `just build` / `just run` and is reserved for the user's own manual acceptance testing — it may hold their real config (`l2p-poe.toml`) and a live-running instance at any time. Never launch, edit config in, or write log/debug output to anything under `bin/`. For manual repro, debugging, or log-tracing, run the binary straight from the build tree instead (e.g. `build/<preset>/src/l2p-poe.exe`), which uses its own isolated config.

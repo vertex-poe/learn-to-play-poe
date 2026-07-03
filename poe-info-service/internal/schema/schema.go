@@ -8,7 +8,7 @@ import (
 // kVersion mirrors the C++ Database::kDbVersion. Bump it, and add a branch to
 // migrate(), whenever schema.sql changes in a way existing databases need to
 // catch up on.
-const kVersion = 6
+const kVersion = 7
 
 // EnsureSchema creates the schema on a fresh database (and seeds it with
 // reference data) or migrates an existing one up to kVersion. It is
@@ -70,6 +70,21 @@ func migrate(db *sql.DB, fromVersion int) error {
 			return err
 		}
 		fromVersion = 6
+	}
+
+	if fromVersion < 7 {
+		// chat_channels.name was a single always-on label per channel, written
+		// by the ingest writer from l2p-poe.toml's [chat_channel_names]. It's
+		// superseded by chat_channel_labels (multiple time-scoped labels,
+		// managed over the channels.register/.rename/.delete WS API) and
+		// nothing writes or reads it anymore.
+		if _, err := db.Exec(`ALTER TABLE chat_channels DROP COLUMN name`); err != nil {
+			return err
+		}
+		if err := setUserVersion(db, 7); err != nil {
+			return err
+		}
+		fromVersion = 7
 	}
 
 	if fromVersion < kVersion {

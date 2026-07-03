@@ -120,7 +120,8 @@
       "Bash(grep -rn *)",
       "WebFetch(domain:*)",
       "Bash(go run *)",
-      "Bash(git status *)"
+      "Bash(git status *)",
+      "Bash(git check-ignore *)"
     ],
     "additionalDirectories": [
       "\\tmp"

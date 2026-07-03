@@ -50,8 +50,22 @@ CREATE TABLE IF NOT EXISTS accounts (
 CREATE TABLE IF NOT EXISTS chat_channels (
     id     INTEGER PRIMARY KEY AUTOINCREMENT,
     number INTEGER NOT NULL UNIQUE,
-    lang   TEXT,
-    name   TEXT
+    lang   TEXT
+);
+
+-- User-registered labels for a chat channel number, e.g. "820" -> "Trade".
+-- PoE recycles channel numbers across leagues/purposes, so a channel can
+-- carry several labels over time; valid_from/valid_to scope each one to a
+-- date range. Both are '' rather than NULL for "unbounded" so the UNIQUE
+-- constraint below actually dedups open-ended registrations — SQLite treats
+-- NULLs in a UNIQUE index as all-distinct, which '' does not.
+CREATE TABLE IF NOT EXISTS chat_channel_labels (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id INTEGER NOT NULL REFERENCES chat_channels(id),
+    label      TEXT    NOT NULL,
+    valid_from TEXT    NOT NULL DEFAULT '', -- "YYYY-MM-DD", '' = no lower bound
+    valid_to   TEXT    NOT NULL DEFAULT '', -- "YYYY-MM-DD", '' = no upper bound
+    UNIQUE (channel_id, label, valid_from, valid_to)
 );
 
 CREATE TABLE IF NOT EXISTS classes (

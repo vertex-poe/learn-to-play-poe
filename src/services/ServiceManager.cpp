@@ -1,7 +1,5 @@
 #include "services/ServiceManager.h"
 
-#include "core/AppConfig.h"
-
 #include <QCoreApplication>
 #include <QDebug>
 #include <QFile>
@@ -67,7 +65,6 @@ void ServiceManager::start(const QString &serviceDataDir, const QString &install
         args << "--install-dir" << installDir
              << "--log-path"    << installDir + "/logs/Client.txt";
     }
-    args << "--config-path" << AppConfig::configPath();
     const QByteArray serviceLog = qgetenv("L2P_SERVICE_LOG");
     if (!serviceLog.isEmpty())
         args << "--service-log" << QString::fromUtf8(serviceLog);

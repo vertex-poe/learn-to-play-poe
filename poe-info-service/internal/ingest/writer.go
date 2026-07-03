@@ -17,9 +17,8 @@ import (
 // character/guild state LogIngestWorker used to track locally while scanning
 // Client.txt line by line.
 type Writer struct {
-	db           *sql.DB
-	installID    int64
-	channelNames map[int]string
+	db        *sql.DB
+	installID int64
 
 	sessionID           int64
 	sessionStartTs      string
@@ -39,11 +38,10 @@ type Writer struct {
 // NewWriter constructs a Writer for the given install, recovering an
 // in-progress session/span if one is still open in the database (e.g. the
 // service restarted while the game kept running).
-func NewWriter(db *sql.DB, installID int64, channelNames map[int]string) (*Writer, error) {
+func NewWriter(db *sql.DB, installID int64) (*Writer, error) {
 	w := &Writer{
 		db:                  db,
 		installID:           installID,
-		channelNames:        channelNames,
 		sessionID:           -1,
 		sessionCharID:       -1,
 		sessionCharLevel:    -1,
@@ -809,12 +807,14 @@ func (w *Writer) handleGuildMemberUpdated(evt proto.ParsedEvent) error {
 func (w *Writer) handleChatChannelJoin(evt proto.ParsedEvent) error {
 	num := intVal(evt.Data, "number")
 	lang := str(evt.Data, "lang")
-	label := w.channelNames[num]
 
+	// Labels are registered independently via the channels.register WS method
+	// (internal/channels), not baked in at ingest time, so this only tracks
+	// which channel numbers exist and their language.
 	_, err := w.db.Exec(
-		`INSERT INTO chat_channels(number, lang, name) VALUES(?,?,?)
-		 ON CONFLICT(number) DO UPDATE SET lang=excluded.lang, name=COALESCE(excluded.name, chat_channels.name)`,
-		num, lang, nullIfEmpty(label))
+		`INSERT INTO chat_channels(number, lang) VALUES(?,?)
+		 ON CONFLICT(number) DO UPDATE SET lang=excluded.lang`,
+		num, lang)
 	if err != nil {
 		return err
 	}
@@ -829,13 +829,6 @@ func (w *Writer) handleChatChannelJoin(evt proto.ParsedEvent) error {
 		`INSERT OR IGNORE INTO chat_channel_joins(install_id, channel_id, joined_at) VALUES(?,?,?)`,
 		w.installID, channelID, evt.Timestamp)
 	return err
-}
-
-func nullIfEmpty(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
 }
 
 func (w *Writer) handlePassivesSnapshot(evt proto.ParsedEvent) error {

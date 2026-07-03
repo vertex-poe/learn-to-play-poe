@@ -556,6 +556,19 @@ void MainWindow::onServiceReady()
     m_logPage->setPoeInfoClient(m_poeInfoClient);
     m_sessionViewPage->setPoeInfoClient(m_poeInfoClient);
 
+    // Push our chat_channel_names as data over the WS API instead of handing
+    // poe-info-service a path to l2p-poe.toml to go parse itself (see
+    // channels.register in poe-info-service/internal/server/channels.go).
+    // Runs on every connect, including reconnects after a service restart,
+    // so a fresh service instance is re-synced without this app restarting.
+    for (auto it = m_config.channelNames.constBegin(); it != m_config.channelNames.constEnd(); ++it)
+    {
+        QJsonObject params;
+        params["channel"] = it.key();
+        params["label"] = it.value();
+        m_poeInfoClient->request(QStringLiteral("channels.register"), params, [](QJsonObject, QString) {});
+    }
+
     // Schedule initial preloads for the current page, and background-create
     // the settings page so its landing screen is instant on first click.
     if (!m_timingMode && !perfMode)

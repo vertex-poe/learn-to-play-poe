@@ -38,7 +38,7 @@ func cliDispatch(args []string) (code int, handled bool) {
 
 	case "log":
 		if len(args) < 2 || args[1] != "ingest" {
-			fmt.Fprintln(os.Stderr, "usage: poe-info-service log ingest --install-dir <dir> [--log-path <path>] [--config-path <l2p-poe.toml>] [--data-dir <dir>]")
+			fmt.Fprintln(os.Stderr, "usage: poe-info-service log ingest --install-dir <dir> [--log-path <path>] [--data-dir <dir>]")
 			return 1, true
 		}
 		return runLogIngest(args[2:]), true
@@ -103,12 +103,13 @@ func runDialogIngest(args []string) int {
 // headless dev tooling (poe-info-service/dev/area_seeds) that wants the
 // database caught up without leaving a service running — the long-running
 // service otherwise only tails continuously, with no "run once and exit"
-// mode.
+// mode. Chat channel labels are not part of this command — they're
+// registered independently via the channels.register WS method
+// (internal/channels), not baked in at ingest time.
 func runLogIngest(args []string) int {
 	fs := flag.NewFlagSet("log ingest", flag.ContinueOnError)
 	installDir := fs.String("install-dir", "", "PoE install directory to ingest Client.txt from (required)")
 	logPath := fs.String("log-path", "", "Path to Client.txt (default: <install-dir>/logs/Client.txt)")
-	configPath := fs.String("config-path", "", "Path to l2p-poe's own config toml (for chat channel labels)")
 	dataDir := fs.String("data-dir", "", "Directory holding poe-info-service's database (default resolves the same way poe-info-service.toml does)")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -156,11 +157,7 @@ func runLogIngest(args []string) int {
 		return 1
 	}
 
-	var channelNames map[int]string
-	if *configPath != "" {
-		channelNames = config.LoadChannelNames(*configPath)
-	}
-	writer, err := ingest.NewWriter(db, installID, channelNames)
+	writer, err := ingest.NewWriter(db, installID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: init writer: %v\n", err)
 		return 1

@@ -32,7 +32,7 @@ func newTestWriter(t *testing.T, db *sql.DB) *Writer {
 	if err != nil {
 		t.Fatalf("EnsureInstall: %v", err)
 	}
-	w, err := NewWriter(db, installID, map[int]string{7: "Trade Chat"})
+	w, err := NewWriter(db, installID)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
@@ -265,27 +265,20 @@ func TestGuildJoinAndMemberUpdate(t *testing.T) {
 	}
 }
 
-func TestChatChannelJoinUsesConfiguredLabel(t *testing.T) {
+func TestChatChannelJoinTracksNumberAndLang(t *testing.T) {
 	db := newTestDB(t)
 	w := newTestWriter(t, db)
 
+	// Labels are registered independently via channels.register/.rename/.delete
+	// (see internal/channels) — a chat_channel_join only records the channel
+	// number and language.
 	handle(t, w, proto.ParsedEvent{Type: proto.EventChatChannelJoin, Timestamp: "2024-01-15 10:00:00", Data: map[string]any{"number": 7, "lang": "English"}})
-	name := scanString(t, db, `SELECT name FROM chat_channels WHERE number=7`)
-	if name != "Trade Chat" {
-		t.Errorf("chat_channels.name = %q, want configured label %q", name, "Trade Chat")
+	lang := scanString(t, db, `SELECT lang FROM chat_channels WHERE number=7`)
+	if lang != "English" {
+		t.Errorf("chat_channels.lang = %q, want English", lang)
 	}
 	if got := scanInt(t, db, `SELECT COUNT(*) FROM chat_channel_joins`); got != 1 {
 		t.Errorf("expected 1 chat_channel_joins row, got %d", got)
-	}
-
-	// A channel with no configured label should leave name NULL rather than erroring.
-	handle(t, w, proto.ParsedEvent{Type: proto.EventChatChannelJoin, Timestamp: "2024-01-15 10:01:00", Data: map[string]any{"number": 99, "lang": "English"}})
-	var name99 sql.NullString
-	if err := db.QueryRow(`SELECT name FROM chat_channels WHERE number=99`).Scan(&name99); err != nil {
-		t.Fatalf("query channel 99: %v", err)
-	}
-	if name99.Valid {
-		t.Errorf("expected NULL label for unconfigured channel 99, got %q", name99.String)
 	}
 }
 
@@ -349,7 +342,7 @@ func TestRestartRecoversOpenSessionAndSpan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureInstall: %v", err)
 	}
-	w2, err := NewWriter(db, installID, nil)
+	w2, err := NewWriter(db, installID)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
