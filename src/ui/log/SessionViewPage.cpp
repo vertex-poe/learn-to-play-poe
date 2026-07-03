@@ -1,7 +1,7 @@
 // src/SessionViewPage.cpp (C++)
 
 #include "ui/log/SessionViewPage.h"
-#include "db/Database.h"
+#include "services/PoeInfoRecords.h"
 #include "util/Docs.h"
 #include "events/LiveEvent.h"
 #include "events/LiveEventBus.h"
@@ -490,7 +490,7 @@ void SessionViewPage::rebuildDbZones()
       const QJsonArray zonesArr = payload["zones"].toArray();
       for (const QJsonValue &v : zonesArr) {
         const QJsonObject o = v.toObject();
-        Database::ZoneTransitionRecord r;
+        Records::ZoneTransitionRecord r;
         r.areaName    = o["area_name"].toString();
         r.areaCode    = o["area_code"].toString();
         r.areaType    = o["area_type"].toString();
@@ -504,7 +504,7 @@ void SessionViewPage::rebuildDbZones()
       const QJsonArray seArr = payload["session_events"].toArray();
       for (const QJsonValue &v : seArr) {
         const QJsonObject o = v.toObject();
-        Database::SessionEventRecord r;
+        Records::SessionEventRecord r;
         r.eventType   = o["event_type"].toString();
         r.occurredAt  = o["occurred_at"].toString();
         r.charName    = o["char_name"].toString();
@@ -518,7 +518,7 @@ void SessionViewPage::rebuildDbZones()
       const QJsonArray cseArr = payload["client_screen_events"].toArray();
       for (const QJsonValue &v : cseArr) {
         const QJsonObject o = v.toObject();
-        Database::ClientScreenEventRecord r;
+        Records::ClientScreenEventRecord r;
         r.eventType  = o["event_type"].toString();
         r.occurredAt = o["occurred_at"].toString();
         data.clientScreenEvents.append(r);
@@ -527,7 +527,7 @@ void SessionViewPage::rebuildDbZones()
       const QJsonArray afkArr = payload["afk_records"].toArray();
       for (const QJsonValue &v : afkArr) {
         const QJsonObject o = v.toObject();
-        Database::AfkRecord r;
+        Records::AfkRecord r;
         r.afkOnAt     = o["afk_on_at"].toString();
         r.afkOffAt    = o["afk_off_at"].toString();
         r.durationSecs = o["duration_secs"].toInt(-1);
@@ -537,7 +537,7 @@ void SessionViewPage::rebuildDbZones()
       const QJsonArray atArr = payload["alt_tab_records"].toArray();
       for (const QJsonValue &v : atArr) {
         const QJsonObject o = v.toObject();
-        Database::AltTabRecord r;
+        Records::AltTabRecord r;
         r.outAt       = o["out_at"].toString();
         r.inAt        = o["in_at"].toString();
         r.durationSecs = o["duration_secs"].toInt(-1);
@@ -597,7 +597,7 @@ void SessionViewPage::applyCurrentPageData(const PageData &data,
     cl->setSpacing(6);
 
     auto findStartEvent = [&](const WindowState &g, const QString &detected)
-        -> const Database::SessionEventRecord *
+        -> const Records::SessionEventRecord *
     {
       if (!sessionEvents.isEmpty() && sessionEvents.last().eventType == QLatin1String("start"))
         return &sessionEvents.last();
@@ -692,7 +692,7 @@ void SessionViewPage::applyCurrentPageData(const PageData &data,
 
   if (runningGames.size() > 1)
   {
-    QList<Database::SessionEventRecord> sessionStarts;
+    QList<Records::SessionEventRecord> sessionStarts;
     for (const auto &ev : sessionEvents)
     {
       if (ev.eventType == QLatin1String("start"))
@@ -896,11 +896,11 @@ void SessionViewPage::onLoadMore()
         return;
       }
 
-      QList<Database::ZoneTransitionRecord> zones;
+      QList<Records::ZoneTransitionRecord> zones;
       const QJsonArray arr = payload["zones"].toArray();
       for (const QJsonValue &v : arr) {
         const QJsonObject o = v.toObject();
-        Database::ZoneTransitionRecord r;
+        Records::ZoneTransitionRecord r;
         r.areaName     = o["area_name"].toString();
         r.areaCode     = o["area_code"].toString();
         r.areaType     = o["area_type"].toString();

@@ -1,5 +1,7 @@
 find_package(tomlplusplus CONFIG REQUIRED)
-# unofficial-sqlite3 is found in the root CMakeLists so tests/ can also use it.
+# unofficial-sqlite3 is found in the root CMakeLists — l2p-poe itself no
+# longer links it (poe-info-service owns the database exclusively, ADR-006);
+# it's found there only so tests/ can still use it directly.
 
 qt_add_executable(l2p-poe
     main.cpp
@@ -15,12 +17,6 @@ qt_add_executable(l2p-poe
     core/PerfProbe.h
     core/DeferredTaskQueue.cpp
     core/DeferredTaskQueue.h
-    db/Database.cpp
-    db/Database.h
-    db/DatabaseHealth.cpp
-    db/DatabaseHealth.h
-    db/DatabaseHealthWorker.cpp
-    db/DatabaseHealthWorker.h
     events/LiveEvent.h
     events/LiveEventBus.cpp
     events/LiveEventBus.h
@@ -66,6 +62,7 @@ qt_add_executable(l2p-poe
     services/ServiceManager.h
     services/PoeInfoClient.cpp
     services/PoeInfoClient.h
+    services/PoeInfoRecords.h
     ui/widgets/NotificationWidget.cpp
     ui/widgets/NotificationWidget.h
     ui/widgets/NotificationsPanel.cpp
@@ -194,7 +191,6 @@ target_link_libraries(l2p-poe PRIVATE
     Qt6::Concurrent
     Qt6::WebSockets
     tomlplusplus::tomlplusplus
-    unofficial::sqlite3::sqlite3
 )
 
 # --- Install / deploy ---

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ui/widgets/NotificationWidget.h"
-#include "db/Database.h"
+#include "services/PoeInfoRecords.h"
 #include "platform/WindowTracker.h"
 
 #include <QList>
@@ -60,11 +60,11 @@ private slots:
 
 private:
     struct PageData {
-        QList<Database::SessionEventRecord>        sessionEvents;
-        QList<Database::ZoneTransitionRecord>      zones;
-        QList<Database::ClientScreenEventRecord>   clientScreenEvents;
-        QList<Database::AfkRecord>                 afkRecords;
-        QList<Database::AltTabRecord>              altTabRecords;
+        QList<Records::SessionEventRecord>        sessionEvents;
+        QList<Records::ZoneTransitionRecord>      zones;
+        QList<Records::ClientScreenEventRecord>   clientScreenEvents;
+        QList<Records::AfkRecord>                 afkRecords;
+        QList<Records::AltTabRecord>              altTabRecords;
     };
 
     void triggerLoadIfNeeded();

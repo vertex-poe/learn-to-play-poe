@@ -1,5 +1,5 @@
 #include "ui/chat/ChatPage.h"
-#include "db/Database.h"
+#include "services/PoeInfoRecords.h"
 #include "services/PoeInfoClient.h"
 #include "ui/widgets/ScrollJumpButton.h"
 #include "ui/Theme.h"
@@ -774,10 +774,10 @@ void ChatPage::rebuild()
                 self->showError(QStringLiteral("Could not load messages: ") + error);
                 return;
             }
-            QList<Database::ChatRecord> records;
+            QList<Records::ChatRecord> records;
             for (const QJsonValue &v : payload[QStringLiteral("records")].toArray()) {
                 const QJsonObject obj = v.toObject();
-                Database::ChatRecord r;
+                Records::ChatRecord r;
                 r.source     = obj[QStringLiteral("source")].toString();
                 r.channel    = obj[QStringLiteral("channel")].toString();
                 r.playerName = obj[QStringLiteral("player_name")].toString();
@@ -793,7 +793,7 @@ void ChatPage::rebuild()
         });
 }
 
-void ChatPage::applyChats(const QList<Database::ChatRecord> &records)
+void ChatPage::applyChats(const QList<Records::ChatRecord> &records)
 {
     auto *content = new QWidget;
     auto *layout  = new QVBoxLayout(content);

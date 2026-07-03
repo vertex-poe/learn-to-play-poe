@@ -1,5 +1,5 @@
 #include "ui/log/LogPage.h"
-#include "db/Database.h"
+#include "services/PoeInfoRecords.h"
 #include <QCoreApplication>
 #include <QFile>
 #include <cstdio>
@@ -244,11 +244,11 @@ void LogPage::rebuild()
                 });
                 return;
             }
-            QList<Database::SessionRecord> sessions;
+            QList<Records::SessionRecord> sessions;
             const QJsonArray arr = payload["records"].toArray();
             for (const QJsonValue &v : arr) {
                 const QJsonObject o = v.toObject();
-                Database::SessionRecord r;
+                Records::SessionRecord r;
                 r.id          = o["id"].toVariant().toLongLong();
                 r.startedAt   = o["started_at"].toString();
                 r.endedAt     = o["ended_at"].toString();
@@ -265,7 +265,7 @@ void LogPage::rebuild()
         });
 }
 
-void LogPage::applySessions(const QList<Database::SessionRecord> &sessions)
+void LogPage::applySessions(const QList<Records::SessionRecord> &sessions)
 {
     auto *content = new QWidget;
     auto *layout  = new QVBoxLayout(content);

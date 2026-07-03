@@ -213,15 +213,16 @@ The OS time is the compact fallback, not the primary source.
 
 ### "Started" timestamp resolution — three tiers
 
-Source: `CurrentPage::applyCurrentPageData` / `findStartEvent` lambda.
+Source: `SessionViewPage::applyCurrentPageData` / `findStartEvent` lambda.
 
 When building the "Game is running" card the app resolves the "Started" detail
 field through three tiers in order:
 
 **Tier 1 — most-recent DB session event (primary)**
 
-`QueryService::fetchCurrentPageData` returns up to the 10 most recent session
-events from the database. If the most recent event has `eventType = "start"`, it
+The `log.session` WebSocket request (session ID -1, meaning the most recent
+open session) returns up to the 10 most recent session events from the
+database. If the most recent event has `eventType = "start"`, it
 is used directly. This is the normal path: `Client.txt` was being watched when
 the game launched, a start record was written, and `occurredAt` gives
 `"YYYY-MM-DD HH:MM:SS"` with full date and seconds. Character name and class

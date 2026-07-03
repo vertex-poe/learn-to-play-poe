@@ -1,6 +1,6 @@
 #pragma once
 
-#include "db/Database.h"
+#include "services/PoeInfoRecords.h"
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QWidget>
@@ -37,7 +37,7 @@ private slots:
 private:
     void triggerLoadIfNeeded();
     void rebuild();
-    void applySessions(const QList<Database::SessionRecord> &sessions);
+    void applySessions(const QList<Records::SessionRecord> &sessions);
     void scrollToBottom();
     void jumpToLiveView();
     void updateScrollDownBtn();

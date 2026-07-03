@@ -1,6 +1,6 @@
 #pragma once
 
-#include "db/Database.h"
+#include "services/PoeInfoRecords.h"
 #include <QResizeEvent>
 #include <QSet>
 #include <QShowEvent>
@@ -44,7 +44,7 @@ protected:
 private:
     void triggerLoadIfNeeded();
     void rebuild();
-    void applyChats(const QList<Database::ChatRecord> &records);
+    void applyChats(const QList<Records::ChatRecord> &records);
     void showError(const QString &msg);
     void openFilterPanel();
     void refreshFilterPanel();

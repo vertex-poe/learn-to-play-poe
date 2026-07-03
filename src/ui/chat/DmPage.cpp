@@ -1,5 +1,5 @@
 #include "ui/chat/DmPage.h"
-#include "db/Database.h"
+#include "services/PoeInfoRecords.h"
 #include "services/PoeInfoClient.h"
 #include "ui/widgets/ScrollJumpButton.h"
 #include "ui/Theme.h"
@@ -246,7 +246,7 @@ struct BucketDef {
 // Builds the ordered list of time buckets, including year buckets derived from
 // the partner data.
 static QList<BucketDef> makeBuckets(const QDate &today,
-                                     const QList<Database::PartnerRecord> &partners)
+                                     const QList<Records::PartnerRecord> &partners)
 {
     QList<BucketDef> buckets;
     const QString todayStr = today.toString(Qt::ISODate);
@@ -287,7 +287,7 @@ static QList<BucketDef> makeBuckets(const QDate &today,
     return buckets;
 }
 
-static QStringList namesInBucket(const QList<Database::PartnerRecord> &partners,
+static QStringList namesInBucket(const QList<Records::PartnerRecord> &partners,
                                   const BucketDef &b)
 {
     QStringList names;
@@ -603,10 +603,10 @@ void DmPage::openFilterPanel()
     m_poeInfoClient->request(QStringLiteral("dm.partners"), {},
         [self = QPointer<DmPage>(this)](QJsonObject payload, QString error) {
             if (!self || !error.isEmpty()) return;
-            QList<Database::PartnerRecord> partners;
+            QList<Records::PartnerRecord> partners;
             for (const QJsonValue &v : payload[QStringLiteral("partners")].toArray()) {
                 const QJsonObject obj = v.toObject();
-                Database::PartnerRecord p;
+                Records::PartnerRecord p;
                 p.name = obj[QStringLiteral("name")].toString();
                 for (const QJsonValue &d : obj[QStringLiteral("dates")].toArray())
                     p.dates << d.toString();
@@ -784,10 +784,10 @@ void DmPage::rebuild()
                 self->showError(QStringLiteral("Could not load messages: ") + error);
                 return;
             }
-            QList<Database::WhisperRecord> whispers;
+            QList<Records::WhisperRecord> whispers;
             for (const QJsonValue &v : payload[QStringLiteral("records")].toArray()) {
                 const QJsonObject obj = v.toObject();
-                Database::WhisperRecord r;
+                Records::WhisperRecord r;
                 r.direction  = obj[QStringLiteral("direction")].toString();
                 r.playerName = obj[QStringLiteral("player_name")].toString();
                 r.guildTag   = obj[QStringLiteral("guild_tag")].toString();
@@ -801,7 +801,7 @@ void DmPage::rebuild()
         });
 }
 
-void DmPage::applyWhispers(const QList<Database::WhisperRecord> &whispers)
+void DmPage::applyWhispers(const QList<Records::WhisperRecord> &whispers)
 {
     const bool showNames = m_filterPlayer.isEmpty();
 

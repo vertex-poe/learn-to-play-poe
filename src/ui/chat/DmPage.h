@@ -1,6 +1,6 @@
 #pragma once
 
-#include "db/Database.h"
+#include "services/PoeInfoRecords.h"
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QStringList>
@@ -45,7 +45,7 @@ private slots:
 private:
     void triggerLoadIfNeeded();
     void rebuild();
-    void applyWhispers(const QList<Database::WhisperRecord> &whispers);
+    void applyWhispers(const QList<Records::WhisperRecord> &whispers);
     void showError(const QString &msg);
     void openFilterPanel();
     void refreshFilterPanel();
@@ -87,5 +87,5 @@ private:
     QLabel                        *m_filterTitle{};
     QPushButton                   *m_backBtn{};
     QStringList                    m_filterPath;
-    QList<Database::PartnerRecord> m_cachedPartners;
+    QList<Records::PartnerRecord> m_cachedPartners;
 };

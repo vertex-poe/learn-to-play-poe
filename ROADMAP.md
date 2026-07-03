@@ -48,8 +48,8 @@ Work items derived from `poe-info-service/docs/decisions/` (ADR-001 through 005)
 
 ## Goal: Companion
 
-- [ ] Log screen session detail scroll-to-bottom: the detail view doesn't reliably stay pinned to the bottom when new events are appended — investigate whether the scroll anchor logic used in CurrentPage needs to be applied here
-- [ ] Log screen session detail flashing and slow updates: investigate UI flicker and sluggish refresh when viewing a session's detail on the Log screen — profile rebuild triggers, widget deletion timing, and whether the same deferred-clear fix applied to CurrentPage is needed here
+- [ ] Log screen session detail scroll-to-bottom: the detail view doesn't reliably stay pinned to the bottom when new events are appended — investigate whether the scroll anchor logic elsewhere in SessionViewPage needs to be applied here
+- [ ] Log screen session detail flashing and slow updates: investigate UI flicker and sluggish refresh when viewing a session's detail on the Log screen — profile rebuild triggers, widget deletion timing, and whether the same deferred-clear fix applied elsewhere in SessionViewPage is needed here
 - [ ] Historical events panel: virtual scrolling via QListView + QAbstractItemModel + QStyledItemDelegate (replaces load-N-at-a-time approach; delegate ports existing custom-paint logic from NotificationWidget; enables millions of rows with no memory growth)
 - [ ] Pagination prev/next scroll feel: when prev/next 50 loads, the viewport should appear to stay put as content loads around you rather than snapping the first old record to the top of the screen; the button bar disappearing on load causes a visible scroll jump that should be absorbed so the experience feels like the page simply grew
 - [ ] Auto start on boot (Windows registry `HKCU\…\Run`; Linux `.desktop` autostart)
