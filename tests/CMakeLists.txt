@@ -7,6 +7,17 @@ endfunction()
 add_qt_test(test_placeholder test_placeholder.cpp)
 add_qt_test(test_dpi test_dpi.cpp)
 
+# TaskManager/BackgroundWorker have no other app dependencies (just Qt), so
+# this links their real sources directly instead of mirroring the logic.
+# The two headers must be listed explicitly (not just #included) so AUTOMOC
+# generates their Q_OBJECT machinery for this target too.
+add_qt_test(test_task_manager
+    test_task_manager.cpp
+    ${CMAKE_SOURCE_DIR}/src/workers/TaskManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/workers/BackgroundWorker.h
+    ${CMAKE_SOURCE_DIR}/src/workers/ProgressTrackerWorker.h)
+target_include_directories(test_task_manager PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 qt_add_executable(test_startup_timing test_startup_timing.cpp)
 target_link_libraries(test_startup_timing PRIVATE Qt6::Test unofficial::sqlite3::sqlite3)
 target_compile_definitions(test_startup_timing PRIVATE

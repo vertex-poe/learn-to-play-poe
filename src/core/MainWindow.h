@@ -10,6 +10,7 @@
 
 class QLabel;
 class QStackedWidget;
+class QJsonObject;
 
 class QMenu;
 class PoeInfoClient;
@@ -26,6 +27,7 @@ class SettingsPage;
 class TaskManager;
 class TaskPanel;
 class WindowTracker;
+class ProgressTrackerWorker;
 
 class MainWindow : public QMainWindow
 {
@@ -80,6 +82,9 @@ private:
     void setStatusContent(const QString &content);
     void refreshStatusBar();
     void requestIngestStatus();
+    void applyStatusPayload(const QJsonObject &payload);
+    void startProgressTracker();
+    void stopProgressTracker();
 
     AppConfig     m_config;
     bool          m_timingMode{false};
@@ -100,7 +105,16 @@ private:
     QLabel             *m_statusLabel{};
     QString             m_lastStatusContent;
     QString             m_ingestStatusMessage; // empty = no override; else shown in status bar
-    bool                m_ingestCaughtUp{false};
+
+    // Ingest progress tracker (TaskPanel): shown only once a Client.txt
+    // backlog replay has been running for over a second, so a quick catch-up
+    // never flashes a task row — the status bar text above covers that case.
+    bool                    m_ingesting{false};            // current known phase == "ingesting"
+    bool                    m_ingestGraceScheduled{false};  // one pending "still ingesting after 1s?" check per episode
+    int                     m_lastIngestPercent{-1};
+    QString                 m_lastIngestMessage;
+    int                     m_progressTrackerTaskId{-1};
+    ProgressTrackerWorker  *m_progressTrackerWorker{}; // non-owning once submitted to m_taskManager
 
     WindowTracker   *m_tracker{};
     QTimer          *m_pollTimer{};

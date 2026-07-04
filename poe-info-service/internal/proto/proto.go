@@ -81,13 +81,10 @@ type StatusPayload struct {
 	Percent   *float64 `json:"percent,omitempty"` // 0-100 backlog-replay progress; present only while phase=="ingesting"
 }
 
-// TopicIngest carries a single "caught_up" event once backlog replay of
-// Client.txt finishes and the tailer begins tailing live, so clients know
-// it's now safe to query Client.txt-derived history without racing replay.
-const TopicIngest = "ingest"
-
-type IngestEventPayload struct {
-	Type string `json:"type"` // "caught_up"
-}
-
-const IngestEventCaughtUp = "caught_up"
+// TopicStatus carries the same shape as the "status" request's response
+// (StatusPayload above), published whenever phase changes or percent crosses
+// into a new whole percent — see watchIngestStatus in server.go. Clients
+// request "status" once on connect for an initial snapshot, then subscribe
+// to this topic instead of re-polling "status" for the (potentially long)
+// duration of a Client.txt backlog replay.
+const TopicStatus = "status"

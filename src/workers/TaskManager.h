@@ -32,6 +32,7 @@ struct TaskRecord {
     bool              cancelling{false};
     QThread          *thread   {nullptr};
     BackgroundWorker *worker   {nullptr};
+    qint64            startedAtMs{}; // QDateTime::currentMSecsSinceEpoch() when status became Running
 };
 
 class TaskManager : public QObject

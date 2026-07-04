@@ -33,7 +33,6 @@ private:
         QWidget      *widget    {};
         QLabel       *name      {};
         QProgressBar *bar       {};
-        QLabel       *message   {};
         QPushButton  *cancelBtn {};
     };
 

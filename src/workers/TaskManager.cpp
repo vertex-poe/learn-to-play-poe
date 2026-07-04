@@ -1,5 +1,6 @@
 #include "workers/TaskManager.h"
 
+#include <QDateTime>
 #include <QThread>
 
 static constexpr int kMaxDbWriteSlots = 1;
@@ -75,7 +76,8 @@ void TaskManager::startTask(TaskRecord &record)
     auto *thread = new QThread(this);
     record.worker->moveToThread(thread);
     record.thread = thread;
-    record.status = TaskStatus::Running;
+    record.status      = TaskStatus::Running;
+    record.startedAtMs = QDateTime::currentMSecsSinceEpoch();
 
     const int id = record.id;
 

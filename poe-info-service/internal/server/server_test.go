@@ -15,7 +15,10 @@ import (
 	"time"
 
 	"github.com/MovingCairn/poe-info-service/internal/hub"
+	"github.com/MovingCairn/poe-info-service/internal/ingest"
+	"github.com/MovingCairn/poe-info-service/internal/parser"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
+	"github.com/MovingCairn/poe-info-service/internal/schema"
 	"github.com/MovingCairn/poe-info-service/internal/tailer"
 	"github.com/MovingCairn/poe-info-service/internal/testfixtures"
 
@@ -91,6 +94,51 @@ func TestWatchIngestStall_LogsWhenStuckOnSameLine(t *testing.T) {
 	time.Sleep(3 * interval)
 	if strings.Contains(buf.String(), "stalled") {
 		t.Errorf("watchIngestStall kept warning after the line finished: %q", buf.String())
+	}
+}
+
+// TestOpenDB_ActuallyAppliesWALAndPragmas guards against a real bug found in
+// production: openDB's DSN used the mattn/go-sqlite3-style shorthand params
+// (_journal_mode=WAL&_synchronous=NORMAL&...), but modernc.org/sqlite (the
+// driver actually in use) only recognizes repeated _pragma=name(value)
+// parameters — the shorthand ones are silently ignored as unknown query
+// params, so the database ran in SQLite's default rollback-journal +
+// synchronous=FULL mode this whole time despite the DSN looking correct.
+// That's a meaningful chunk of the per-commit overhead behind the slow
+// backlog-replay throughput fixed elsewhere this session (see
+// broadcastLogEvents' batching). Confirms the pragmas actually took effect,
+// not just that the DSN string contains particular substrings.
+func TestOpenDB_ActuallyAppliesWALAndPragmas(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "poe-info-service.db")
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB: %v", err)
+	}
+	defer db.Close()
+
+	var journalMode string
+	if err := db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatalf("query journal_mode: %v", err)
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		t.Errorf("journal_mode = %q, want \"wal\"", journalMode)
+	}
+
+	var synchronous int
+	if err := db.QueryRow("PRAGMA synchronous").Scan(&synchronous); err != nil {
+		t.Fatalf("query synchronous: %v", err)
+	}
+	const synchronousNormal = 1 // SQLite's PRAGMA synchronous integer code for NORMAL (0=OFF, 1=NORMAL, 2=FULL, 3=EXTRA)
+	if synchronous != synchronousNormal {
+		t.Errorf("synchronous = %d, want %d (NORMAL)", synchronous, synchronousNormal)
+	}
+
+	var foreignKeys int
+	if err := db.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
+		t.Fatalf("query foreign_keys: %v", err)
+	}
+	if foreignKeys != 1 {
+		t.Errorf("foreign_keys = %d, want 1 (on)", foreignKeys)
 	}
 }
 
@@ -216,33 +264,126 @@ func TestRouteMessageSubscribeTouches(t *testing.T) {
 	}
 }
 
-// TestShouldCommitIngestBatch pins down the boundary logic that turns
-// broadcastLogEvents' writes into batched transactions instead of one
-// auto-committing statement each — see maxBatchEvents' doc comment for why
-// (on a slow disk, per-statement commits made real backlog replay run at
-// ~2 events/sec, which is the actual cause behind the "percent never
-// climbs" bug, not a display issue).
-func TestShouldCommitIngestBatch(t *testing.T) {
-	tests := []struct {
-		name       string
-		batchCount int
-		queueLen   int
-		want       bool
-	}{
-		{"small batch, more queued: keep batching", 5, 10, false},
-		{"small batch, queue drained: commit now so live events aren't delayed", 5, 0, true},
-		{"batch at cap, more queued: commit anyway to bound tx size", maxBatchEvents, 10, true},
-		{"batch at cap, queue drained: commit", maxBatchEvents, 0, true},
-		{"just under cap, more queued: keep batching", maxBatchEvents - 1, 1, false},
+// newTestBroadcastDB returns a real schema'd sqlite db (on-disk, WAL mode —
+// matching production's openDB) plus a ready Writer, for driving
+// broadcastLogEvents directly in tests.
+func newTestBroadcastDB(t *testing.T) (*sql.DB, *ingest.Writer) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "poe-info-service.db")
+	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldCommitIngestBatch(tt.batchCount, tt.queueLen); got != tt.want {
-				t.Errorf("shouldCommitIngestBatch(%d, %d) = %v, want %v",
-					tt.batchCount, tt.queueLen, got, tt.want)
-			}
-		})
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	if err := schema.EnsureSchema(db); err != nil {
+		t.Fatalf("ensure schema: %v", err)
 	}
+	installID, err := ingest.EnsureInstall(db, t.TempDir())
+	if err != nil {
+		t.Fatalf("ensure install: %v", err)
+	}
+	w, err := ingest.NewWriter(db, installID)
+	if err != nil {
+		t.Fatalf("new writer: %v", err)
+	}
+	return db, w
+}
+
+// TestBroadcastLogEvents_FlushesPendingBatchWhenIdle guards the fix for a
+// real deadlock found in production ("percent never climbs"): a batch must
+// get committed once nothing new arrives for a while, even though eventCh
+// never goes empty from the goroutine's own observation and is never
+// closed — see batchFlushIdle's doc comment for the full mechanism. Sends
+// fewer events than maxBatchEvents and then simply stops, the same shape as
+// a tailer that has drained everything currently available and gone quiet.
+func TestBroadcastLogEvents_FlushesPendingBatchWhenIdle(t *testing.T) {
+	db, w := newTestBroadcastDB(t)
+	p := parser.New()
+	eventCh := make(chan string, 8)
+	h := hub.New()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go broadcastLogEvents(ctx, h, eventCh, p, w, db, func() bool { return true }, func() bool { return false })
+
+	eventCh <- "2024/01/15 10:00:00 ***** LOG FILE OPENING *****"
+	eventCh <- "2024/01/15 10:00:05 104 a [INFO] Client 1 : You have entered Lioneye's Watch."
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count); err == nil && count > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("session row never committed after going idle — batch was never flushed")
+}
+
+// TestBroadcastLogEvents_DoesNotDeadlockWhenChannelBufferOverflows reproduces
+// the actual deadlock end to end: a real tailer, reading a file with more
+// lines than eventCh's buffer, must block mid-send at some point — if that
+// block happens to land right as broadcastLogEvents' batch-commit decision
+// raced (the old len(eventCh)==0 check), the tailer's next saveOffset()
+// (needing the single pooled connection broadcastLogEvents was still
+// holding via an uncommitted transaction) and broadcastLogEvents itself
+// (idle, waiting for a line the stuck tailer will never send) deadlocked
+// forever. Uses a synthetic fixture sized well past the channel buffer, not
+// real user log content.
+func TestBroadcastLogEvents_DoesNotDeadlockWhenChannelBufferOverflows(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "Client.txt")
+
+	// Comfortably more lines than eventCh's buffer (below), so the tailer
+	// must block sending into a full channel before this poll() returns.
+	var sb strings.Builder
+	for i := 0; i < 30; i++ {
+		sb.WriteString(testfixtures.SampleSession)
+	}
+	if err := os.WriteFile(logPath, []byte(sb.String()), 0644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	dbPath := filepath.Join(dir, "poe-info-service.db")
+	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if err := schema.EnsureSchema(db); err != nil {
+		t.Fatalf("ensure schema: %v", err)
+	}
+	installID, err := ingest.EnsureInstall(db, dir)
+	if err != nil {
+		t.Fatalf("ensure install: %v", err)
+	}
+	w, err := ingest.NewWriter(db, installID)
+	if err != nil {
+		t.Fatalf("new writer: %v", err)
+	}
+	p := parser.New()
+	eventCh := make(chan string, 32) // small on purpose: forces the tailer to block sending well before this fixture's lines run out
+	tl := tailer.New(logPath, db, installID, eventCh)
+	h := hub.New()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tl.Run(ctx)
+	go broadcastLogEvents(ctx, h, eventCh, p, w, db, tl.CaughtUp, func() bool { return false })
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if tl.CaughtUp() {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	offset, size := tl.Progress()
+	t.Fatalf("deadlocked: never caught up within 15s (offset=%d size=%d)", offset, size)
 }
 
 func TestIngestStatus(t *testing.T) {
@@ -342,11 +483,13 @@ func newTestTailerDB(t *testing.T) (*sql.DB, int64) {
 	return db, installID
 }
 
-// TestWatchCaughtUp_PublishesOnceTailerCatchesUp drives a real *tailer.Tailer
-// against a fixture Client.txt file, following the same pattern as
-// internal/tailer's own fixture tests, to prove watchCaughtUp publishes
-// exactly one "ingest"/"caught_up" event once backlog replay finishes.
-func TestWatchCaughtUp_PublishesOnceTailerCatchesUp(t *testing.T) {
+// TestWatchIngestStatus_PublishesOnPhaseChangeAndStopsAtTailing drives a real
+// *tailer.Tailer against a fixture Client.txt file, following the same
+// pattern as internal/tailer's own fixture tests, to prove watchIngestStatus
+// publishes a "status" topic event once backlog replay finishes (phase
+// "tailing") and then stops — "tailing" is a one-way state (see
+// tailer.CaughtUp) so there's nothing more to report about it this run.
+func TestWatchIngestStatus_PublishesOnPhaseChangeAndStopsAtTailing(t *testing.T) {
 	db, installID := newTestTailerDB(t)
 	logPath := filepath.Join(t.TempDir(), "Client.txt")
 	if err := os.WriteFile(logPath, []byte(testfixtures.SampleSession), 0644); err != nil {
@@ -359,12 +502,14 @@ func TestWatchCaughtUp_PublishesOnceTailerCatchesUp(t *testing.T) {
 	h := hub.New()
 	c := hub.NewClient()
 	defer c.Close()
-	h.Subscribe(c, proto.TopicIngest)
+	h.Subscribe(c, proto.TopicStatus)
+
+	srv := &server{hub: h, tailer: tl, cfg: Config{Version: "test"}, started: time.Now()}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go tl.Run(ctx)
-	go watchCaughtUp(ctx, h, tl)
+	go watchIngestStatus(ctx, srv)
 
 	// Drain the backlog lines so the tailer can reach EOF and flip caughtUp.
 	drained := 0
@@ -379,30 +524,37 @@ func TestWatchCaughtUp_PublishesOnceTailerCatchesUp(t *testing.T) {
 		}
 	}
 
-	select {
-	case data := <-c.Send:
-		var msg proto.Message
-		if err := json.Unmarshal(data, &msg); err != nil {
-			t.Fatalf("unmarshal event: %v", err)
+	// There may be zero or more "ingesting" percent-change broadcasts first
+	// (depending on timing), followed by exactly one "tailing" broadcast.
+	sawTailing := false
+	deadline = time.After(2 * time.Second)
+	for !sawTailing {
+		select {
+		case data := <-c.Send:
+			var msg proto.Message
+			if err := json.Unmarshal(data, &msg); err != nil {
+				t.Fatalf("unmarshal event: %v", err)
+			}
+			if msg.Type != proto.TypeEvent || msg.Topic != proto.TopicStatus {
+				t.Fatalf("got type=%q topic=%q, want type=%q topic=%q", msg.Type, msg.Topic, proto.TypeEvent, proto.TopicStatus)
+			}
+			var payload proto.StatusPayload
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+				t.Fatalf("unmarshal payload: %v", err)
+			}
+			if payload.Phase == "tailing" {
+				sawTailing = true
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for a status broadcast with phase=tailing")
 		}
-		if msg.Type != proto.TypeEvent || msg.Topic != proto.TopicIngest {
-			t.Fatalf("got type=%q topic=%q, want type=%q topic=%q", msg.Type, msg.Topic, proto.TypeEvent, proto.TopicIngest)
-		}
-		var payload proto.IngestEventPayload
-		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-			t.Fatalf("unmarshal payload: %v", err)
-		}
-		if payload.Type != proto.IngestEventCaughtUp {
-			t.Errorf("payload.Type = %q, want %q", payload.Type, proto.IngestEventCaughtUp)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for caught_up event")
 	}
 
+	// Once "tailing" is reached, watchIngestStatus stops for good.
 	select {
 	case data := <-c.Send:
-		t.Fatalf("unexpected extra message on ingest topic: %s", data)
-	case <-time.After(300 * time.Millisecond):
+		t.Fatalf("unexpected extra status broadcast after reaching tailing: %s", data)
+	case <-time.After(1200 * time.Millisecond):
 	}
 }
 

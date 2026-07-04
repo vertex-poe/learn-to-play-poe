@@ -2,6 +2,7 @@ package tailer
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -163,6 +164,54 @@ func TestTailer_ProgressUpdatesIncrementallyDuringBacklogReplay(t *testing.T) {
 		<-out
 	}
 	waitForCaughtUp(t, tl, 2*time.Second)
+}
+
+// TestTailer_CaughtUpDespiteContinuousSmallWrites proves the caught-up
+// signal no longer needs a poll tick with literally zero new bytes. A real
+// player's Client.txt writes are small and sporadic, but if the game were
+// somehow writing on every single tick, the tailer must still recognize
+// it's caught up rather than waiting forever for a truly quiet tick to
+// arrive — see poll's drainedToEnd (a read shorter than the requested
+// pollChunkBytes), which Run checks instead of "zero bytes this tick".
+func TestTailer_CaughtUpDespiteContinuousSmallWrites(t *testing.T) {
+	db, installID := newTestDB(t)
+	logPath := filepath.Join(t.TempDir(), "Client.txt")
+	const initial = "2024/01/15 10:00:00 ***** LOG FILE OPENING *****\n"
+	if err := os.WriteFile(logPath, []byte(initial), 0644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	out := make(chan string, 64)
+	tl := New(logPath, db, installID, out)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tl.Run(ctx)
+
+	drainLines(t, out, 1, 2*time.Second)
+	waitForCaughtUp(t, tl, 2*time.Second)
+
+	// Keep writing one small line every 100ms — faster than pollInterval
+	// (250ms), so there's realistically always something new by the next
+	// tick. Under the old "zero new bytes this tick" rule this would never
+	// re-confirm caught-up; it must already be latched from above and must
+	// stay latched (a one-way latch) throughout the trickle.
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatalf("reopen log for append: %v", err)
+	}
+	defer f.Close()
+	for i := 0; i < 5; i++ {
+		line := fmt.Sprintf("2024/01/15 10:00:%02d 1 a [INFO] Client 1 : AFK mode is now ON.\n", i+1)
+		if _, err := f.WriteString(line); err != nil {
+			t.Fatalf("append log: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if !tl.CaughtUp() {
+			t.Fatalf("tailer lost caught-up state during continuous small writes (iteration %d)", i)
+		}
+	}
+	drainLines(t, out, 5, 2*time.Second)
 }
 
 // TestTailer_ResumesFromSavedOffsetAfterRestart simulates poe-info-service

@@ -24,6 +24,7 @@ qt_add_executable(l2p-poe
     events/LiveEventRuleEngine.cpp
     events/LiveEventRuleEngine.h
     workers/BackgroundWorker.h
+    workers/ProgressTrackerWorker.h
     workers/TaskManager.cpp
     workers/TaskManager.h
     platform/WindowTracker.h

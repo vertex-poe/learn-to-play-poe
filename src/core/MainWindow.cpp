@@ -16,6 +16,7 @@
 #include "services/ServiceManager.h"
 #include "services/PoeInfoClient.h"
 #include "workers/TaskManager.h"
+#include "workers/ProgressTrackerWorker.h"
 #include "ui/TaskPanel.h"
 #include "platform/WindowTracker.h"
 
@@ -49,6 +50,19 @@ static QWidget *makePlaceholder(const QString &text, QWidget *parent)
     lbl->setAlignment(Qt::AlignCenter);
     layout->addWidget(lbl);
     return w;
+}
+
+// Formats a duration as M:SS (or H:MM:SS once it runs an hour or longer), for
+// showing how long a just-finished TaskManager task actually took.
+static QString formatElapsed(qint64 ms)
+{
+    const qint64 totalSecs = qMax<qint64>(0, ms) / 1000;
+    const qint64 h = totalSecs / 3600;
+    const qint64 m = (totalSecs % 3600) / 60;
+    const qint64 s = totalSecs % 60;
+    if (h > 0)
+        return QStringLiteral("%1:%2:%3").arg(h).arg(m, 2, 10, QChar('0')).arg(s, 2, 10, QChar('0'));
+    return QStringLiteral("%1:%2").arg(m).arg(s, 2, 10, QChar('0'));
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -334,14 +348,14 @@ MainWindow::MainWindow(QWidget *parent)
         ev.timestamp = payload[QStringLiteral("timestamp")].toString();
         ev.data      = payload[QStringLiteral("data")].toObject().toVariantMap();
         LiveEventBus::instance()->dispatch(ev); });
-    m_poeInfoClient->subscribe(QStringLiteral("ingest"), [this](QJsonObject payload)
-                               {
-        if (payload[QStringLiteral("type")].toString() == QStringLiteral("caught_up")) {
-            m_ingestCaughtUp = true;
-            m_ingestStatusMessage.clear();
-            m_logPage->setSessionsReady(true);
-            refreshStatusBar();
-        } });
+    // poe-info-service publishes a "status" event (same shape as the
+    // "status" request's response) whenever ingest phase changes or percent
+    // crosses into a new whole percent, so a single request on connect
+    // (requestIngestStatus(), below) plus this subscription keeps the status
+    // bar current without re-polling "status" for the whole duration of a
+    // Client.txt backlog replay.
+    m_poeInfoClient->subscribe(QStringLiteral("status"), [this](QJsonObject payload)
+                               { applyStatusPayload(payload); });
     connect(m_poeInfoClient, &PoeInfoClient::connected, this, &MainWindow::onServiceReady);
     // Queued: ~PoeInfoClient() calls QWebSocket::abort(), which can emit
     // disconnected() synchronously. During app shutdown, PoeInfoClient (a
@@ -726,12 +740,6 @@ void MainWindow::onPollTimer()
                                      }
                                  });
     }
-
-    // Keep the backlog-replay percentage fresh while it's still catching up;
-    // stops naturally once requestIngestStatus() sees phase=="tailing" (or
-    // the "ingest" caught_up event fires first).
-    if (m_poeInfoClient && m_poeInfoClient->isConnected() && !m_ingestCaughtUp)
-        requestIngestStatus();
 }
 
 void MainWindow::onTrayActivated(QSystemTrayIcon::ActivationReason reason)
@@ -799,18 +807,18 @@ void MainWindow::onTaskUpdated(int id)
     {
         if (r.id != id)
             continue;
-        const QString t = QTime::currentTime().toString("HH:mm");
+        const QString elapsed = formatElapsed(QDateTime::currentMSecsSinceEpoch() - r.startedAtMs);
         if (r.status == TaskStatus::Finished || r.status == TaskStatus::Monitoring)
         {
-            setStatusContent(QStringLiteral("%1 · %2").arg(t, r.name));
+            setStatusContent(QStringLiteral("%1 · %2").arg(elapsed, r.name));
         }
         else if (r.status == TaskStatus::Failed)
         {
-            setStatusContent(QStringLiteral("%1 · Failed").arg(t));
+            setStatusContent(QStringLiteral("%1 · Failed").arg(elapsed));
         }
         else if (r.status == TaskStatus::Cancelled)
         {
-            setStatusContent(QStringLiteral("%1 · Cancelled").arg(t));
+            setStatusContent(QStringLiteral("%1 · Cancelled").arg(elapsed));
         }
         break;
     }
@@ -842,11 +850,11 @@ void MainWindow::refreshStatusBar()
     }
 }
 
-// Queries poe-info-service's Client.txt ingestion phase ("waiting" /
-// "ingesting" / "tailing", see proto.StatusPayload). Only the "ingesting"
-// phase is surfaced in the status bar — "waiting" and "tailing" are already
-// communicated at least as well by the existing m_runningPids-based fallback
-// text in refreshStatusBar().
+// Requests poe-info-service's Client.txt ingestion phase ("waiting" /
+// "ingesting" / "tailing", see proto.StatusPayload) once, for an initial
+// snapshot right after connecting — ongoing updates arrive via the "status"
+// topic subscription (see setPoeInfoClient's connected handler) instead of
+// re-polling this, since a backlog replay can run for a long time.
 void MainWindow::requestIngestStatus()
 {
     if (!m_poeInfoClient)
@@ -855,22 +863,74 @@ void MainWindow::requestIngestStatus()
                               {
         if (!error.isEmpty())
             return;
-        const QString phase = payload[QStringLiteral("phase")].toString();
-        m_ingestCaughtUp = (phase == QStringLiteral("tailing"));
-        // "waiting" (no tailer engaged, nothing to race) and "tailing" (backlog
-        // replay done) are both safe for LogPage to query; only "ingesting" isn't.
-        m_logPage->setSessionsReady(phase != QStringLiteral("ingesting"));
-        if (phase != QStringLiteral("ingesting"))
+        applyStatusPayload(payload); });
+}
+
+// Applies a proto.StatusPayload-shaped payload — whether from the one-time
+// "status" request above or a pushed "status" topic event — to ingest state,
+// the status bar, and the TaskPanel progress tracker. Only the "ingesting"
+// phase is surfaced in the status bar; "waiting" and "tailing" are already
+// communicated at least as well by the existing m_runningPids-based fallback
+// text in refreshStatusBar().
+void MainWindow::applyStatusPayload(const QJsonObject &payload)
+{
+    const QString phase = payload[QStringLiteral("phase")].toString();
+    // "waiting" (no tailer engaged, nothing to race) and "tailing" (backlog
+    // replay done) are both safe for LogPage to query; only "ingesting" isn't.
+    m_logPage->setSessionsReady(phase != QStringLiteral("ingesting"));
+
+    if (phase != QStringLiteral("ingesting"))
+    {
+        m_ingestStatusMessage.clear();
+        m_ingesting             = false;
+        m_ingestGraceScheduled  = false;
+        stopProgressTracker();
+    }
+    else
+    {
+        const QString message = payload[QStringLiteral("message")].toString();
+        m_lastIngestPercent = payload.contains(QStringLiteral("percent"))
+            ? qRound(payload[QStringLiteral("percent")].toDouble()) : -1;
+        m_lastIngestMessage = message;
+        m_ingestStatusMessage = (m_lastIngestPercent >= 0)
+            ? QStringLiteral("%1 (%2%)").arg(message).arg(m_lastIngestPercent)
+            : message;
+        m_ingesting = true;
+
+        if (m_progressTrackerTaskId >= 0)
         {
-            m_ingestStatusMessage.clear();
+            m_progressTrackerWorker->reportProgress(qMax(m_lastIngestPercent, 0), message);
         }
-        else
+        else if (!m_ingestGraceScheduled)
         {
-            const QString message = payload[QStringLiteral("message")].toString();
-            if (payload.contains(QStringLiteral("percent")))
-                m_ingestStatusMessage = QStringLiteral("%1 (%2%)").arg(message).arg(qRound(payload[QStringLiteral("percent")].toDouble()));
-            else
-                m_ingestStatusMessage = message;
+            // Only show the full progress-bar UI once we've been ingesting
+            // for over a second — a quick catch-up would otherwise flash a
+            // task row for a fraction of a second, which is worse than just
+            // relying on the status bar text set above for that case.
+            m_ingestGraceScheduled = true;
+            QTimer::singleShot(1000, this, [this] {
+                if (m_ingesting && m_progressTrackerTaskId < 0)
+                    startProgressTracker();
+            });
         }
-        refreshStatusBar(); });
+    }
+    refreshStatusBar();
+}
+
+void MainWindow::startProgressTracker()
+{
+    auto *worker = new ProgressTrackerWorker();
+    m_progressTrackerWorker = worker;
+    m_progressTrackerTaskId = m_taskManager->submit(
+        QStringLiteral("Processing game logs"), TaskKind::General, worker);
+    worker->reportProgress(qMax(m_lastIngestPercent, 0), m_lastIngestMessage);
+}
+
+void MainWindow::stopProgressTracker()
+{
+    if (m_progressTrackerTaskId < 0)
+        return;
+    m_progressTrackerWorker->reportFinished();
+    m_progressTrackerTaskId = -1;
+    m_progressTrackerWorker = nullptr;
 }

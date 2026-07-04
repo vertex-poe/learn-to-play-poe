@@ -77,7 +77,10 @@ func runDialogIngest(args []string) int {
 
 	exe, _ := os.Executable()
 	dbPath := filepath.Join(config.ResolveDir(filepath.Dir(exe)), config.DBFileName)
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	// See internal/server/server.go's openDB for why this must be
+	// _pragma=name(value), not the mattn/go-sqlite3-style _journal_mode=/
+	// _busy_timeout= shorthand (silently ignored by modernc.org/sqlite).
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: open %s: %v\n", dbPath, err)
 		return 1
@@ -139,7 +142,10 @@ func runLogIngest(args []string) int {
 	}
 	dbPath := filepath.Join(resolvedDataDir, config.DBFileName)
 
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	// See internal/server/server.go's openDB for why this must be
+	// _pragma=name(value), not the mattn/go-sqlite3-style _journal_mode=/
+	// _busy_timeout= shorthand (silently ignored by modernc.org/sqlite).
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: open %s: %v\n", dbPath, err)
 		return 1

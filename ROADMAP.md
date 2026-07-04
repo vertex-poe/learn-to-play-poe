@@ -9,6 +9,7 @@ This file tracks unimplemented work only — once an item is done, remove it rat
 ## Goal: Maintenance
 
 - [ ] Switch CI aqtinstall from pinned git hash to a stable release once Qt 6.11 is properly supported (currently using `bbfb1f7c` of miurahr/aqtinstall as a workaround; check after 2026-08-01; see `.github/workflows/ci-windows.yml`)
+- [ ] `TaskManager` shutdown race: `cleanupTask()` (`src/workers/TaskManager.cpp`) calls `thread->quit()` and relies on a `deleteLater()`-chained connection to actually delete the `QThread`/worker later, asynchronously. If `TaskManager` itself is destroyed before that `deleteLater()` runs (its own destructor only `wait()`s on tasks where `record.thread` is still non-null, skipping ones already mid-cleanup), Qt destroys the still-not-fully-quit `QThread` synchronously, which can crash ("QThread: Destroyed while thread is still running"). Reproduced directly in `tests/test_task_manager.cpp` (worked around there with a `QTest::qWait(100)` before the local `TaskManager` goes out of scope) — in production this needs a real app shutdown at almost the exact moment a task finishes, so it's narrow, but MainWindow's `m_taskManager` is destroyed on every app close.
 
 ## Goal: poe-info-service
 
@@ -25,7 +26,6 @@ Work items derived from `poe-info-service/docs/decisions/` (ADR-001 through 005)
 - [ ] OAuth PKCE flow: service-initiated OAuth token acquisition via the system's default browser plus a local loopback redirect listener, for providers whose flow allows it, so future data sources (PoE official API, Steam) don't require WebView capability (ADR-004)
 - [ ] Credential expiry/staleness policy: explicitly left open by ADR-004/ADR-005 and not yet the subject of a dedicated ADR — needs its own design pass once the storage mechanism above lands
 - [ ] Ingest status "waiting" vs. missing log file: the `status` WS method's `phase` field reports `"ingesting"` (with no percent) if `Client.txt` doesn't exist yet at startup, since `Tailer.poll` returns early on `os.Open` failure and `caughtUp` never flips — should report `"waiting"` in that case instead
-- [ ] Ingest status percent rarely observable in practice: `Tailer.poll` reads the entire available backlog to EOF in a single call per tick rather than chunking it, so for any file whose full read completes faster than the 250ms poll interval (true of essentially all realistically-sized `Client.txt` backlogs on a normal disk), `status`'s `percent` field jumps straight from unset/0 to the phase flipping to `"tailing"` within one tick — verified manually against a live 1.9MB fixture, which caught up before a single WS poll could observe a partial value. Would need `poll` to cap bytes read per tick to make `percent` meaningfully show incremental progress for large backlogs.
 
 ## Goal: Basic Features
 

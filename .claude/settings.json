@@ -123,7 +123,15 @@
       "Bash(git status *)",
       "Bash(git check-ignore *)",
       "Bash(GOFLAGS=-mod=mod go build *)",
-      "Bash(websocat *)"
+      "Bash(websocat *)",
+      "Bash(./build/* -v2)",
+      "Bash(ctest -R * --output-on-failure)",
+      "Bash(timeout * ./build/* -o - -platform offscreen)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(tasklist //FI \"IMAGENAME eq *\")",
+      "Bash(timeout * ./build/* -o -,txt)",
+      "Bash(./build/*)",
+      "Bash(sqlite3 *)"
     ],
     "additionalDirectories": [
       "\\tmp"

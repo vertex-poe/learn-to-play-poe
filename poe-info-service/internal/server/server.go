@@ -191,7 +191,14 @@ func openDB(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, fmt.Errorf("create %q: %w", filepath.Dir(path), err)
 	}
-	dsn := path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000&_foreign_keys=1"
+	// modernc.org/sqlite (the driver in use) does NOT support the
+	// mattn/go-sqlite3-style shorthand params (_journal_mode=, _synchronous=,
+	// _busy_timeout=, _foreign_keys=) — those are silently ignored as unknown
+	// query params, so this DSN previously ran in SQLite's default rollback
+	// journal + synchronous=FULL mode this whole time despite looking
+	// correct. The only pragma mechanism this driver supports is repeated
+	// _pragma=name(value); see modernc.org/sqlite's Driver.Open doc comment.
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open %q: %w", path, err)
@@ -261,7 +268,7 @@ func serve(cfg Config, listener net.Listener) error {
 				log.Printf("ingest: starting backlog replay for %q (install %q)", cfg.LogPath, cfg.InstallDir)
 				go t.Run(ctx)
 				go broadcastLogEvents(ctx, h, eventCh, p, writer, db, t.CaughtUp, srv.debugLogging.Load)
-				go watchCaughtUp(ctx, h, t)
+				go watchIngestStatus(ctx, srv)
 			}
 		}
 	}
@@ -341,15 +348,22 @@ func watchIdle(ctx context.Context, cancel context.CancelFunc, srv *server, tail
 // see openDB's SetMaxOpenConns(1)) can be held open at once.
 const maxBatchEvents = 200
 
-// shouldCommitIngestBatch decides whether broadcastLogEvents should commit
-// its in-progress transaction now: once it's grown to maxBatchEvents, or
-// once nothing else is immediately queued on eventCh (queueLen == 0) — the
-// latter is what keeps a sparse trickle of live events (once backlog replay
-// is caught up) from sitting uncommitted indefinitely waiting to reach
-// maxBatchEvents.
-func shouldCommitIngestBatch(batchCount, queueLen int) bool {
-	return batchCount >= maxBatchEvents || queueLen == 0
-}
+// batchFlushIdle bounds how long an open batch transaction can sit waiting
+// for the next line before broadcastLogEvents commits it anyway.
+//
+// An earlier version decided this by checking len(eventCh) == 0 — a
+// point-in-time snapshot that races with the tailer: if the tailer sends its
+// last currently-available line right as that snapshot happens to read
+// non-empty, the batch never gets a moment where the check succeeds, so the
+// transaction stays open and this goroutine goes idle waiting on eventCh —
+// while the tailer's own next saveOffset() call blocks forever waiting for
+// the single pooled connection this goroutine is still holding via that
+// open transaction. That's a real deadlock, reproduced with a real
+// Client.txt: offset frozen forever, "percent never climbs" exactly as
+// reported in production (see TestBroadcastLogEvents_DoesNotDeadlock...).
+// A timer sidesteps the race entirely: no new line within batchFlushIdle
+// means commit, full stop, regardless of channel state.
+const batchFlushIdle = 100 * time.Millisecond
 
 // broadcastLogEvents drains parsed Client.txt lines, applying each event to
 // the database via w and then — only for overlay-relevant event types, and
@@ -358,16 +372,15 @@ func shouldCommitIngestBatch(batchCount, queueLen int) bool {
 // every service restart from replaying the whole backlog as "live" events.
 //
 // Writes are batched into transactions (up to maxBatchEvents, or fewer once
-// eventCh runs dry) instead of auto-committing each Exec separately: on a
-// disk where each commit's fsync takes tens to hundreds of milliseconds,
-// one-transaction-per-statement made backlog replay run at ~2 events/sec —
-// for a multi-hundred-thousand-line real Client.txt, that's the "percent
-// never climbs" bug reported in production, not a display bug. Batching
-// keeps that same latency but pays it once per batch instead of once per
-// statement. Committing as soon as the channel is empty (rather than only at
-// maxBatchEvents) keeps live, real-time events from sitting in an uncommitted
-// transaction indefinitely once backlog replay is caught up and events
-// arrive sparsely.
+// batchFlushIdle passes with nothing new) instead of auto-committing each
+// Exec separately: on a disk where each commit's fsync takes tens to
+// hundreds of milliseconds, one-transaction-per-statement made backlog
+// replay run at ~2 events/sec — for a multi-hundred-thousand-line real
+// Client.txt, that's the "percent never climbs" bug reported in production,
+// not a display bug. Batching keeps that same latency but pays it once per
+// batch instead of once per statement, while the idle flush keeps live,
+// real-time events (once backlog replay is caught up) from sitting
+// uncommitted indefinitely waiting to reach maxBatchEvents.
 //
 // debugEnabled is checked before every diagnostic log below (see
 // server.debugf) so a normal run stays quiet; when debug_logging is on, this
@@ -408,6 +421,17 @@ func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, 
 	}
 	defer commitBatch()
 
+	flushTimer := time.NewTimer(batchFlushIdle)
+	defer flushTimer.Stop()
+	stopFlushTimer := func() {
+		if !flushTimer.Stop() {
+			select {
+			case <-flushTimer.C:
+			default:
+			}
+		}
+	}
+
 	for {
 		select {
 		case line, ok := <-eventCh:
@@ -415,6 +439,8 @@ func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, 
 				commitBatch()
 				return
 			}
+			stopFlushTimer()
+
 			currentLine.Store(line)
 			currentEventType.Store("")
 			stepStartedNs.Store(time.Now().UnixNano())
@@ -452,7 +478,7 @@ func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, 
 					}
 				}
 
-				if shouldCommitIngestBatch(batchCount, len(eventCh)) {
+				if batchCount >= maxBatchEvents {
 					commitBatch()
 				}
 
@@ -467,6 +493,12 @@ func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, 
 				h.Publish("clientlog", msg)
 			}
 			stepStartedNs.Store(0)
+			flushTimer.Reset(batchFlushIdle)
+
+		case <-flushTimer.C:
+			commitBatch()
+			flushTimer.Reset(batchFlushIdle)
+
 		case <-ctx.Done():
 			commitBatch()
 			return
@@ -518,24 +550,59 @@ func ingestStatus(hasTailer, caughtUp bool, offset, size int64) (phase, message 
 	return "ingesting", "processing game logs", percent
 }
 
-// watchCaughtUp polls the tailer until backlog replay finishes, then
-// publishes a one-shot event on the "ingest" topic so clients know it's now
-// safe to query Client.txt-derived history without racing the backlog.
-func watchCaughtUp(ctx context.Context, h *hub.Hub, t *tailer.Tailer) {
-	ticker := time.NewTicker(250 * time.Millisecond)
+// watchIngestStatus periodically checks the tailer's phase/percent and
+// publishes a "status" topic event — the same proto.StatusPayload shape the
+// "status" request returns — whenever the phase changes or percent crosses
+// into a new whole percent. This lets a client subscribe once instead of
+// re-polling "status" for the (potentially long) duration of a Client.txt
+// backlog replay; see MainWindow's use of it for the actual consumer.
+// Stops once phase reaches "tailing" — a one-way state (see tailer.CaughtUp)
+// after which nothing more will ever change this run.
+func watchIngestStatus(ctx context.Context, srv *server) {
+	if srv.tailer == nil {
+		return
+	}
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+
+	lastPhase := ""
+	lastWholePercent := -1
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if t.CaughtUp() {
-				msg, _ := json.Marshal(proto.Message{
-					Type:    proto.TypeEvent,
-					Topic:   proto.TopicIngest,
-					Payload: mustMarshal(proto.IngestEventPayload{Type: proto.IngestEventCaughtUp}),
-				})
-				h.Publish(proto.TopicIngest, msg)
+			offset, size := srv.tailer.Progress()
+			phase, message, percent := ingestStatus(true, srv.tailer.CaughtUp(), offset, size)
+
+			wholePercent := -1
+			if percent != nil {
+				wholePercent = int(*percent)
+			}
+			if phase == lastPhase && wholePercent == lastWholePercent {
+				continue
+			}
+			lastPhase, lastWholePercent = phase, wholePercent
+
+			srv.debugf("status broadcast: phase=%q offset=%d size=%d wholePercent=%d", phase, offset, size, wholePercent)
+			msg, _ := json.Marshal(proto.Message{
+				Type:  proto.TypeEvent,
+				Topic: proto.TopicStatus,
+				Payload: mustMarshal(proto.StatusPayload{
+					Version:   srv.cfg.Version,
+					StartTime: srv.cfg.StartTime,
+					LogPath:   srv.cfg.LogPath,
+					LogOffset: offset,
+					Uptime:    time.Since(srv.started).Round(time.Second).String(),
+					Phase:     phase,
+					Message:   message,
+					Percent:   percent,
+				}),
+			})
+			srv.hub.Publish(proto.TopicStatus, msg)
+
+			if phase == "tailing" {
 				return
 			}
 		}

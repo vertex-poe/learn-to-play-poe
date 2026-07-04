@@ -109,14 +109,6 @@ void TaskPanel::addRow(const TaskRecord &record)
         bar->setPalette(p);
     }
 
-    auto *message = new QLabel(row);
-    message->setFixedWidth(200);
-    {
-        QPalette p = message->palette();
-        p.setColor(QPalette::WindowText, Theme::textPlaceholder);
-        message->setPalette(p);
-    }
-
     auto *cancelBtn = new QPushButton("✕", row);
     cancelBtn->setFlat(true);
     cancelBtn->setFixedSize(22, 22);
@@ -133,11 +125,10 @@ void TaskPanel::addRow(const TaskRecord &record)
 
     hbox->addWidget(name);
     hbox->addWidget(bar, 1);
-    hbox->addWidget(message);
     hbox->addWidget(cancelBtn);
 
     m_layout->addWidget(row);
-    m_rows[record.id] = Row{row, name, bar, message, cancelBtn};
+    m_rows[record.id] = Row{row, name, bar, cancelBtn};
 
     updateRow(record);
     refreshVisibility();
@@ -151,12 +142,10 @@ void TaskPanel::updateRow(const TaskRecord &record)
     Row &row = it.value();
 
     if (record.status == TaskStatus::Pending) {
-        row.bar->setRange(0, 0);
-        row.message->setText("Queued");
+        row.bar->setRange(0, 0); // indeterminate/busy animation
     } else {
         row.bar->setRange(0, 100);
         row.bar->setValue(record.percent);
-        row.message->setText(record.message);
     }
 }
 
