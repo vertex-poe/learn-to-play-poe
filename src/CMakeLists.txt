@@ -47,6 +47,7 @@ qt_add_executable(l2p-poe
     ui/chat/ChatPage.h
     ui/chat/DmPage.cpp
     ui/chat/DmPage.h
+    ui/log/SessionQueryLimits.h
     ui/log/SessionViewPage.cpp
     ui/log/SessionViewPage.h
     ui/log/LogPage.cpp

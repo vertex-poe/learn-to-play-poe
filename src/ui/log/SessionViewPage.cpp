@@ -1,6 +1,7 @@
 // src/SessionViewPage.cpp (C++)
 
 #include "ui/log/SessionViewPage.h"
+#include "ui/log/SessionQueryLimits.h"
 #include "services/PoeInfoRecords.h"
 #include "util/Docs.h"
 #include "events/LiveEvent.h"
@@ -456,23 +457,13 @@ void SessionViewPage::rebuildDbZones()
   const QList<WindowState> runningGames = m_runningGames;
   const QMap<quint32, QString> detectedAt = m_detectedAt;
 
+  const SessionQueryLimits limits = computeSessionQueryLimits(
+      m_targetSessionId < 0, runningGames.size(), kDbZoneLimit);
+
   QJsonObject params;
   params["session_id"] = m_targetSessionId;
-  params["zone_limit"] = kDbZoneLimit;
-
-  if (m_targetSessionId < 0)
-  {
-    const int sessionLimit = runningGames.size() == 1  ? 10
-                             : runningGames.size() > 1 ? 50
-                                                       : 0;
-    params["session_event_limit"] = sessionLimit;
-    if (runningGames.isEmpty())
-      params["zone_limit"] = 0;
-  }
-  else
-  {
-    params["session_event_limit"] = 0;
-  }
+  params["zone_limit"] = limits.zoneLimit;
+  params["session_event_limit"] = limits.sessionEventLimit;
 
   QPointer<SessionViewPage> self(this);
   m_poeInfoClient->request("log.session", params,

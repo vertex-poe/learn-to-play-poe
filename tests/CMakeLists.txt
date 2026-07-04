@@ -7,6 +7,11 @@ endfunction()
 add_qt_test(test_placeholder test_placeholder.cpp)
 add_qt_test(test_dpi test_dpi.cpp)
 
+# SessionQueryLimits.h is a plain header (no Qt Widget dependencies), so this
+# links against it directly instead of mirroring the logic.
+add_qt_test(test_session_query_limits test_session_query_limits.cpp)
+target_include_directories(test_session_query_limits PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # TaskManager/BackgroundWorker have no other app dependencies (just Qt), so
 # this links their real sources directly instead of mirroring the logic.
 # The two headers must be listed explicitly (not just #included) so AUTOMOC
