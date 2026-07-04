@@ -137,7 +137,7 @@ LogPage::LogPage(QWidget *parent)
     connect(LiveEventBus::instance(), &LiveEventBus::eventFired,
             this, &LogPage::onLiveEvent);
 
-    m_loadingOverlay = new QLabel("Loading data, please stand by...", this);
+    m_loadingOverlay = new QLabel("Waiting for game info...", this);
     m_loadingOverlay->setAlignment(Qt::AlignCenter);
     {
         QPalette pal = m_loadingOverlay->palette();
@@ -169,6 +169,13 @@ void LogPage::setPoeInfoClient(PoeInfoClient *client)
     triggerLoadIfNeeded();
 }
 
+void LogPage::setSessionsReady(bool ready)
+{
+    if (m_sessionsReady == ready) return;
+    m_sessionsReady = ready;
+    if (ready) triggerLoadIfNeeded();
+}
+
 void LogPage::markDirty()
 {
     m_dirty = true;
@@ -176,9 +183,11 @@ void LogPage::markDirty()
 
 void LogPage::preload()
 {
-    if (!m_dirty || !m_poeInfoClient || !m_poeInfoClient->isConnected() || m_rebuildInFlight) return;
+    if (!m_dirty || !m_poeInfoClient || !m_poeInfoClient->isConnected()
+            || !m_sessionsReady || m_rebuildInFlight) return;
     QTimer::singleShot(0, this, [this] {
-        if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected() && !isVisible()) rebuild();
+        if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected()
+                && m_sessionsReady && !isVisible()) rebuild();
     });
 }
 
@@ -188,12 +197,14 @@ void LogPage::triggerLoadIfNeeded()
         m_loadingOverlay->setGeometry(rect());
         m_loadingOverlay->show();
         m_loadingOverlay->raise();
-        if (m_poeInfoClient->isConnected()) {
+        if (m_poeInfoClient->isConnected() && m_sessionsReady) {
             QTimer::singleShot(0, this, [this] {
-                if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected()) rebuild();
+                if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected() && m_sessionsReady) rebuild();
             });
         }
-        // If not connected: overlay stays; rebuild fires on connected() signal.
+        // If not connected, or the service is still ingesting Client.txt:
+        // overlay stays showing "Waiting for game info..."; rebuild fires once
+        // both connected() and setSessionsReady(true) have happened.
     }
 }
 
@@ -219,7 +230,7 @@ void LogPage::onLiveEvent(const LiveEvent &event, bool bulk)
 
 void LogPage::rebuild()
 {
-    if (!m_poeInfoClient || !m_poeInfoClient->isConnected()) return;
+    if (!m_poeInfoClient || !m_poeInfoClient->isConnected() || !m_sessionsReady) return;
     if (m_rebuildInFlight) { m_dirty = true; return; }
     m_dirty           = false;
     m_rebuildInFlight = true;

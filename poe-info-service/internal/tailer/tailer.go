@@ -132,6 +132,16 @@ func (t *Tailer) poll(ctx context.Context, offset int64) (int64, error) {
 
 		consumed += int64(len(line))
 
+		// Report progress after each line, not just once poll() returns: a
+		// single poll() call drains every line currently available in the
+		// file, which for a large backlog replaying against a slow consumer
+		// (the t.out send below blocks until the DB writer drains it) can
+		// take a long time — without this, Progress() (and the reported
+		// percent) would sit frozen until the entire backlog finishes in one
+		// shot. Stored before the send so a receiver on t.out is guaranteed
+		// (by the channel happens-before relationship) to observe it.
+		t.offset.Store(consumed)
+
 		trimmed := strings.TrimRight(line, "\r\n")
 		if trimmed == "" {
 			continue

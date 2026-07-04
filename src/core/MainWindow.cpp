@@ -339,9 +339,21 @@ MainWindow::MainWindow(QWidget *parent)
         if (payload[QStringLiteral("type")].toString() == QStringLiteral("caught_up")) {
             m_ingestCaughtUp = true;
             m_ingestStatusMessage.clear();
+            m_logPage->setSessionsReady(true);
             refreshStatusBar();
         } });
     connect(m_poeInfoClient, &PoeInfoClient::connected, this, &MainWindow::onServiceReady);
+    // Queued: ~PoeInfoClient() calls QWebSocket::abort(), which can emit
+    // disconnected() synchronously. During app shutdown, PoeInfoClient (a
+    // MainWindow child constructed after m_statusLabel) may be destroyed
+    // after m_statusLabel already has been, since Qt destroys children in
+    // construction order — a direct connection here would then call
+    // refreshStatusBar() with a dangling m_statusLabel. Queuing means the
+    // event loop (already stopped by the time teardown reaches this) never
+    // delivers it.
+    connect(m_poeInfoClient, &PoeInfoClient::disconnected, this, &MainWindow::refreshStatusBar,
+            Qt::QueuedConnection);
+    refreshStatusBar();
     if (!m_timingMode)
     {
         QTimer::singleShot(10'000, this, [this]()
@@ -560,6 +572,7 @@ void MainWindow::onSearchClicked()
 void MainWindow::onServiceReady()
 {
     qDebug() << "[startup] poe-info-service connected";
+    refreshStatusBar();
     const bool perfMode = PerfProbe::instance().enabled();
 
     m_chatPage->setShowGuildTags(m_config.showGuildTags);
@@ -815,6 +828,10 @@ void MainWindow::refreshStatusBar()
     {
         m_statusLabel->setText(m_lastStatusContent);
     }
+    else if (!m_poeInfoClient || !m_poeInfoClient->isConnected())
+    {
+        m_statusLabel->setText("Connecting to PoE info service");
+    }
     else if (!m_ingestStatusMessage.isEmpty())
     {
         m_statusLabel->setText(m_ingestStatusMessage);
@@ -840,6 +857,9 @@ void MainWindow::requestIngestStatus()
             return;
         const QString phase = payload[QStringLiteral("phase")].toString();
         m_ingestCaughtUp = (phase == QStringLiteral("tailing"));
+        // "waiting" (no tailer engaged, nothing to race) and "tailing" (backlog
+        // replay done) are both safe for LogPage to query; only "ingesting" isn't.
+        m_logPage->setSessionsReady(phase != QStringLiteral("ingesting"));
         if (phase != QStringLiteral("ingesting"))
         {
             m_ingestStatusMessage.clear();

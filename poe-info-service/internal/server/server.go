@@ -89,6 +89,16 @@ func (s *server) touch() {
 	s.lastActivity.Store(time.Now().UnixNano())
 }
 
+// debugf logs a troubleshooting-oriented line, but only while debug_logging
+// is enabled (see config.set in config.go, ADR-006) — keeps a normal run's
+// log quiet while still letting a user flip on verbose tracing without
+// restarting the service.
+func (s *server) debugf(format string, args ...any) {
+	if s.debugLogging.Load() {
+		log.Printf("[debug] "+format, args...)
+	}
+}
+
 // Run negotiates singleton ownership, then either starts serving or yields to
 // the existing instance.
 func Run(cfg Config) error {
@@ -216,7 +226,23 @@ func serve(cfg Config, listener net.Listener) error {
 	h := hub.New()
 	ctx, cancel := context.WithCancel(context.Background())
 
-	var t *tailer.Tailer
+	// Constructed before the ingest pipeline below so its debugLogging flag
+	// exists in time to be threaded into broadcastLogEvents; tailer is filled
+	// in afterward if a log path/install dir is configured.
+	srv := &server{
+		cfg:      cfg,
+		hub:      h,
+		store:    st,
+		queryDB:  qdb,
+		started:  time.Now(),
+		shutdown: cancel,
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool { return true },
+		},
+	}
+	srv.touch()
+	srv.debugLogging.Store(cfg.DebugLogging)
+
 	if cfg.LogPath != "" && cfg.InstallDir != "" {
 		// installs.path stores the install directory (not the Client.txt path),
 		// matching the convention the old C++ Database::upsertInstall used.
@@ -229,37 +255,24 @@ func serve(cfg Config, listener net.Listener) error {
 				log.Printf("warn: cannot start ingest writer: %v", err)
 			} else {
 				eventCh := make(chan string, 512)
-				t = tailer.New(cfg.LogPath, qdb.Raw(), installID, eventCh)
+				t := tailer.New(cfg.LogPath, qdb.Raw(), installID, eventCh)
 				p := parser.New()
+				srv.tailer = t
+				log.Printf("ingest: starting backlog replay for %q (install %q)", cfg.LogPath, cfg.InstallDir)
 				go t.Run(ctx)
-				go broadcastLogEvents(ctx, h, eventCh, p, writer, t.CaughtUp)
+				go broadcastLogEvents(ctx, h, eventCh, p, writer, db, t.CaughtUp, srv.debugLogging.Load)
 				go watchCaughtUp(ctx, h, t)
 			}
 		}
 	}
-
-	srv := &server{
-		cfg:      cfg,
-		hub:      h,
-		store:    st,
-		queryDB:  qdb,
-		tailer:   t,
-		started:  time.Now(),
-		shutdown: cancel,
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
-		},
-	}
-	srv.touch()
-	srv.debugLogging.Store(cfg.DebugLogging)
 
 	idleTimeout := cfg.IdleTimeout
 	if idleTimeout <= 0 {
 		idleTimeout = DefaultIdleTimeout
 	}
 	var tailerActivity func() time.Time
-	if t != nil {
-		tailerActivity = t.LastActivity
+	if srv.tailer != nil {
+		tailerActivity = srv.tailer.LastActivity
 	}
 	go watchIdle(ctx, cancel, srv, tailerActivity, idleTimeout, idleCheckInterval)
 
@@ -322,21 +335,125 @@ func watchIdle(ctx context.Context, cancel context.CancelFunc, srv *server, tail
 	}
 }
 
+// maxBatchEvents caps how many events broadcastLogEvents applies inside a
+// single transaction before committing, even if eventCh still has more
+// queued — bounds how long a batch (and the single shared DB connection,
+// see openDB's SetMaxOpenConns(1)) can be held open at once.
+const maxBatchEvents = 200
+
+// shouldCommitIngestBatch decides whether broadcastLogEvents should commit
+// its in-progress transaction now: once it's grown to maxBatchEvents, or
+// once nothing else is immediately queued on eventCh (queueLen == 0) — the
+// latter is what keeps a sparse trickle of live events (once backlog replay
+// is caught up) from sitting uncommitted indefinitely waiting to reach
+// maxBatchEvents.
+func shouldCommitIngestBatch(batchCount, queueLen int) bool {
+	return batchCount >= maxBatchEvents || queueLen == 0
+}
+
 // broadcastLogEvents drains parsed Client.txt lines, applying each event to
 // the database via w and then — only for overlay-relevant event types, and
 // only once the tailer has caught up to EOF at least once this run —
 // publishing it to the "clientlog" hub topic. The caughtUp gate prevents
 // every service restart from replaying the whole backlog as "live" events.
-func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, p *parser.Parser, w *ingest.Writer, caughtUp func() bool) {
+//
+// Writes are batched into transactions (up to maxBatchEvents, or fewer once
+// eventCh runs dry) instead of auto-committing each Exec separately: on a
+// disk where each commit's fsync takes tens to hundreds of milliseconds,
+// one-transaction-per-statement made backlog replay run at ~2 events/sec —
+// for a multi-hundred-thousand-line real Client.txt, that's the "percent
+// never climbs" bug reported in production, not a display bug. Batching
+// keeps that same latency but pays it once per batch instead of once per
+// statement. Committing as soon as the channel is empty (rather than only at
+// maxBatchEvents) keeps live, real-time events from sitting in an uncommitted
+// transaction indefinitely once backlog replay is caught up and events
+// arrive sparsely.
+//
+// debugEnabled is checked before every diagnostic log below (see
+// server.debugf) so a normal run stays quiet; when debug_logging is on, this
+// is the primary place to see per-event write timing and periodic
+// throughput, which is the main lever for diagnosing a stuck/slow-climbing
+// backlog-replay percent (see ingestStatus).
+func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, p *parser.Parser, w *ingest.Writer, db *sql.DB, caughtUp func() bool, debugEnabled func() bool) {
+	const slowWriteThreshold = 20 * time.Millisecond
+	const progressLogInterval = 5 * time.Second
+	const stallLogInterval = 10 * time.Second
+	var processed int
+	lastProgressLog := time.Now()
+
+	// currentLine/currentEventType/stepStartedNs record what this goroutine
+	// is doing right now, so the stall watchdog below can report exactly
+	// what it was stuck on — this is always on (not gated by debugEnabled)
+	// because a hang like this needs to be catchable without having
+	// pre-enabled debug logging before it happened.
+	var currentLine atomic.Value
+	var currentEventType atomic.Value
+	var stepStartedNs atomic.Int64
+	currentLine.Store("")
+	currentEventType.Store("")
+
+	go watchIngestStall(ctx, stallLogInterval, &currentLine, &currentEventType, &stepStartedNs)
+
+	var tx *sql.Tx
+	var batchCount int
+	commitBatch := func() {
+		if tx == nil {
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			log.Printf("ingest: batch commit failed: %v", err)
+		}
+		tx = nil
+		batchCount = 0
+	}
+	defer commitBatch()
+
 	for {
 		select {
 		case line, ok := <-eventCh:
 			if !ok {
+				commitBatch()
 				return
 			}
+			currentLine.Store(line)
+			currentEventType.Store("")
+			stepStartedNs.Store(time.Now().UnixNano())
+
 			for _, evt := range p.ParseLine(line) {
+				currentEventType.Store(evt.Type)
+				stepStartedNs.Store(time.Now().UnixNano())
+
+				if tx == nil {
+					var err error
+					tx, err = db.Begin()
+					if err != nil {
+						log.Printf("ingest: begin batch failed: %v", err)
+						continue
+					}
+					w.SetDB(tx)
+				}
+
+				writeStart := time.Now()
 				if err := w.HandleEvent(evt); err != nil {
 					log.Printf("ingest: failed to apply %s event: %v", evt.Type, err)
+				}
+				batchCount++
+
+				if debugEnabled != nil && debugEnabled() {
+					processed++
+					if d := time.Since(writeStart); d > slowWriteThreshold {
+						log.Printf("[debug] ingest: slow write for %s event: %s", evt.Type, d)
+					}
+					if since := time.Since(lastProgressLog); since >= progressLogInterval {
+						log.Printf("[debug] ingest: processed %d events so far (%.0f events/sec over last %s)",
+							processed, float64(processed)/since.Seconds(), since.Round(time.Second))
+						processed = 0
+						lastProgressLog = time.Now()
+					}
+				}
+
+				if shouldCommitIngestBatch(batchCount, len(eventCh)) {
+					commitBatch()
 				}
 
 				if !liveBroadcastTypes[evt.Type] || !caughtUp() {
@@ -349,8 +466,35 @@ func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, 
 				})
 				h.Publish("clientlog", msg)
 			}
+			stepStartedNs.Store(0)
+		case <-ctx.Done():
+			commitBatch()
+			return
+		}
+	}
+}
+
+// watchIngestStall periodically checks whether broadcastLogEvents has been
+// stuck on the same line/event for at least interval, logging a warning with
+// exactly what it was doing if so. stepStartedNs == 0 means idle between
+// lines (nothing to report); a nonzero value older than interval means the
+// goroutine hasn't returned from ParseLine/HandleEvent in at least that long.
+func watchIngestStall(ctx context.Context, interval time.Duration, currentLine, currentEventType *atomic.Value, stepStartedNs *atomic.Int64) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
 		case <-ctx.Done():
 			return
+		case <-ticker.C:
+			started := stepStartedNs.Load()
+			if started == 0 {
+				continue // idle between lines, not stuck
+			}
+			if age := time.Since(time.Unix(0, started)); age >= interval {
+				log.Printf("warn: ingest appears stalled for %s on line=%q event=%q",
+					age.Round(time.Second), currentLine.Load(), currentEventType.Load())
+			}
 		}
 	}
 }
@@ -371,7 +515,7 @@ func ingestStatus(hasTailer, caughtUp bool, offset, size int64) (phase, message 
 		p := float64(offset) / float64(size) * 100
 		percent = &p
 	}
-	return "ingesting", "ingesting Client.txt", percent
+	return "ingesting", "processing game logs", percent
 }
 
 // watchCaughtUp polls the tailer until backlog replay finishes, then
@@ -528,7 +672,20 @@ func (s *server) routeMessage(c *hub.Client, msg proto.Message) {
 
 	case proto.TypeRequest:
 		s.touch()
-		s.handleRequest(c, msg)
+		// Requests on one connection are handled one at a time, in order (see
+		// the read loop in handleWS) — a slow request here delays every
+		// request queued behind it on the same connection, including ones
+		// (like "status") that don't themselves touch the database. Logging
+		// this duration is the most direct way to catch that starvation.
+		if s.debugLogging.Load() {
+			start := time.Now()
+			s.handleRequest(c, msg)
+			if d := time.Since(start); d > 20*time.Millisecond {
+				log.Printf("[debug] slow request: method=%q id=%s took %s", msg.Method, msg.ID, d)
+			}
+		} else {
+			s.handleRequest(c, msg)
+		}
 	}
 }
 
@@ -549,6 +706,11 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 			caughtUp = s.tailer.CaughtUp()
 		}
 		phase, message, percent := ingestStatus(s.tailer != nil, caughtUp, offset, size)
+		if percent != nil {
+			s.debugf("status request id=%s: phase=%q offset=%d size=%d percent=%.4f", msg.ID, phase, offset, size, *percent)
+		} else {
+			s.debugf("status request id=%s: phase=%q offset=%d size=%d percent=<nil>", msg.ID, phase, offset, size)
+		}
 		s.send(c, proto.Message{
 			Type: proto.TypeResponse,
 			ID:   msg.ID,

@@ -18,6 +18,11 @@ class LogPage : public QWidget
 public:
     explicit LogPage(QWidget *parent = nullptr);
     void setPoeInfoClient(PoeInfoClient *client);
+    // Whether it's safe to query log.sessions: false while poe-info-service
+    // is actively replaying Client.txt backlog (phase=="ingesting"), since
+    // the sessions table may not reflect it all yet. True for "waiting" (no
+    // tailer engaged, nothing to race) and "tailing" (backlog replay done).
+    void setSessionsReady(bool ready);
     void markDirty();
     void preload();
     QLabel *loadingOverlay() const { return m_loadingOverlay; }
@@ -53,6 +58,7 @@ private:
     bool          m_dirty{true};
     bool          m_rebuildInFlight{false};
     bool          m_timingEmitted{false};
+    bool          m_sessionsReady{false};
     int           m_limit{kInitialLimit};
     int           m_windowOffset{0};   // SQL OFFSET: skip this many newest items
     int           m_scrollRestoreMax{-1};

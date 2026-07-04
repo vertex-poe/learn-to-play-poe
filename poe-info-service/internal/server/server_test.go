@@ -1,12 +1,16 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +30,67 @@ func waitForCancel(ctx context.Context, timeout time.Duration) bool {
 		return true
 	case <-time.After(timeout):
 		return false
+	}
+}
+
+// TestWatchIngestStall_LogsWhenStuckOnSameLine reproduces (at unit-test
+// speed) the production symptom that motivated it: broadcastLogEvents can
+// get stuck forever inside ParseLine/HandleEvent for some specific
+// real-world line, which — since the tailer then blocks handing it the next
+// line once eventCh's buffer fills — looks externally like a backlog-replay
+// percent (see ingestStatus) frozen at the same value forever, with no other
+// log output to explain why. This asserts the watchdog actually reports the
+// stuck line/event once it's been "in flight" longer than the interval, and
+// stays quiet while a line is still being processed within that window.
+func TestWatchIngestStall_LogsWhenStuckOnSameLine(t *testing.T) {
+	var buf bytes.Buffer
+	origOutput := log.Writer()
+	origFlags := log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(origOutput)
+		log.SetFlags(origFlags)
+	})
+
+	var currentLine, currentEventType atomic.Value
+	var stepStartedNs atomic.Int64
+	currentLine.Store("2024/01/15 10:00:05 104 a [INFO] Client 1 : You have entered Lioneye's Watch.")
+	currentEventType.Store("area_entered")
+	stepStartedNs.Store(time.Now().UnixNano())
+
+	const interval = 30 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go watchIngestStall(ctx, interval, &currentLine, &currentEventType, &stepStartedNs)
+
+	// Still "in flight" but younger than interval: must not warn yet.
+	time.Sleep(interval / 2)
+	if strings.Contains(buf.String(), "stalled") {
+		t.Fatalf("watchIngestStall warned before interval elapsed: %q", buf.String())
+	}
+
+	// Now old enough: must warn, naming the exact line/event stuck on.
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(buf.String(), "stalled") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	got := buf.String()
+	if !strings.Contains(got, "stalled") {
+		t.Fatalf("watchIngestStall never warned about the stall within 2s; log=%q", got)
+	}
+	if !strings.Contains(got, "Lioneye's Watch") || !strings.Contains(got, "area_entered") {
+		t.Errorf("stall warning didn't name the stuck line/event: %q", got)
+	}
+
+	// Once the "line" finishes (stepStartedNs reset to 0, as
+	// broadcastLogEvents does after each line), the watchdog must go quiet
+	// again rather than keep reporting a stale stall.
+	buf.Reset()
+	stepStartedNs.Store(0)
+	time.Sleep(3 * interval)
+	if strings.Contains(buf.String(), "stalled") {
+		t.Errorf("watchIngestStall kept warning after the line finished: %q", buf.String())
 	}
 }
 
@@ -151,6 +216,35 @@ func TestRouteMessageSubscribeTouches(t *testing.T) {
 	}
 }
 
+// TestShouldCommitIngestBatch pins down the boundary logic that turns
+// broadcastLogEvents' writes into batched transactions instead of one
+// auto-committing statement each — see maxBatchEvents' doc comment for why
+// (on a slow disk, per-statement commits made real backlog replay run at
+// ~2 events/sec, which is the actual cause behind the "percent never
+// climbs" bug, not a display issue).
+func TestShouldCommitIngestBatch(t *testing.T) {
+	tests := []struct {
+		name       string
+		batchCount int
+		queueLen   int
+		want       bool
+	}{
+		{"small batch, more queued: keep batching", 5, 10, false},
+		{"small batch, queue drained: commit now so live events aren't delayed", 5, 0, true},
+		{"batch at cap, more queued: commit anyway to bound tx size", maxBatchEvents, 10, true},
+		{"batch at cap, queue drained: commit", maxBatchEvents, 0, true},
+		{"just under cap, more queued: keep batching", maxBatchEvents - 1, 1, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldCommitIngestBatch(tt.batchCount, tt.queueLen); got != tt.want {
+				t.Errorf("shouldCommitIngestBatch(%d, %d) = %v, want %v",
+					tt.batchCount, tt.queueLen, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIngestStatus(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -184,7 +278,7 @@ func TestIngestStatus(t *testing.T) {
 			offset:      25,
 			size:        100,
 			wantPhase:   "ingesting",
-			wantMessage: "ingesting Client.txt",
+			wantMessage: "processing game logs",
 			wantPercent: floatPtr(25),
 		},
 		{
@@ -194,7 +288,7 @@ func TestIngestStatus(t *testing.T) {
 			offset:      0,
 			size:        0,
 			wantPhase:   "ingesting",
-			wantMessage: "ingesting Client.txt",
+			wantMessage: "processing game logs",
 			wantPercent: nil,
 		},
 	}

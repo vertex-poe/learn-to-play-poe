@@ -122,7 +122,8 @@
       "Bash(go run *)",
       "Bash(git status *)",
       "Bash(git check-ignore *)",
-      "Bash(GOFLAGS=-mod=mod go build *)"
+      "Bash(GOFLAGS=-mod=mod go build *)",
+      "Bash(websocat *)"
     ],
     "additionalDirectories": [
       "\\tmp"

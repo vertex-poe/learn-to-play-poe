@@ -62,9 +62,19 @@ private:
                 dataDir.toUtf8().constData());
         fflush(stderr);
 
+        // Isolate AppConfig too (not just the DB): otherwise AppConfig::load()
+        // falls back to the repo root's (gitignored, developer-owned)
+        // l2p-poe.toml when run via `just test`, which may configure a real
+        // install dir. That would make poe-info-service's tailer replay a
+        // real, possibly huge Client.txt from offset 0 against this test's
+        // fresh DB — since LogPage now waits for that backlog replay to
+        // finish before querying sessions, this could stall the test
+        // indefinitely instead of hitting the isolated, empty/tiny fixture.
+        const QString configPath = dataDir + "/l2p-poe-test.toml";
         QProcess p;
         p.setProgram(QString::fromUtf8(L2P_EXE_PATH));
-        p.setArguments({"--startup-timing", "--service-data-dir", dataDir});
+        p.setArguments({"--startup-timing", "--service-data-dir", dataDir,
+                         "--config", configPath});
         p.setProcessChannelMode(QProcess::ForwardedChannels);
         p.start();
         QVERIFY2(p.waitForStarted(10'000), "App process failed to start");

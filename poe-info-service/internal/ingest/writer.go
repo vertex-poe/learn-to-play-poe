@@ -12,12 +12,24 @@ import (
 	"github.com/MovingCairn/poe-info-service/internal/proto"
 )
 
+// dbExecer is the subset of *sql.DB's interface Writer needs, satisfied by
+// both *sql.DB and *sql.Tx — see SetDB, which lets a caller (broadcastLogEvents
+// in server.go) batch many HandleEvent calls into one transaction instead of
+// each Exec auto-committing (and fsyncing) on its own. Batching is what turns
+// backlog-replay throughput from ~2 events/sec into something that finishes
+// in a reasonable time on real disks (see ADR/PR discussion on the
+// backlog-replay percent appearing frozen).
+type dbExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 // Writer applies a stream of proto.ParsedEvent to the l2p database, one
 // install's worth at a time. It carries the same in-memory session/span/
 // character/guild state LogIngestWorker used to track locally while scanning
 // Client.txt line by line.
 type Writer struct {
-	db        *sql.DB
+	db        dbExecer
 	installID int64
 
 	sessionID           int64
@@ -69,6 +81,15 @@ func NewWriter(db *sql.DB, installID int64) (*Writer, error) {
 		w.currentSpanID = spanID.Int64
 	}
 	return w, nil
+}
+
+// SetDB swaps the handle subsequent HandleEvent calls write through — e.g. a
+// *sql.Tx for the duration of a batch, then the original *sql.DB (or a fresh
+// Tx) once that batch commits. Writer's own in-memory state (session/span/
+// etc.) is untouched, so batches can be swapped between without losing
+// continuity across a long backlog replay.
+func (w *Writer) SetDB(db dbExecer) {
+	w.db = db
 }
 
 func nullIfNeg(v int64) any {

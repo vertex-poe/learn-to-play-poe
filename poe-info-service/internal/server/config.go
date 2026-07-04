@@ -122,6 +122,7 @@ func (s *server) handleConfigSet(c *hub.Client, msg proto.Message) {
 		return
 	}
 
+	log.Printf("config.set: %s = %s", params.Key, string(params.Value))
 	s.send(c, proto.Message{
 		Type:    proto.TypeResponse,
 		ID:      msg.ID,

@@ -72,13 +72,24 @@ func main() {
 	flag.String("data-dir", "", "Directory for poe-info-service's data (config + database); default resolves the same way poe-info-service.toml does")
 	flag.String("config", "", "Exact path to poe-info-service's config file (overrides --data-dir for the config file specifically)")
 
+	// Default the service log to a file in the data dir so a normal run
+	// (launched by l2p-poe with no --service-log/L2P_SERVICE_LOG override)
+	// always leaves troubleshooting output on disk somewhere findable,
+	// instead of going to a console nobody can see (l2p-poe.exe is a GUI
+	// subsystem app with no attached console, so a spawned child's inherited
+	// stdout/stderr is otherwise unobservable).
+	defaultServiceLog := os.Getenv("L2P_SERVICE_LOG")
+	if defaultServiceLog == "" {
+		defaultServiceLog = filepath.Join(dataDir, "poe-info-service.log")
+	}
+
 	var (
 		installDir   = flag.String("install-dir", "", "PoE install directory (identifies the installs row)")
 		logPath      = flag.String("log-path", "", "Path to Client.txt (e.g. C:\\Games\\PoE\\logs\\Client.txt)")
 		port         = flag.Int("port", fileCfg.Port, "TCP port to listen on")
 		bind         = flag.String("bind", fileCfg.Bind, "Bind address (default 127.0.0.1)")
 		debugLogging = flag.Bool("debug-logging", fileCfg.DebugLogging, "Enable verbose debug logging")
-		serviceLog   = flag.String("service-log", os.Getenv("L2P_SERVICE_LOG"), "Path to service debug log file")
+		serviceLog   = flag.String("service-log", defaultServiceLog, "Path to service debug log file")
 		idleTimeout  = flag.Duration("idle-timeout", server.DefaultIdleTimeout, "Shut down after this long with no client keep-alive or Client.txt activity")
 		showVer      = flag.Bool("version", false, "Print version and exit")
 	)

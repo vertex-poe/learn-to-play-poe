@@ -121,6 +121,50 @@ func TestTailer_ProgressTracksBacklogAndReachesFileSizeOnceCaughtUp(t *testing.T
 	}
 }
 
+// TestTailer_ProgressUpdatesIncrementallyDuringBacklogReplay guards against a
+// bug where a single poll() call drained every currently-available line in
+// one shot and only reported Progress() once the whole call returned — for a
+// large real Client.txt with a slow downstream consumer (out send blocks
+// until drained), that left the reported backlog-replay percent frozen for
+// the entire replay instead of climbing. Uses an unbuffered channel so the
+// tailer goroutine is forced to block mid-poll (after the first line) until
+// this test reads it, simulating that slow consumer.
+func TestTailer_ProgressUpdatesIncrementallyDuringBacklogReplay(t *testing.T) {
+	db, installID := newTestDB(t)
+	logPath := filepath.Join(t.TempDir(), "Client.txt")
+	if err := os.WriteFile(logPath, []byte(testfixtures.SampleSession), 0644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	wantSize := int64(len(testfixtures.SampleSession))
+	wantLines := testfixtures.SampleSessionLines()
+	if len(wantLines) < 2 {
+		t.Fatalf("fixture too short to exercise mid-poll progress (%d lines)", len(wantLines))
+	}
+
+	out := make(chan string) // unbuffered: forces poll() to block after each line
+	tl := New(logPath, db, installID, out)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tl.Run(ctx)
+
+	<-out // Received the first line; poll() stored progress before sending it.
+
+	offset, size := tl.Progress()
+	if size != wantSize {
+		t.Errorf("Progress() size = %d, want %d", size, wantSize)
+	}
+	if offset <= 0 || offset >= size {
+		t.Errorf("Progress() offset after 1/%d lines = %d, want strictly between 0 and %d",
+			len(wantLines), offset, size)
+	}
+
+	for i := 1; i < len(wantLines); i++ {
+		<-out
+	}
+	waitForCaughtUp(t, tl, 2*time.Second)
+}
+
 // TestTailer_ResumesFromSavedOffsetAfterRestart simulates poe-info-service
 // restarting mid-session: a Tailer catches up to the first half of the
 // fixture, is torn down (offset persisted to the installs row, same as a

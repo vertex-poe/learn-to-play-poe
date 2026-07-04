@@ -77,7 +77,7 @@ type StatusPayload struct {
 	LogOffset int64    `json:"logOffset"`
 	Uptime    string   `json:"uptime"`
 	Phase     string   `json:"phase"`             // "waiting" | "ingesting" | "tailing"
-	Message   string   `json:"message"`           // human-readable: "waiting" | "ingesting Client.txt" | "waiting for game events"
+	Message   string   `json:"message"`           // human-readable: "waiting" | "processing game logs" | "waiting for game events"
 	Percent   *float64 `json:"percent,omitempty"` // 0-100 backlog-replay progress; present only while phase=="ingesting"
 }
 
