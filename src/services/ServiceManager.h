@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 class QProcess;
 
@@ -15,10 +16,12 @@ public:
     // serviceDataDir overrides poe-info-service's default data directory
     // (config + database); pass an empty string (the normal case) to let it
     // resolve its own default — it owns that data, this app does not.
-    // installDir is the PoE install directory (may be empty if none
-    // configured yet); the Client.txt path and install identity are both
-    // derived from it.
-    void start(const QString &serviceDataDir, const QString &installDir);
+    // installDirs is the configured list of PoE install directory candidates
+    // (may be empty if none configured yet), passed through as one
+    // --install-dir flag per entry — poe-info-service, not this client,
+    // ingests every one that actually exists on disk (deriving each one's
+    // Client.txt path), since it owns that filesystem check.
+    void start(const QString &serviceDataDir, const QStringList &installDirs);
     void stop();
 
     QString host() const { return m_host; }

@@ -64,11 +64,10 @@ func TestStatusPercent_ClimbsDuringRealBacklogReplay_WithConcurrentClientTraffic
 	addr := listener.Addr().String()
 
 	cfg := Config{
-		Version:    "test",
-		StartTime:  time.Now().Unix(),
-		InstallDir: dir,
-		LogPath:    logPath,
-		DbPath:     filepath.Join(dir, "poe-info-service.db"),
+		Version:   "test",
+		StartTime: time.Now().Unix(),
+		Installs:  []InstallTarget{{Dir: dir, LogPath: logPath}},
+		DbPath:    filepath.Join(dir, "poe-info-service.db"),
 	}
 
 	go serve(cfg, listener)

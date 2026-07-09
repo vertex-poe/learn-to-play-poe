@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -55,6 +56,16 @@ var liveBroadcastTypes = map[string]bool{
 // DefaultIdleTimeout is used when Config.IdleTimeout is unset (zero).
 const DefaultIdleTimeout = 5 * time.Minute
 
+// InstallTarget is one PoE install to ingest: a directory (identifies the
+// installs row, matching the old C++ convention) paired with the Client.txt
+// path to tail — normally Dir + "/logs/Client.txt", but callers may set
+// LogPath to something else (see main.go's explicit --log-path override, a
+// dev convenience documented in CONTRIBUTING.md).
+type InstallTarget struct {
+	Dir     string
+	LogPath string
+}
+
 type Config struct {
 	Version      string
 	StartTime    int64
@@ -62,8 +73,7 @@ type Config struct {
 	Port         int
 	ConfigFilePath string       // exact path to the config file (ADR-006's sole user-facing config store) — may not be named poe-info-service.toml if --config overrode it
 	DebugLogging bool           // initial value of the debug_logging setting, read from poe-info-service.toml/flags at startup
-	InstallDir   string         // PoE install directory; identifies the installs row (matches the old C++ convention)
-	LogPath      string         // InstallDir + "/logs/Client.txt"
+	Installs     []InstallTarget // every install to ingest concurrently — one tailer per entry; callers (main.go) have already filtered out candidates that don't exist on disk
 	DbPath       string         // path to poe-info-service's sole SQLite database (game history + internal state)
 	IdleTimeout  time.Duration  // shut down after this long with no client keep-alive or Client.txt activity; 0 uses DefaultIdleTimeout
 }
@@ -73,7 +83,7 @@ type server struct {
 	hub          *hub.Hub
 	store        *store.Store
 	queryDB      *query.DB
-	tailer       *tailer.Tailer // nil when no Client.txt log path is configured
+	tailers      []*tailer.Tailer // one per Config.Installs entry that started successfully; empty when none configured
 	started      time.Time
 	shutdown     context.CancelFunc
 	upgrader     websocket.Upgrader
@@ -250,27 +260,40 @@ func serve(cfg Config, listener net.Listener) error {
 	srv.touch()
 	srv.debugLogging.Store(cfg.DebugLogging)
 
-	if cfg.LogPath != "" && cfg.InstallDir != "" {
+	// One tailer per configured install, ingesting concurrently — each gets
+	// its own installs row, writer, and event channel, all independent of
+	// the others (see ingest.EnsureInstall/NewWriter, both keyed by
+	// installID). They share the single pooled db connection (SetMaxOpenConns(1)
+	// above), so writes across installs serialize, but broadcastLogEvents'
+	// timer-based batch commit avoids the deadlock that a naive
+	// channel-emptiness check would risk under that contention (see
+	// batchFlushIdle's doc comment) regardless of how many goroutines share it.
+	for _, inst := range cfg.Installs {
+		if inst.LogPath == "" || inst.Dir == "" {
+			continue
+		}
 		// installs.path stores the install directory (not the Client.txt path),
 		// matching the convention the old C++ Database::upsertInstall used.
-		installID, err := ingest.EnsureInstall(qdb.Raw(), cfg.InstallDir)
+		installID, err := ingest.EnsureInstall(qdb.Raw(), inst.Dir)
 		if err != nil {
-			log.Printf("warn: cannot ensure install row for %q: %v", cfg.InstallDir, err)
-		} else {
-			writer, err := ingest.NewWriter(qdb.Raw(), installID)
-			if err != nil {
-				log.Printf("warn: cannot start ingest writer: %v", err)
-			} else {
-				eventCh := make(chan string, 512)
-				t := tailer.New(cfg.LogPath, qdb.Raw(), installID, eventCh)
-				p := parser.New()
-				srv.tailer = t
-				log.Printf("ingest: starting backlog replay for %q (install %q)", cfg.LogPath, cfg.InstallDir)
-				go t.Run(ctx)
-				go broadcastLogEvents(ctx, h, eventCh, p, writer, db, t.CaughtUp, srv.debugLogging.Load)
-				go watchIngestStatus(ctx, srv)
-			}
+			log.Printf("warn: cannot ensure install row for %q: %v", inst.Dir, err)
+			continue
 		}
+		writer, err := ingest.NewWriter(qdb.Raw(), installID)
+		if err != nil {
+			log.Printf("warn: cannot start ingest writer for %q: %v", inst.Dir, err)
+			continue
+		}
+		eventCh := make(chan string, 512)
+		t := tailer.New(inst.LogPath, qdb.Raw(), installID, eventCh)
+		p := parser.New()
+		srv.tailers = append(srv.tailers, t)
+		log.Printf("ingest: starting backlog replay for %q (install %q)", inst.LogPath, inst.Dir)
+		go t.Run(ctx)
+		go broadcastLogEvents(ctx, h, eventCh, p, writer, db, t.CaughtUp, srv.debugLogging.Load)
+	}
+	if len(srv.tailers) > 0 {
+		go watchIngestStatus(ctx, srv)
 	}
 
 	idleTimeout := cfg.IdleTimeout
@@ -278,8 +301,16 @@ func serve(cfg Config, listener net.Listener) error {
 		idleTimeout = DefaultIdleTimeout
 	}
 	var tailerActivity func() time.Time
-	if srv.tailer != nil {
-		tailerActivity = srv.tailer.LastActivity
+	if len(srv.tailers) > 0 {
+		tailerActivity = func() time.Time {
+			var latest time.Time
+			for _, t := range srv.tailers {
+				if la := t.LastActivity(); la.After(latest) {
+					latest = la
+				}
+			}
+			return latest
+		}
 	}
 	go watchIdle(ctx, cancel, srv, tailerActivity, idleTimeout, idleCheckInterval)
 
@@ -550,16 +581,49 @@ func ingestStatus(hasTailer, caughtUp bool, offset, size int64) (phase, message 
 	return "ingesting", "processing game logs", percent
 }
 
-// watchIngestStatus periodically checks the tailer's phase/percent and
-// publishes a "status" topic event — the same proto.StatusPayload shape the
-// "status" request returns — whenever the phase changes or percent crosses
-// into a new whole percent. This lets a client subscribe once instead of
-// re-polling "status" for the (potentially long) duration of a Client.txt
-// backlog replay; see MainWindow's use of it for the actual consumer.
-// Stops once phase reaches "tailing" — a one-way state (see tailer.CaughtUp)
-// after which nothing more will ever change this run.
+// aggregateProgress sums offset/size across every tailer (one per configured
+// install) so ingestStatus can report a single overall phase/percent instead
+// of one per install — a caught-up tailer contributes offset==size to both
+// sums, so it doesn't skew the ratio once it's done. caughtUp is true only
+// once every tailer has caught up: a partial replay (some installs done,
+// others not) still counts as "ingesting" overall.
+func aggregateProgress(tailers []*tailer.Tailer) (offset, size int64, caughtUp bool) {
+	caughtUp = true
+	for _, t := range tailers {
+		o, s := t.Progress()
+		offset += o
+		size += s
+		if !t.CaughtUp() {
+			caughtUp = false
+		}
+	}
+	return offset, size, caughtUp
+}
+
+// joinLogPaths renders every configured install's Client.txt path into a
+// single comma-separated string for the (unstructured, debugging-oriented)
+// StatusPayload.LogPath field — none of poe-info-service's current clients
+// parse it, they only read phase/message/percent (see MainWindow::applyStatusPayload).
+func joinLogPaths(installs []InstallTarget) string {
+	paths := make([]string, 0, len(installs))
+	for _, inst := range installs {
+		paths = append(paths, inst.LogPath)
+	}
+	return strings.Join(paths, ",")
+}
+
+// watchIngestStatus periodically checks the aggregate phase/percent across
+// every configured install's tailer (see aggregateProgress) and publishes a
+// "status" topic event — the same proto.StatusPayload shape the "status"
+// request returns — whenever the phase changes or percent crosses into a new
+// whole percent. This lets a client subscribe once instead of re-polling
+// "status" for the (potentially long) duration of a Client.txt backlog
+// replay; see MainWindow's use of it for the actual consumer.
+// Stops once phase reaches "tailing" — a one-way state (every tailer's own
+// CaughtUp latch is one-way, see tailer.go, so the aggregate is too) after
+// which nothing more will ever change this run.
 func watchIngestStatus(ctx context.Context, srv *server) {
-	if srv.tailer == nil {
+	if len(srv.tailers) == 0 {
 		return
 	}
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -573,8 +637,8 @@ func watchIngestStatus(ctx context.Context, srv *server) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			offset, size := srv.tailer.Progress()
-			phase, message, percent := ingestStatus(true, srv.tailer.CaughtUp(), offset, size)
+			offset, size, caughtUp := aggregateProgress(srv.tailers)
+			phase, message, percent := ingestStatus(true, caughtUp, offset, size)
 
 			wholePercent := -1
 			if percent != nil {
@@ -592,7 +656,7 @@ func watchIngestStatus(ctx context.Context, srv *server) {
 				Payload: mustMarshal(proto.StatusPayload{
 					Version:   srv.cfg.Version,
 					StartTime: srv.cfg.StartTime,
-					LogPath:   srv.cfg.LogPath,
+					LogPath:   joinLogPaths(srv.cfg.Installs),
 					LogOffset: offset,
 					Uptime:    time.Since(srv.started).Round(time.Second).String(),
 					Phase:     phase,
@@ -766,13 +830,8 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 		})
 
 	case "status":
-		var offset, size int64
-		var caughtUp bool
-		if s.tailer != nil {
-			offset, size = s.tailer.Progress()
-			caughtUp = s.tailer.CaughtUp()
-		}
-		phase, message, percent := ingestStatus(s.tailer != nil, caughtUp, offset, size)
+		offset, size, caughtUp := aggregateProgress(s.tailers)
+		phase, message, percent := ingestStatus(len(s.tailers) > 0, caughtUp, offset, size)
 		if percent != nil {
 			s.debugf("status request id=%s: phase=%q offset=%d size=%d percent=%.4f", msg.ID, phase, offset, size, *percent)
 		} else {
@@ -784,7 +843,7 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 			Payload: mustMarshal(proto.StatusPayload{
 				Version:   s.cfg.Version,
 				StartTime: s.cfg.StartTime,
-				LogPath:   s.cfg.LogPath,
+				LogPath:   joinLogPaths(s.cfg.Installs),
 				LogOffset: offset,
 				Uptime:    time.Since(s.started).Round(time.Second).String(),
 				Phase:     phase,

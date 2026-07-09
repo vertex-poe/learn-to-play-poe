@@ -325,14 +325,16 @@ MainWindow::MainWindow(QWidget *parent)
             }
         }
     }
-    const QString installDir = m_config.installDirs.isEmpty() ? QString() : m_config.installDirs.first();
-
     // poe-info-service owns the database (schema creation/migration and all
     // Client.txt ingestion) and must be up before any page requests data
     // through it — start it first and gate the rest of startup on its first
     // successful connection (onServiceReady), rather than opening a local
-    // Database handle here.
-    m_serviceManager->start(serviceDataDir, installDir);
+    // Database handle here. The full configured install dir list is passed
+    // through as-is: poe-info-service (not this client) ingests every one
+    // that actually exists on disk concurrently, skipping any that don't —
+    // it owns that filesystem check and is where a stale/missing entry must
+    // be skipped.
+    m_serviceManager->start(serviceDataDir, m_config.installDirs);
     // Debug menu lets a developer point the client at a different
     // poe-info-service instance than the one ServiceManager resolved/spawned
     // (e.g. a manually-run dev server) without affecting what gets spawned.

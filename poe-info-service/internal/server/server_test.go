@@ -504,7 +504,7 @@ func TestWatchIngestStatus_PublishesOnPhaseChangeAndStopsAtTailing(t *testing.T)
 	defer c.Close()
 	h.Subscribe(c, proto.TopicStatus)
 
-	srv := &server{hub: h, tailer: tl, cfg: Config{Version: "test"}, started: time.Now()}
+	srv := &server{hub: h, tailers: []*tailer.Tailer{tl}, cfg: Config{Version: "test"}, started: time.Now()}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

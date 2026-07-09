@@ -20,6 +20,7 @@ class LogStartupTest : public QObject
 private slots:
     void emptyDatabaseStartup();
     void populatedDatabaseStartup();
+    void staleInstallDirStartup();
 
 private:
     // Initialise the DB schema (runs schema.sql via sqlite3).
@@ -143,6 +144,27 @@ void LogStartupTest::populatedDatabaseStartup()
     sqlite3_exec(db, s1, nullptr, nullptr, nullptr);
     sqlite3_exec(db, s2, nullptr, nullptr, nullptr);
     sqlite3_close(db);
+
+    assertStartup(tmp.path());
+}
+
+// A stale install_dirs entry (e.g. a removed drive or moved install) must be
+// skipped, not handed to poe-info-service — which has no way to notice the
+// log path will never appear and just sits in "ingesting" forever (see
+// MainWindow's install dir selection). Regression test for that hang.
+void LogStartupTest::staleInstallDirStartup()
+{
+    fprintf(stderr, "[test_log_startup] staleInstallDirStartup\n"); fflush(stderr);
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+
+    const QString configPath = tmp.path() + "/l2p-poe-test.toml";
+    QFile cfgFile(configPath);
+    QVERIFY(cfgFile.open(QIODevice::WriteOnly));
+    cfgFile.write(QByteArrayLiteral(
+        "auto_detect_install_dir = false\n"
+        "install_dirs = [ 'Z:/does/not/exist/Path of Exile' ]\n"));
+    cfgFile.close();
 
     assertStartup(tmp.path());
 }

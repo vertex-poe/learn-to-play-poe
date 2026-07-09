@@ -98,6 +98,12 @@ go run ./poe-info-service \
   --service-log "C:\path\to\service-debug.log"
 ```
 
+`--install-dir` is repeatable — pass it once per candidate install and the
+service ingests every one that actually exists on disk concurrently (each
+gets its own `installs` row and tailer), skipping any that don't. `--log-path`
+is an explicit override for a single exact Client.txt path (as above), and
+takes priority over `--install-dir` resolution when set.
+
 Because of the singleton election in ADR-001, a second instance started this
 way while another is already listening on the same port will negotiate with
 it and exit (or ask it to step down, if this build's version is newer) rather

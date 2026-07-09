@@ -34,6 +34,48 @@ func scanArgFlag(args []string, name string) string {
 	return ""
 }
 
+// installDirFlag collects one or more --install-dir occurrences, in order,
+// via flag.Var's repeatable-flag support.
+type installDirFlag []string
+
+func (f *installDirFlag) String() string { return strings.Join(*f, ",") }
+func (f *installDirFlag) Set(v string) error {
+	*f = append(*f, v)
+	return nil
+}
+
+// resolveInstallDirs picks every install to ingest concurrently out of the
+// configured candidates: each one that exists as a directory becomes an
+// InstallTarget, in the order given. A stale entry (a removed drive, a moved
+// install) is skipped rather than handed to a tailer, which has no way to
+// notice its log path will never appear and would otherwise sit in
+// "ingesting" forever. Only the directory itself is checked, not Client.txt:
+// a fresh, valid install nobody has launched yet legitimately has no
+// Client.txt, and must not be treated as missing.
+//
+// explicitLogPath, when set, bypasses this search entirely — a dev
+// convenience (see CONTRIBUTING.md) for pointing the service at an exact
+// file regardless of what's configured; it pairs with the first candidate,
+// if any, as the sole install target.
+func resolveInstallDirs(dirs []string, explicitLogPath string) []server.InstallTarget {
+	if explicitLogPath != "" {
+		var installDir string
+		if len(dirs) > 0 {
+			installDir = dirs[0]
+		}
+		return []server.InstallTarget{{Dir: installDir, LogPath: explicitLogPath}}
+	}
+	var targets []server.InstallTarget
+	for _, dir := range dirs {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			targets = append(targets, server.InstallTarget{Dir: dir, LogPath: filepath.Join(dir, "logs", "Client.txt")})
+			continue
+		}
+		log.Printf("install dir %q not found, skipping", dir)
+	}
+	return targets
+}
+
 func main() {
 	if code, handled := cliDispatch(os.Args[1:]); handled {
 		os.Exit(code)
@@ -83,9 +125,10 @@ func main() {
 		defaultServiceLog = filepath.Join(dataDir, "poe-info-service.log")
 	}
 
+	var installDirs installDirFlag
+	flag.Var(&installDirs, "install-dir", "PoE install directory candidate (repeatable; first one found on disk wins, identifies the installs row)")
 	var (
-		installDir   = flag.String("install-dir", "", "PoE install directory (identifies the installs row)")
-		logPath      = flag.String("log-path", "", "Path to Client.txt (e.g. C:\\Games\\PoE\\logs\\Client.txt)")
+		logPath      = flag.String("log-path", "", "Exact path to Client.txt, bypassing install-dir resolution (dev convenience — see CONTRIBUTING.md)")
 		port         = flag.Int("port", fileCfg.Port, "TCP port to listen on")
 		bind         = flag.String("bind", fileCfg.Bind, "Bind address (default 127.0.0.1)")
 		debugLogging = flag.Bool("debug-logging", fileCfg.DebugLogging, "Enable verbose debug logging")
@@ -112,6 +155,10 @@ func main() {
 		}
 	}
 
+	// Resolved after the service log redirect above so a skipped/stale
+	// candidate is actually visible in the log file a user would check.
+	installs := resolveInstallDirs(installDirs, *logPath)
+
 	cfg := server.Config{
 		Version:        proto.Version,
 		StartTime:      time.Now().Unix(),
@@ -119,14 +166,13 @@ func main() {
 		Port:           *port,
 		ConfigFilePath: configFile,
 		DebugLogging:   *debugLogging,
-		InstallDir:     *installDir,
-		LogPath:        *logPath,
+		Installs:       installs,
 		DbPath:         resolvedDbPath,
 		IdleTimeout:    *idleTimeout,
 	}
 
-	log.Printf("starting v%s on %s:%d db=%q logPath=%q",
-		cfg.Version, cfg.Bind, cfg.Port, cfg.DbPath, cfg.LogPath)
+	log.Printf("starting v%s on %s:%d db=%q installs=%v",
+		cfg.Version, cfg.Bind, cfg.Port, cfg.DbPath, cfg.Installs)
 
 	if err := server.Run(cfg); err != nil {
 		log.Fatalf("fatal: %v", err)
