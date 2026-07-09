@@ -13,7 +13,10 @@ if [ ! -f "$_vswhere" ]; then
     return 0
 fi
 
-_vs_install=$("$_vswhere" -latest -property installationPath 2>/dev/null | tr -d '\r')
+# -products '*' is required: by default vswhere only considers full VS
+# editions (Community/Professional/Enterprise) and silently excludes
+# Build Tools-only installs.
+_vs_install=$("$_vswhere" -latest -products '*' -property installationPath 2>/dev/null | tr -d '\r')
 
 if [ -z "$_vs_install" ]; then
     echo "WARNING: VS not found via vswhere — MSVC environment not loaded." >&2

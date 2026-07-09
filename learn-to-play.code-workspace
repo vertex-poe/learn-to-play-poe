@@ -11,7 +11,10 @@
   "settings": {
     "terminal.integrated.profiles.windows": {
       "Git Bash (MSVC x64)": {
-        "path": "${env:ProgramFiles}/Git/bin/bash.exe",
+        "path": [
+          "${env:ProgramFiles}/Git/bin/bash.exe",
+          "${env:LocalAppData}/Programs/Git/bin/bash.exe"
+        ],
         "args": [
           "--rcfile",
           "${workspaceFolder}/tools/msvc-env.sh",
@@ -39,7 +42,8 @@
       "ms-vscode.cpptools",
       "ms-vscode.cpptools-extension-pack",
       "golang.go",
-      "qwtel.sqlite-viewer"
+      "qwtel.sqlite-viewer",
+      "ms-vscode.cmake-tools"
     ]
   },
 }

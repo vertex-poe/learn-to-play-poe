@@ -1,7 +1,7 @@
 # Learn to Play PoE — task runner
 # Install: winget install Casey.Just  |  scoop install just  |  cargo install just
 
-set windows-shell := ["pwsh", "-NoLogo", "-Command"]
+set windows-shell := ["powershell", "-NoLogo", "-Command"]
 
 default_preset := if os() == "windows" { "windows-msvc" } else { "debug" }
 
@@ -21,7 +21,7 @@ configure preset=default_preset:
 [windows]
 gui-build preset=default_preset:
     $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"; \
-    $vs = & $vswhere -latest -property installationPath; \
+    $vs = & $vswhere -latest -products '*' -property installationPath; \
     $vcvars = "$vs\VC\Auxiliary\Build\vcvarsall.bat"; \
     cmd /c "`"$vcvars`" x64 >NUL 2>&1 && cmake --preset {{preset}} && cmake --build --preset {{preset}}"; \
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -60,7 +60,7 @@ test preset=default_preset: (gui-test preset) (service-test)
 [windows]
 perf-baseline-prev preset=default_preset: (build preset)
     $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"; \
-    $vs = & $vswhere -latest -property installationPath; \
+    $vs = & $vswhere -latest -products '*' -property installationPath; \
     $vcvars = "$vs\VC\Auxiliary\Build\vcvarsall.bat"; \
     cmd /c "`"$vcvars`" x64 >NUL 2>&1 && python3 dev/perf_baseline_prev.py {{preset}}"
 

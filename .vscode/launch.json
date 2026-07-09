@@ -22,7 +22,6 @@
       "cwd": "${workspaceFolder}",
       "environment": [],
       "MIMode": "gdb",
-      "miDebuggerPath": "F:/Dev/Qt/Tools/mingw1310_64/bin/gdb.exe",
       "preLaunchTask": "CMake: Build (windows-mingw)"
     }
   ]

@@ -54,9 +54,23 @@ The project uses C++20, Qt 6, CMake, and vcpkg. See [ADR-001](docs/decisions/001
 
 ### Windows setup
 
-#### 1. Install Visual Studio 2022
+Run [`dev/check_setup.ps1`](dev/check_setup.ps1) at any point to check what's missing from the steps below and get the specific fix:
 
-Download and install [Visual Studio 2022](https://visualstudio.microsoft.com/) (Community edition is fine). During installation, select the **Desktop development with C++** workload.
+```powershell
+powershell -File dev/check_setup.ps1
+```
+
+#### 1. Install the MSVC build tools
+
+You only need the MSVC compiler toolchain, not the Visual Studio IDE — if you're developing in VS Code (as most contributors do), install Build Tools for Visual Studio 2022 with:
+
+```
+winget install Microsoft.VisualStudio.2022.BuildTools
+```
+
+(or download it from [visualstudio.microsoft.com/downloads](https://visualstudio.microsoft.com/downloads/), under "Tools for Visual Studio", if you don't use winget). This only installs the Visual Studio Installer itself — launch it afterward (Start menu → "Visual Studio Installer") and select the **Desktop development with C++** workload to install the actual toolchain.
+
+If you'd rather have the full IDE too, installing [Visual Studio 2022](https://visualstudio.microsoft.com/) (Community edition is fine) with the same workload works identically — both provide the same compiler, Windows SDK, and `vswhere.exe` that [`tools/msvc-env.sh`](tools/msvc-env.sh) relies on.
 
 #### 2. Install Qt 6.11.1
 
@@ -64,7 +78,7 @@ Download and install [Visual Studio 2022](https://visualstudio.microsoft.com/) (
 2. Once logged in, download the Qt Online Installer from [my.qt.io/download](https://my.qt.io/download)
 3. Run the installer. Under **Qt for Development → Qt → Qt 6.11.1**, check:
    - **MSVC 2022 64-bit** — the compiler kit (do not select the MinGW build)
-   - Under **MSVC 2022 64-bit → Additional Libraries**: **Qt Positioning**
+   - Under **MSVC 2022 64-bit → Additional Libraries**: **Qt WebChannel** (a required dependency of `WebEngineWidgets` — see [`CMakeLists.txt`](CMakeLists.txt)'s `find_package(Qt6 ... COMPONENTS ...)` call for the full required component list)
 4. Still under **Qt 6.11.1**, expand **Extensions** and check **Qt WebEngine for Qt 6.11.1**
 5. Under **Qt for Development → Qt → Build Tools**, check:
    - **MinGW 13.1.0 64-bit** (provides Unix-style shell tools)
@@ -79,7 +93,7 @@ CMake ships with Qt, but if you run into version problems you can also install i
 
 #### 4. Set environment variables
 
-Open **System Properties → Environment Variables** and add the following **user variables** (replacing `<drive>\<folder>` with wherever you installed each tool):
+Open **System Properties → Environment Variables** and add the following **user variables** (replacing `<drive>\<folder>` with wherever you installed each tool). These are all **user-level** — no system-level environment variable or `Path` change is required.
 
 | Variable | Value |
 |----------|-------|
@@ -92,10 +106,16 @@ Then edit the **`Path`** user variable and add these entries:
 %VCPKG_ROOT%
 <drive>\<folder>\Qt\Tools\Ninja
 <drive>\<folder>\Qt\6.11.1\msvc2022_64\bin
+<drive>\<folder>\Qt\Tools\CMake_64\bin
 <drive>\<folder>\Qt\Tools\mingw1310_64\bin
+<drive>\<folder>\tools\_Coding\websocat
+<drive>\<folder>\tools\sqlite-tools-win-x64
+<drive>\Users\<you>\AppData\Local\Programs\Git\bin
 ```
 
-If you installed CMake separately, also add:
+`websocat` and the `sqlite-tools` bundle are used for manual debugging of `poe-info-service`'s WebSocket API and its SQLite database, respectively — see [poe-info-service/CONTRIBUTING.md](poe-info-service/CONTRIBUTING.md). The Git entry only needs adding if your Git for Windows install is per-user (under `AppData\Local\Programs\Git`) rather than system-wide (under `Program Files\Git`).
+
+If you installed CMake separately instead of using the one bundled with Qt, also add:
 
 ```
 <drive>\<folder>\CMake\bin
@@ -129,7 +149,13 @@ Subsequent builds are fast: Ninja skips anything unchanged and exits immediately
 
 ## Task runner
 
-The project uses [`just`](https://just.systems/) as a task runner. Install it with `winget install Casey.Just`, `scoop install just`, or `cargo install just`.
+The project uses [`just`](https://just.systems/) as a task runner. Install it with `winget install Casey.Just`, `scoop install just`, or `cargo install just` (requires [Rust/cargo](https://rustup.rs/) installed first).
+
+If you install via `cargo install just`, the binary lands in cargo's bin directory, which the Rust installer normally adds to your user `Path` automatically. If it isn't there, add it manually:
+
+```
+<drive>\Users\<you>\.cargo\bin
+```
 
 | Command | What it does |
 |---------|--------------|
