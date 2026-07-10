@@ -26,6 +26,7 @@ INSERT OR IGNORE INTO areas (code, type, display_name) VALUES
     ('ExpeditionShipwreckReef', 'Mechanic', 'Shipwreck Reef'),
     ('Metamorphosis_Hub', 'Mechanic', 'Tane''s Laboratory'),
     ('SanctumFoyer_Fellshrine', 'Mechanic', 'The Forbidden Sanctum'),
+    ('HallsOfTheDead_League', 'Mechanic', 'The Halls of the Dead'),
     ('LakePrototype', 'Mechanic', 'The Lake of Kalandra'),
     ('MavenHub', 'Mechanic', 'The Maven''s Crucible'),
     ('Menagerie_Hub', 'Mechanic', 'The Menagerie'),

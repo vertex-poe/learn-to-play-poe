@@ -55,6 +55,7 @@ def apply_type_rules(db: sqlite3.Connection) -> None:
         "Delve_Main", "SanctumFoyer_Fellshrine", "ChayulaLeague", "ClassicTreasury_Cosmic",
         "Metamorphosis_Hub", "MavenHub", "LakePrototype", "CrucibleLeagueArea",
         "HarvestLeagueBoss", "BetrayalMastermindFight", "ChayulaLeagueTowerBoss",
+        "HallsOfTheDead_League",
     ])
     _exact(db, "Boss Arena", [
         "MavenBoss", "Synthesis_MapBoss", "FaridunLeagueBoss",
