@@ -28,13 +28,33 @@ const (
 // `comment` struct tags below and rewritten fresh on every Save — they are
 // never preserved from a prior hand edit.
 type Config struct {
-	Bind         string `toml:"bind" comment:"Address to bind the WebSocket server to."`
-	Port         int    `toml:"port" comment:"TCP port to listen on."`
-	DebugLogging bool   `toml:"debug_logging" comment:"Enable verbose debug logging."`
+	Bind                 string   `toml:"bind" comment:"Address to bind the WebSocket server to."`
+	Port                 int      `toml:"port" comment:"TCP port to listen on."`
+	DebugLogging         bool     `toml:"debug_logging" comment:"Enable verbose debug logging."`
+	InstallDirs          []string `toml:"install_dirs" comment:"PoE install directories to ingest Client.txt from."`
+	AutoDetectInstallDir bool     `toml:"auto_detect_install_dir" comment:"Automatically add an install directory when a matching game process is seen running."`
+	ExecutableNames      []string `toml:"executable_names" comment:"Executable basenames to look for when auto-detecting an install directory."`
+}
+
+// DefaultExecutableNames is the canonical list of PoE executable basenames
+// auto-detection matches against, and what a fresh install_dirs-less config
+// starts with. Mirrors the old C++ AppConfig::knownExes() list.
+func DefaultExecutableNames() []string {
+	return []string{
+		"PathOfExile_x64Steam.exe", "PathOfExileSteam.exe",
+		"PathOfExile_x64.exe", "PathOfExile.exe",
+		"PathOfExile_x64", "PathOfExile",
+	}
 }
 
 func Defaults() Config {
-	return Config{Bind: DefaultBind, Port: DefaultPort, DebugLogging: false}
+	return Config{
+		Bind:                 DefaultBind,
+		Port:                 DefaultPort,
+		DebugLogging:         false,
+		AutoDetectInstallDir: true,
+		ExecutableNames:      DefaultExecutableNames(),
+	}
 }
 
 // ResolveDir picks the directory poe-info-service.toml is read from and

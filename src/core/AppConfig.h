@@ -21,7 +21,6 @@ struct AppConfig {
                 "PathOfExile_x64",          "PathOfExile"};
     }
 
-    QStringList executableNames; // empty = use knownExes()
     bool    debugMode{false};
     bool    debugLog{false};
     static constexpr bool kDefaultLegacyUserAgentApp = true;
@@ -64,9 +63,7 @@ struct AppConfig {
     int  defaultTab{5};          // 0=Guide 1=Chat 2=DMs 3=Stash 4=Profile 5=CurrentLog 6=PastLogs
     bool startMinimized{false};
     bool minimizeToTray{true};
-    bool autoDetectInstallDir{true};
     bool showGuildTags{true};
-    QStringList installDirs;
     QHash<int, QString>    channelNames;    // channel number → user-defined label
     QVector<LiveEventRule> liveAlertRules;
     WindowGeometry         windowGeometry;

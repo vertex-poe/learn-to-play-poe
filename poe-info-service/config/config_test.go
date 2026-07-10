@@ -3,39 +3,53 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
 
 func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	cfg := Load(filepath.Join(t.TempDir(), FileName))
-	if cfg != Defaults() {
+	if !reflect.DeepEqual(cfg, Defaults()) {
 		t.Errorf("Load of missing file = %+v, want defaults %+v", cfg, Defaults())
 	}
 }
 
 func TestSaveThenLoadRoundTrips(t *testing.T) {
 	path := filepath.Join(t.TempDir(), FileName)
-	want := Config{Bind: "0.0.0.0", Port: 12345, DebugLogging: true}
+	want := Config{
+		Bind:                 "0.0.0.0",
+		Port:                 12345,
+		DebugLogging:         true,
+		InstallDirs:          []string{`C:\Games\PoE`, `D:\SteamLibrary\PoE`},
+		AutoDetectInstallDir: false,
+		ExecutableNames:      []string{"PathOfExile_x64Steam.exe"},
+	}
 
 	if err := Save(path, want); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	got := Load(path)
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Load after Save = %+v, want %+v", got, want)
 	}
 }
 
 func TestSaveAcceptsArbitraryFileName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "custom-name.toml")
-	want := Config{Bind: "0.0.0.0", Port: 12345, DebugLogging: true}
+	want := Config{
+		Bind:            "0.0.0.0",
+		Port:            12345,
+		DebugLogging:    true,
+		InstallDirs:     []string{`C:\Games\PoE`},
+		ExecutableNames: []string{"PathOfExile.exe"},
+	}
 
 	if err := Save(path, want); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	got := Load(path)
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Load after Save = %+v, want %+v", got, want)
 	}
 }
@@ -140,7 +154,7 @@ func TestLoadUnparseableFileReturnsDefaults(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	cfg := Load(path)
-	if cfg != Defaults() {
+	if !reflect.DeepEqual(cfg, Defaults()) {
 		t.Errorf("Load of unparseable file = %+v, want defaults %+v", cfg, Defaults())
 	}
 }

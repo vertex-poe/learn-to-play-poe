@@ -45,10 +45,11 @@ func (f *installDirFlag) Set(v string) error {
 }
 
 // resolveInstallDirs picks every install to ingest concurrently out of the
-// configured candidates: each one that exists as a directory becomes an
-// InstallTarget, in the order given. A stale entry (a removed drive, a moved
-// install) is skipped rather than handed to a tailer, which has no way to
-// notice its log path will never appear and would otherwise sit in
+// configured candidates — persisted poe-info-service.toml install_dirs plus
+// any --install-dir flags, deduplicated in that order — each one that exists
+// as a directory becomes an InstallTarget. A stale entry (a removed drive, a
+// moved install) is skipped rather than handed to a tailer, which has no way
+// to notice its log path will never appear and would otherwise sit in
 // "ingesting" forever. Only the directory itself is checked, not Client.txt:
 // a fresh, valid install nobody has launched yet legitimately has no
 // Client.txt, and must not be treated as missing.
@@ -57,7 +58,16 @@ func (f *installDirFlag) Set(v string) error {
 // convenience (see CONTRIBUTING.md) for pointing the service at an exact
 // file regardless of what's configured; it pairs with the first candidate,
 // if any, as the sole install target.
-func resolveInstallDirs(dirs []string, explicitLogPath string) []server.InstallTarget {
+func resolveInstallDirs(persistedDirs, flagDirs []string, explicitLogPath string) []server.InstallTarget {
+	dirs := make([]string, 0, len(persistedDirs)+len(flagDirs))
+	seen := map[string]bool{}
+	for _, dir := range append(append([]string{}, persistedDirs...), flagDirs...) {
+		if dir != "" && !seen[dir] {
+			seen[dir] = true
+			dirs = append(dirs, dir)
+		}
+	}
+
 	if explicitLogPath != "" {
 		var installDir string
 		if len(dirs) > 0 {
@@ -157,18 +167,20 @@ func main() {
 
 	// Resolved after the service log redirect above so a skipped/stale
 	// candidate is actually visible in the log file a user would check.
-	installs := resolveInstallDirs(installDirs, *logPath)
+	installs := resolveInstallDirs(fileCfg.InstallDirs, installDirs, *logPath)
 
 	cfg := server.Config{
-		Version:        proto.Version,
-		StartTime:      time.Now().Unix(),
-		Bind:           *bind,
-		Port:           *port,
-		ConfigFilePath: configFile,
-		DebugLogging:   *debugLogging,
-		Installs:       installs,
-		DbPath:         resolvedDbPath,
-		IdleTimeout:    *idleTimeout,
+		Version:              proto.Version,
+		StartTime:            time.Now().Unix(),
+		Bind:                 *bind,
+		Port:                 *port,
+		ConfigFilePath:       configFile,
+		DebugLogging:         *debugLogging,
+		Installs:             installs,
+		AutoDetectInstallDir: fileCfg.AutoDetectInstallDir,
+		ExecutableNames:      fileCfg.ExecutableNames,
+		DbPath:               resolvedDbPath,
+		IdleTimeout:          *idleTimeout,
 	}
 
 	log.Printf("starting v%s on %s:%d db=%q installs=%v",

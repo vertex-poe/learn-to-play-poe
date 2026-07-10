@@ -9,3 +9,9 @@ bind = '127.0.0.1'
 port = 47652
 # Enable verbose debug logging.
 debug_logging = false
+# PoE install directories to ingest Client.txt from.
+install_dirs = ['C:\Games\Path of Exile']
+# Automatically add an install directory when a matching game process is seen running.
+auto_detect_install_dir = true
+# Executable basenames to look for when auto-detecting an install directory.
+executable_names = ['PathOfExile_x64Steam.exe', 'PathOfExileSteam.exe', 'PathOfExile_x64.exe', 'PathOfExile.exe', 'PathOfExile_x64', 'PathOfExile']

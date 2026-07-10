@@ -103,12 +103,6 @@ AppConfig AppConfig::load()
 
     try {
         auto tbl = toml::parse_file(path.toStdString());
-        if (const auto *arr = tbl["executable_names"].as_array()) {
-            for (const auto &node : *arr) {
-                if (auto val = node.value<std::string>(); val && !val->empty())
-                    cfg.executableNames << QString::fromStdString(*val);
-            }
-        }
         cfg.debugMode             = tbl["debug_mode"].value_or(false);
         cfg.debugLog              = tbl["debug_log"].value_or(false);
         if (auto v = tbl["debug_legacy_user_agent"].value<std::string>())
@@ -151,14 +145,7 @@ AppConfig AppConfig::load()
         cfg.defaultTab            = qBound(0, (int)tbl["default_tab"].value_or<int64_t>(6) - 1, 6);
         cfg.startMinimized        = tbl["start_minimized"].value_or(false);
         cfg.minimizeToTray        = tbl["minimize_to_tray"].value_or(true);
-        cfg.autoDetectInstallDir  = tbl["auto_detect_install_dir"].value_or(true);
         cfg.showGuildTags         = tbl["show_guild_tags"].value_or(true);
-        if (const auto *arr = tbl["install_dirs"].as_array()) {
-            for (const auto &node : *arr) {
-                if (auto val = node.value<std::string>(); val && !val->empty())
-                    cfg.installDirs << QString::fromStdString(*val);
-            }
-        }
         if (const auto *names = tbl["chat_channel_names"].as_table()) {
             for (const auto &[key, val] : *names) {
                 bool ok;
@@ -220,10 +207,6 @@ void AppConfig::save() const
     const QString path = configPath();
 
     toml::table tbl;
-    toml::array exeArr;
-    for (const QString &exe : executableNames)
-        exeArr.push_back(exe.toStdString());
-    tbl.insert("executable_names", std::move(exeArr));
     tbl.insert("debug_mode",              debugMode);
     tbl.insert("debug_log",               debugLog);
     tbl.insert("debug_legacy_user_agent",        debugLegacyUserAgent.toStdString());
@@ -259,12 +242,7 @@ void AppConfig::save() const
     tbl.insert("default_tab",             (int64_t)(defaultTab + 1));
     tbl.insert("start_minimized",         startMinimized);
     tbl.insert("minimize_to_tray",        minimizeToTray);
-    tbl.insert("auto_detect_install_dir", autoDetectInstallDir);
     tbl.insert("show_guild_tags",         showGuildTags);
-    toml::array dirsArr;
-    for (const QString &dir : installDirs)
-        dirsArr.push_back(dir.toStdString());
-    tbl.insert("install_dirs", std::move(dirsArr));
 
     toml::table namesTable;
     for (auto it = channelNames.constBegin(); it != channelNames.constEnd(); ++it)

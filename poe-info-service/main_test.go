@@ -11,7 +11,7 @@ func TestResolveInstallDirsSkipsMissingCandidates(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
 	real := t.TempDir()
 
-	got := resolveInstallDirs([]string{missing, real}, "")
+	got := resolveInstallDirs(nil, []string{missing, real}, "")
 
 	want := []server.InstallTarget{{Dir: real, LogPath: filepath.Join(real, "logs", "Client.txt")}}
 	if !equalTargets(got, want) {
@@ -27,7 +27,7 @@ func TestResolveInstallDirsIngestsEveryExistingCandidate(t *testing.T) {
 	real1 := t.TempDir()
 	real2 := t.TempDir()
 
-	got := resolveInstallDirs([]string{real1, missing, real2}, "")
+	got := resolveInstallDirs(nil, []string{real1, missing, real2}, "")
 
 	want := []server.InstallTarget{
 		{Dir: real1, LogPath: filepath.Join(real1, "logs", "Client.txt")},
@@ -43,7 +43,7 @@ func TestResolveInstallDirsAcceptsDirWithoutClientLog(t *testing.T) {
 	// resolveInstallDirs must only check the directory, not the log file.
 	real := t.TempDir()
 
-	got := resolveInstallDirs([]string{real}, "")
+	got := resolveInstallDirs(nil, []string{real}, "")
 
 	want := []server.InstallTarget{{Dir: real, LogPath: filepath.Join(real, "logs", "Client.txt")}}
 	if !equalTargets(got, want) {
@@ -55,7 +55,7 @@ func TestResolveInstallDirsAllMissingYieldsEmpty(t *testing.T) {
 	missing1 := filepath.Join(t.TempDir(), "gone1")
 	missing2 := filepath.Join(t.TempDir(), "gone2")
 
-	got := resolveInstallDirs([]string{missing1, missing2}, "")
+	got := resolveInstallDirs(nil, []string{missing1, missing2}, "")
 
 	if len(got) != 0 {
 		t.Errorf("expected no install targets when nothing exists, got %v", got)
@@ -63,7 +63,7 @@ func TestResolveInstallDirsAllMissingYieldsEmpty(t *testing.T) {
 }
 
 func TestResolveInstallDirsNoCandidatesYieldsEmpty(t *testing.T) {
-	got := resolveInstallDirs(nil, "")
+	got := resolveInstallDirs(nil, nil, "")
 
 	if len(got) != 0 {
 		t.Errorf("expected no install targets with no candidates, got %v", got)
@@ -74,7 +74,7 @@ func TestResolveInstallDirsExplicitLogPathBypassesSearch(t *testing.T) {
 	// Dev convenience (CONTRIBUTING.md): an explicit --log-path is honored
 	// as-is, as the sole target, even if it doesn't match any configured
 	// install dir and even if other candidates also exist.
-	got := resolveInstallDirs([]string{"C:/Games/PoE", "C:/Games/PoE2"}, "D:/elsewhere/Client.txt")
+	got := resolveInstallDirs(nil, []string{"C:/Games/PoE", "C:/Games/PoE2"}, "D:/elsewhere/Client.txt")
 
 	want := []server.InstallTarget{{Dir: "C:/Games/PoE", LogPath: "D:/elsewhere/Client.txt"}}
 	if !equalTargets(got, want) {
@@ -83,11 +83,40 @@ func TestResolveInstallDirsExplicitLogPathBypassesSearch(t *testing.T) {
 }
 
 func TestResolveInstallDirsExplicitLogPathWithNoCandidates(t *testing.T) {
-	got := resolveInstallDirs(nil, "D:/elsewhere/Client.txt")
+	got := resolveInstallDirs(nil, nil, "D:/elsewhere/Client.txt")
 
 	want := []server.InstallTarget{{Dir: "", LogPath: "D:/elsewhere/Client.txt"}}
 	if !equalTargets(got, want) {
 		t.Errorf("expected explicit logPath to be used as-is with an empty install dir, got %v", got)
+	}
+}
+
+func TestResolveInstallDirsMergesPersistedAndFlagCandidates(t *testing.T) {
+	persisted := t.TempDir()
+	flagged := t.TempDir()
+
+	got := resolveInstallDirs([]string{persisted}, []string{flagged}, "")
+
+	want := []server.InstallTarget{
+		{Dir: persisted, LogPath: filepath.Join(persisted, "logs", "Client.txt")},
+		{Dir: flagged, LogPath: filepath.Join(flagged, "logs", "Client.txt")},
+	}
+	if !equalTargets(got, want) {
+		t.Errorf("expected persisted dirs before flag dirs %v, got %v", want, got)
+	}
+}
+
+func TestResolveInstallDirsDedupesPersistedAndFlagCandidates(t *testing.T) {
+	// A --install-dir flag repeating what's already in poe-info-service.toml
+	// (e.g. a dev harness that always passes it explicitly) must not start a
+	// second tailer for the same directory.
+	shared := t.TempDir()
+
+	got := resolveInstallDirs([]string{shared}, []string{shared}, "")
+
+	want := []server.InstallTarget{{Dir: shared, LogPath: filepath.Join(shared, "logs", "Client.txt")}}
+	if !equalTargets(got, want) {
+		t.Errorf("expected the duplicate to be deduped to one target %v, got %v", want, got)
 	}
 }
 

@@ -41,6 +41,8 @@ qt_add_executable(l2p-poe
     ui/NavBar.h
     ui/TaskPanel.cpp
     ui/TaskPanel.h
+    ui/InstallDirNotice.cpp
+    ui/InstallDirNotice.h
     ui/Theme.cpp
     ui/Theme.h
     ui/chat/ChatPage.cpp
@@ -54,8 +56,6 @@ qt_add_executable(l2p-poe
     ui/log/LogPage.h
     ui/settings/PoeLoginWindow.cpp
     ui/settings/PoeLoginWindow.h
-    ui/settings/SettingsDialog.cpp
-    ui/settings/SettingsDialog.h
     ui/settings/SettingsPage.cpp
     ui/settings/SettingsPage.h
     ui/widgets/ListEditor.cpp

@@ -487,8 +487,12 @@ func newTestTailerDB(t *testing.T) (*sql.DB, int64) {
 // *tailer.Tailer against a fixture Client.txt file, following the same
 // pattern as internal/tailer's own fixture tests, to prove watchIngestStatus
 // publishes a "status" topic event once backlog replay finishes (phase
-// "tailing") and then stops — "tailing" is a one-way state (see
-// tailer.CaughtUp) so there's nothing more to report about it this run.
+// "tailing") and then stops publishing further events for it — "tailing" is
+// a one-way state for a given tailer (see tailer.CaughtUp), so there's
+// nothing more to report about this one this run. The loop itself keeps
+// running (a later-added install could still need "ingesting" broadcasts),
+// but the phase/percent dedup means no more sends happen while nothing
+// actually changes.
 func TestWatchIngestStatus_PublishesOnPhaseChangeAndStopsAtTailing(t *testing.T) {
 	db, installID := newTestTailerDB(t)
 	logPath := filepath.Join(t.TempDir(), "Client.txt")
@@ -504,7 +508,7 @@ func TestWatchIngestStatus_PublishesOnPhaseChangeAndStopsAtTailing(t *testing.T)
 	defer c.Close()
 	h.Subscribe(c, proto.TopicStatus)
 
-	srv := &server{hub: h, tailers: []*tailer.Tailer{tl}, cfg: Config{Version: "test"}, started: time.Now()}
+	srv := &server{hub: h, tailers: map[string]*tailerHandle{logPath: {t: tl}}, cfg: Config{Version: "test"}, started: time.Now()}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

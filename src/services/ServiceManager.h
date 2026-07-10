@@ -16,12 +16,10 @@ public:
     // serviceDataDir overrides poe-info-service's default data directory
     // (config + database); pass an empty string (the normal case) to let it
     // resolve its own default — it owns that data, this app does not.
-    // installDirs is the configured list of PoE install directory candidates
-    // (may be empty if none configured yet), passed through as one
-    // --install-dir flag per entry — poe-info-service, not this client,
-    // ingests every one that actually exists on disk (deriving each one's
-    // Client.txt path), since it owns that filesystem check.
-    void start(const QString &serviceDataDir, const QStringList &installDirs);
+    // Install directories are no longer passed in: poe-info-service loads
+    // its own persisted install_dirs (poe-info-service.toml) and can
+    // auto-detect new ones itself, since it owns that data now too.
+    void start(const QString &serviceDataDir);
     void stop();
 
     QString host() const { return m_host; }

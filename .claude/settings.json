@@ -131,7 +131,8 @@
       "Bash(tasklist //FI \"IMAGENAME eq *\")",
       "Bash(timeout * ./build/* -o -,txt)",
       "Bash(./build/*)",
-      "Bash(sqlite3 *)"
+      "Bash(sqlite3 *)",
+      "Bash(gofmt -l .)"
     ],
     "additionalDirectories": [
       "\\tmp"

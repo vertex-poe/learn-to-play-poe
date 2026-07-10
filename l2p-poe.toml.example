@@ -1,2 +1,6 @@
-windows_executable_name = "PathOfExile_x64.exe"
-linux_executable_name = "PathOfExile"
+# l2p-poe.toml is optional — every key has a built-in default.
+#
+# PoE install directories, auto-detection, and executable names are not
+# configured here: poe-info-service owns that config now (see
+# poe-info-service.toml.example / Settings > Game in the app, which is a
+# thin proxy for poe-info-service's own config.list/config.set).

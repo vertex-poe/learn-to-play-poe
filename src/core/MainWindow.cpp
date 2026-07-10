@@ -18,6 +18,7 @@
 #include "workers/TaskManager.h"
 #include "workers/ProgressTrackerWorker.h"
 #include "ui/TaskPanel.h"
+#include "ui/InstallDirNotice.h"
 #include "platform/WindowTracker.h"
 
 #include <QApplication>
@@ -83,6 +84,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_sessionViewPage = new SessionViewPage(this);
     m_taskPanel = new TaskPanel(m_taskManager, this);
+    m_installDirNotice = new InstallDirNotice(this);
+    m_installDirNotice->setVisible(false); // shown once poe-info-service reports zero install dirs
+    connect(m_installDirNotice, &InstallDirNotice::addClicked, this, [this]()
+            {
+        showSettings();
+        m_settingsPage->showGamePage(); });
 
     m_stack = new QStackedWidget(this);
     PerfProbe::instance().markDebug("mainwindow_before_logpage");
@@ -125,6 +132,7 @@ MainWindow::MainWindow(QWidget *parent)
     vbox->setContentsMargins(0, 0, 0, 0);
     vbox->setSpacing(0);
     vbox->addWidget(m_navBar);
+    vbox->addWidget(m_installDirNotice);
     vbox->addWidget(m_stack, 1);
     vbox->addWidget(m_taskPanel, 0);
     setCentralWidget(container);
@@ -329,12 +337,12 @@ MainWindow::MainWindow(QWidget *parent)
     // Client.txt ingestion) and must be up before any page requests data
     // through it — start it first and gate the rest of startup on its first
     // successful connection (onServiceReady), rather than opening a local
-    // Database handle here. The full configured install dir list is passed
-    // through as-is: poe-info-service (not this client) ingests every one
-    // that actually exists on disk concurrently, skipping any that don't —
-    // it owns that filesystem check and is where a stale/missing entry must
-    // be skipped.
-    m_serviceManager->start(serviceDataDir, m_config.installDirs);
+    // Database handle here. Install directories are not passed in: they're
+    // no longer this app's config at all — poe-info-service loads its own
+    // persisted install_dirs (poe-info-service.toml) and can auto-detect new
+    // ones itself, since it owns that data (see Settings > Game, a thin
+    // proxy for poe-info-service's config.list/config.set now).
+    m_serviceManager->start(serviceDataDir);
     // Debug menu lets a developer point the client at a different
     // poe-info-service instance than the one ServiceManager resolved/spawned
     // (e.g. a manually-run dev server) without affecting what gets spawned.
@@ -358,6 +366,14 @@ MainWindow::MainWindow(QWidget *parent)
     // Client.txt backlog replay.
     m_poeInfoClient->subscribe(QStringLiteral("status"), [this](QJsonObject payload)
                                { applyStatusPayload(payload); });
+    // poe-info-service publishes a "config" event (same shape as
+    // config.list's response) whenever a mutable setting changes — its own
+    // auto-detect finding an install dir, this app's own Settings > Game
+    // edit, or another l2p-poe window's edit — so this keeps
+    // m_executableNames and the no-install-dirs notice (see
+    // refreshInstallDirsFromService) current without re-polling.
+    m_poeInfoClient->subscribe(QStringLiteral("config"), [this](QJsonObject payload)
+                               { applyServiceConfig(payload[QStringLiteral("settings")].toObject()); });
     connect(m_poeInfoClient, &PoeInfoClient::connected, this, &MainWindow::onServiceReady);
     // Queued: ~PoeInfoClient() calls QWebSocket::abort(), which can emit
     // disconnected() synchronously. During app shutdown, PoeInfoClient (a
@@ -600,6 +616,7 @@ void MainWindow::onServiceReady()
     m_sessionViewPage->setPoeInfoClient(m_poeInfoClient);
 
     requestIngestStatus();
+    refreshInstallDirsFromService();
 
     // Push our chat_channel_names as data over the WS API instead of handing
     // poe-info-service a path to l2p-poe.toml to go parse itself (see
@@ -661,11 +678,7 @@ void MainWindow::onPollTimer()
     QElapsedTimer pollTimer;
     pollTimer.start();
 
-    const QStringList exeNames = m_config.executableNames.isEmpty()
-                                     ? AppConfig::knownExes()
-                                     : m_config.executableNames;
-
-    const QList<WindowState> states = m_tracker->poll(exeNames);
+    const QList<WindowState> states = m_tracker->poll(m_executableNames);
     const qint64 pollMs = pollTimer.elapsed();
     if (pollMs > 200)
         qDebug() << "[poll] tracker::poll took" << pollMs << "ms";
@@ -705,19 +718,8 @@ void MainWindow::onPollTimer()
         m_overlay->setGameHwnd(anyRunning ? states[0].hwnd : 0);
     }
 
-    // Auto-detect install dirs for all running instances.
-    if (m_config.autoDetectInstallDir)
-    {
-        for (const auto &s : states)
-        {
-            if (!s.installDir.isEmpty() && !m_config.installDirs.contains(s.installDir))
-            {
-                m_config.installDirs << s.installDir;
-                m_config.save();
-                log(QStringLiteral("Install directory auto-detected: %1").arg(s.installDir));
-            }
-        }
-    }
+    // Install-dir auto-detection is poe-info-service's job now (its own
+    // process scan, see internal/detect) — this app no longer does it.
 
     // Close sessions for installs where the game is no longer running.
     // poe-info-service owns ingestion and the sessions table; this just tells
@@ -917,6 +919,39 @@ void MainWindow::applyStatusPayload(const QJsonObject &payload)
         }
     }
     refreshStatusBar();
+}
+
+void MainWindow::refreshInstallDirsFromService()
+{
+    if (!m_poeInfoClient)
+        return;
+    m_poeInfoClient->request(QStringLiteral("config.list"), {}, [this](QJsonObject payload, QString error)
+                              {
+        if (!error.isEmpty())
+            return;
+        applyServiceConfig(payload[QStringLiteral("settings")].toObject()); });
+}
+
+// Applies poe-info-service's config.list/"config"-topic "settings" map:
+// refreshes the cached executable name list this app's own WindowTracker
+// polls with, and toggles the no-install-dirs notice based on whether
+// install_dirs is currently empty.
+void MainWindow::applyServiceConfig(const QJsonObject &settings)
+{
+    const QJsonArray exeNames = settings[QStringLiteral("executable_names")]
+                                     .toObject()[QStringLiteral("value")].toArray();
+    if (!exeNames.isEmpty())
+    {
+        QStringList names;
+        for (const QJsonValue &v : exeNames)
+            names << v.toString();
+        m_executableNames = names;
+    }
+
+    const QJsonArray installDirs = settings[QStringLiteral("install_dirs")]
+                                        .toObject()[QStringLiteral("value")].toArray();
+    if (m_installDirNotice)
+        m_installDirNotice->setVisible(installDirs.isEmpty());
 }
 
 void MainWindow::startProgressTracker()

@@ -2,6 +2,7 @@
 
 #include "core/AppConfig.h"
 
+#include <QJsonObject>
 #include <QWidget>
 
 class QCheckBox;
@@ -27,6 +28,10 @@ public:
     // Background-build all sub-pages at low priority so they're instant when clicked.
     void preloadSubPages(QObject* requestor);
 
+    // Navigates directly to the Game category page, e.g. from the
+    // no-install-dirs-configured notice's "Add install directory..." button.
+    void showGamePage();
+
     // Provide a way to build specific sub-pages when clicked
     void buildGamePage(QWidget *parent);
     void buildOverlayPage(QWidget *parent);
@@ -48,6 +53,10 @@ private:
     void loadPageAsync(int pageIndex, const QString &title);
     void navigateBack();
     void saveAndEmit();
+
+    // Game page: poe-info-service proxy (see buildGamePage).
+    void refreshGameSettings();
+    void applyGameSettings(const QJsonObject &settings);
 
     // Alerts sub-page
     void alertsRebuildList();

@@ -42,7 +42,7 @@ void ServiceManager::loadConfig()
     }
 }
 
-void ServiceManager::start(const QString &serviceDataDir, const QStringList &installDirs)
+void ServiceManager::start(const QString &serviceDataDir)
 {
     if (m_process)
         return;
@@ -61,12 +61,6 @@ void ServiceManager::start(const QString &serviceDataDir, const QStringList &ins
          << "--bind" << m_host;
     if (!serviceDataDir.isEmpty())
         args << "--data-dir" << serviceDataDir;
-    // One --install-dir per candidate; poe-info-service ingests every one
-    // that exists on disk concurrently, deriving each one's Client.txt path.
-    for (const QString &dir : installDirs) {
-        if (!dir.isEmpty())
-            args << "--install-dir" << dir;
-    }
     const QByteArray serviceLog = qgetenv("L2P_SERVICE_LOG");
     if (!serviceLog.isEmpty())
         args << "--service-log" << QString::fromUtf8(serviceLog);

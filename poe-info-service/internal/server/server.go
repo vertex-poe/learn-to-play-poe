@@ -10,11 +10,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/MovingCairn/poe-info-service/config"
 	"github.com/MovingCairn/poe-info-service/internal/creds"
+	"github.com/MovingCairn/poe-info-service/internal/detect"
 	"github.com/MovingCairn/poe-info-service/internal/hub"
 	"github.com/MovingCairn/poe-info-service/internal/ingest"
 	"github.com/MovingCairn/poe-info-service/internal/parser"
@@ -67,23 +71,43 @@ type InstallTarget struct {
 }
 
 type Config struct {
-	Version      string
-	StartTime    int64
-	Bind         string // default "127.0.0.1"
-	Port         int
-	ConfigFilePath string       // exact path to the config file (ADR-006's sole user-facing config store) — may not be named poe-info-service.toml if --config overrode it
-	DebugLogging bool           // initial value of the debug_logging setting, read from poe-info-service.toml/flags at startup
-	Installs     []InstallTarget // every install to ingest concurrently — one tailer per entry; callers (main.go) have already filtered out candidates that don't exist on disk
-	DbPath       string         // path to poe-info-service's sole SQLite database (game history + internal state)
-	IdleTimeout  time.Duration  // shut down after this long with no client keep-alive or Client.txt activity; 0 uses DefaultIdleTimeout
+	Version              string
+	StartTime            int64
+	Bind                 string // default "127.0.0.1"
+	Port                 int
+	ConfigFilePath       string          // exact path to the config file (ADR-006's sole user-facing config store) — may not be named poe-info-service.toml if --config overrode it
+	DebugLogging         bool            // initial value of the debug_logging setting, read from poe-info-service.toml/flags at startup
+	Installs             []InstallTarget // every install to ingest concurrently at startup — one tailer per entry; callers (main.go) have already filtered out candidates that don't exist on disk. More can be added/removed live afterward via config.set or auto-detection (see server.addInstall/removeInstall).
+	AutoDetectInstallDir bool            // initial value of the auto_detect_install_dir setting
+	ExecutableNames      []string        // initial value of the executable_names setting, used by the auto-detect loop
+	DbPath               string          // path to poe-info-service's sole SQLite database (game history + internal state)
+	IdleTimeout          time.Duration   // shut down after this long with no client keep-alive or Client.txt activity; 0 uses DefaultIdleTimeout
+}
+
+// tailerHandle pairs a running tailer with the cancel func for the child
+// context it was started with, so a single install can be torn down
+// (config.set removing it) without cancelling every other install's tailer.
+type tailerHandle struct {
+	t       *tailer.Tailer
+	logPath string
+	cancel  context.CancelFunc
 }
 
 type server struct {
-	cfg          Config
-	hub          *hub.Hub
-	store        *store.Store
-	queryDB      *query.DB
-	tailers      []*tailer.Tailer // one per Config.Installs entry that started successfully; empty when none configured
+	cfg     Config
+	hub     *hub.Hub
+	db      *sql.DB
+	store   *store.Store
+	queryDB *query.DB
+
+	rootCtx context.Context // parent for every tailer's child context; canceled on server shutdown
+
+	tailersMu sync.Mutex
+	tailers   map[string]*tailerHandle // keyed by install dir; mutated by serve()'s startup loop, config.set, and the auto-detect loop
+
+	autoDetect      atomic.Bool  // current effective auto_detect_install_dir setting; client-settable via config.set
+	executableNames atomic.Value // current effective executable_names setting ([]string); client-settable via config.set
+
 	started      time.Time
 	shutdown     context.CancelFunc
 	upgrader     websocket.Upgrader
@@ -249,8 +273,11 @@ func serve(cfg Config, listener net.Listener) error {
 	srv := &server{
 		cfg:      cfg,
 		hub:      h,
+		db:       db,
 		store:    st,
 		queryDB:  qdb,
+		rootCtx:  ctx,
+		tailers:  make(map[string]*tailerHandle),
 		started:  time.Now(),
 		shutdown: cancel,
 		upgrader: websocket.Upgrader{
@@ -259,6 +286,12 @@ func serve(cfg Config, listener net.Listener) error {
 	}
 	srv.touch()
 	srv.debugLogging.Store(cfg.DebugLogging)
+	srv.autoDetect.Store(cfg.AutoDetectInstallDir)
+	execNames := cfg.ExecutableNames
+	if len(execNames) == 0 {
+		execNames = config.DefaultExecutableNames()
+	}
+	srv.executableNames.Store(execNames)
 
 	// One tailer per configured install, ingesting concurrently — each gets
 	// its own installs row, writer, and event channel, all independent of
@@ -272,47 +305,30 @@ func serve(cfg Config, listener net.Listener) error {
 		if inst.LogPath == "" || inst.Dir == "" {
 			continue
 		}
-		// installs.path stores the install directory (not the Client.txt path),
-		// matching the convention the old C++ Database::upsertInstall used.
-		installID, err := ingest.EnsureInstall(qdb.Raw(), inst.Dir)
-		if err != nil {
-			log.Printf("warn: cannot ensure install row for %q: %v", inst.Dir, err)
-			continue
+		if err := srv.addInstallTarget(inst); err != nil {
+			log.Printf("warn: cannot start ingest for %q: %v", inst.Dir, err)
 		}
-		writer, err := ingest.NewWriter(qdb.Raw(), installID)
-		if err != nil {
-			log.Printf("warn: cannot start ingest writer for %q: %v", inst.Dir, err)
-			continue
-		}
-		eventCh := make(chan string, 512)
-		t := tailer.New(inst.LogPath, qdb.Raw(), installID, eventCh)
-		p := parser.New()
-		srv.tailers = append(srv.tailers, t)
-		log.Printf("ingest: starting backlog replay for %q (install %q)", inst.LogPath, inst.Dir)
-		go t.Run(ctx)
-		go broadcastLogEvents(ctx, h, eventCh, p, writer, db, t.CaughtUp, srv.debugLogging.Load)
 	}
-	if len(srv.tailers) > 0 {
-		go watchIngestStatus(ctx, srv)
-	}
+	go watchIngestStatus(ctx, srv)
 
 	idleTimeout := cfg.IdleTimeout
 	if idleTimeout <= 0 {
 		idleTimeout = DefaultIdleTimeout
 	}
-	var tailerActivity func() time.Time
-	if len(srv.tailers) > 0 {
-		tailerActivity = func() time.Time {
-			var latest time.Time
-			for _, t := range srv.tailers {
-				if la := t.LastActivity(); la.After(latest) {
-					latest = la
-				}
+	tailerActivity := func() time.Time {
+		var latest time.Time
+		for _, t := range srv.tailerSnapshot() {
+			if la := t.LastActivity(); la.After(latest) {
+				latest = la
 			}
-			return latest
 		}
+		return latest
 	}
 	go watchIdle(ctx, cancel, srv, tailerActivity, idleTimeout, idleCheckInterval)
+
+	if srv.autoDetect.Load() {
+		go watchAutoDetect(ctx, srv)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", srv.handleWS)
@@ -335,6 +351,165 @@ func serve(cfg Config, listener net.Listener) error {
 	}
 	cancel()
 	return nil
+}
+
+// addInstallTarget starts ingesting inst if it isn't already being tailed:
+// ensures its installs row, starts its writer/tailer/broadcast pipeline (the
+// same pipeline serve()'s startup loop always ran inline before install
+// dirs could change at runtime), and records it in s.tailers under a child
+// context of s.rootCtx so it can be torn down individually later via
+// removeInstall, without cancelling every other install's tailer.
+func (s *server) addInstallTarget(inst InstallTarget) error {
+	s.tailersMu.Lock()
+	if _, exists := s.tailers[inst.Dir]; exists {
+		s.tailersMu.Unlock()
+		return nil
+	}
+	s.tailersMu.Unlock()
+
+	// installs.path stores the install directory (not the Client.txt path),
+	// matching the convention the old C++ Database::upsertInstall used.
+	installID, err := ingest.EnsureInstall(s.queryDB.Raw(), inst.Dir)
+	if err != nil {
+		return fmt.Errorf("ensure install row for %q: %w", inst.Dir, err)
+	}
+	writer, err := ingest.NewWriter(s.queryDB.Raw(), installID)
+	if err != nil {
+		return fmt.Errorf("start ingest writer for %q: %w", inst.Dir, err)
+	}
+
+	eventCh := make(chan string, 512)
+	t := tailer.New(inst.LogPath, s.queryDB.Raw(), installID, eventCh)
+	p := parser.New()
+	tailerCtx, cancel := context.WithCancel(s.rootCtx)
+
+	s.tailersMu.Lock()
+	s.tailers[inst.Dir] = &tailerHandle{t: t, logPath: inst.LogPath, cancel: cancel}
+	s.tailersMu.Unlock()
+
+	log.Printf("ingest: starting backlog replay for %q (install %q)", inst.LogPath, inst.Dir)
+	go t.Run(tailerCtx)
+	go broadcastLogEvents(tailerCtx, s.hub, eventCh, p, writer, s.db, t.CaughtUp, s.debugLogging.Load)
+	return nil
+}
+
+// addInstall is addInstallTarget for a bare directory (auto-detection and
+// config.set's install_dirs handler, neither of which has an explicit
+// --log-path override to preserve) — Client.txt's location is always
+// derived the standard way.
+func (s *server) addInstall(dir string) error {
+	return s.addInstallTarget(InstallTarget{Dir: dir, LogPath: filepath.Join(dir, "logs", "Client.txt")})
+}
+
+// removeInstall stops tailing dir, if it's currently being tailed. The
+// installs row and any ingested history are left in place — this only
+// stops watching for new lines.
+func (s *server) removeInstall(dir string) {
+	s.tailersMu.Lock()
+	defer s.tailersMu.Unlock()
+	h, ok := s.tailers[dir]
+	if !ok {
+		return
+	}
+	h.cancel()
+	delete(s.tailers, dir)
+	log.Printf("ingest: stopped tailing %q", dir)
+}
+
+// tailerSnapshot returns every currently-tailed install's *tailer.Tailer, a
+// stable slice safe to range over without holding tailersMu — used by
+// read-only aggregation (aggregateProgress, tailerActivity) that would
+// otherwise need to hold the lock for the duration of a callback.
+func (s *server) tailerSnapshot() []*tailer.Tailer {
+	s.tailersMu.Lock()
+	defer s.tailersMu.Unlock()
+	out := make([]*tailer.Tailer, 0, len(s.tailers))
+	for _, h := range s.tailers {
+		out = append(out, h.t)
+	}
+	return out
+}
+
+// installDirsList returns every currently-tailed install dir, sorted for
+// stable output (config.list/config.get responses, persisted TOML).
+func (s *server) installDirsList() []string {
+	s.tailersMu.Lock()
+	defer s.tailersMu.Unlock()
+	out := make([]string, 0, len(s.tailers))
+	for dir := range s.tailers {
+		out = append(out, dir)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// tailerLogPaths returns the Client.txt path every currently-tailed install
+// is watching, sorted for stable output — used for the debugging-oriented
+// StatusPayload.LogPath field (see joinLogPaths).
+func (s *server) tailerLogPaths() []string {
+	s.tailersMu.Lock()
+	defer s.tailersMu.Unlock()
+	out := make([]string, 0, len(s.tailers))
+	for _, h := range s.tailers {
+		out = append(out, h.logPath)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// autoDetectInterval is how often watchAutoDetect rescans running
+// processes — infrequent enough to be a negligible cost, frequent enough
+// that a game launched just now is picked up within a few seconds, similar
+// in spirit to the old C++ WindowTracker's 1s poll but not needing to be
+// nearly that tight since there's no window-rect UI depending on it here.
+const autoDetectInterval = 5 * time.Second
+
+// watchAutoDetect periodically scans running processes for a match against
+// the current executable_names setting (internal/detect) and starts tailing
+// any newly-found install dir, persisting it and notifying clients. Exits
+// as soon as auto_detect_install_dir is turned off, rather than idling —
+// config.set's "auto_detect_install_dir" entry starts a fresh goroutine the
+// next time it's turned on, so at most one of these ever runs at a time.
+func watchAutoDetect(ctx context.Context, s *server) {
+	ticker := time.NewTicker(autoDetectInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !s.autoDetect.Load() {
+				return
+			}
+			names, _ := s.executableNames.Load().([]string)
+			dirs, err := detect.Scan(names)
+			if err != nil {
+				s.debugf("auto-detect scan failed: %v", err)
+				continue
+			}
+			var added bool
+			for _, dir := range dirs {
+				s.tailersMu.Lock()
+				_, exists := s.tailers[dir]
+				s.tailersMu.Unlock()
+				if exists {
+					continue
+				}
+				if err := s.addInstall(dir); err != nil {
+					log.Printf("warn: auto-detect: cannot start ingest for %q: %v", dir, err)
+					continue
+				}
+				log.Printf("auto-detect: install directory detected: %q", dir)
+				added = true
+			}
+			if added {
+				if err := s.persistConfig(); err != nil {
+					log.Printf("warn: auto-detect: failed to persist config: %v", err)
+				}
+				s.publishConfigChanged()
+			}
+		}
+	}
 }
 
 // idleCheckInterval is how often watchIdle re-evaluates activity. It is well
@@ -600,32 +775,28 @@ func aggregateProgress(tailers []*tailer.Tailer) (offset, size int64, caughtUp b
 	return offset, size, caughtUp
 }
 
-// joinLogPaths renders every configured install's Client.txt path into a
-// single comma-separated string for the (unstructured, debugging-oriented)
+// joinLogPaths renders every currently-tailed install's Client.txt path into
+// a single comma-separated string for the (unstructured, debugging-oriented)
 // StatusPayload.LogPath field — none of poe-info-service's current clients
 // parse it, they only read phase/message/percent (see MainWindow::applyStatusPayload).
-func joinLogPaths(installs []InstallTarget) string {
-	paths := make([]string, 0, len(installs))
-	for _, inst := range installs {
-		paths = append(paths, inst.LogPath)
-	}
+func joinLogPaths(paths []string) string {
 	return strings.Join(paths, ",")
 }
 
 // watchIngestStatus periodically checks the aggregate phase/percent across
-// every configured install's tailer (see aggregateProgress) and publishes a
+// every currently-tailed install (see aggregateProgress) and publishes a
 // "status" topic event — the same proto.StatusPayload shape the "status"
 // request returns — whenever the phase changes or percent crosses into a new
 // whole percent. This lets a client subscribe once instead of re-polling
 // "status" for the (potentially long) duration of a Client.txt backlog
 // replay; see MainWindow's use of it for the actual consumer.
-// Stops once phase reaches "tailing" — a one-way state (every tailer's own
-// CaughtUp latch is one-way, see tailer.go, so the aggregate is too) after
-// which nothing more will ever change this run.
+//
+// Runs for the server's whole lifetime rather than stopping once every
+// install has caught up: installs can be added later (auto-detect,
+// config.set), and a freshly added one starts out not caught up, which
+// would otherwise need to flip the aggregate phase back from "tailing" to
+// "ingesting" after this loop had already exited.
 func watchIngestStatus(ctx context.Context, srv *server) {
-	if len(srv.tailers) == 0 {
-		return
-	}
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -637,8 +808,9 @@ func watchIngestStatus(ctx context.Context, srv *server) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			offset, size, caughtUp := aggregateProgress(srv.tailers)
-			phase, message, percent := ingestStatus(true, caughtUp, offset, size)
+			tailers := srv.tailerSnapshot()
+			offset, size, caughtUp := aggregateProgress(tailers)
+			phase, message, percent := ingestStatus(len(tailers) > 0, caughtUp, offset, size)
 
 			wholePercent := -1
 			if percent != nil {
@@ -656,7 +828,7 @@ func watchIngestStatus(ctx context.Context, srv *server) {
 				Payload: mustMarshal(proto.StatusPayload{
 					Version:   srv.cfg.Version,
 					StartTime: srv.cfg.StartTime,
-					LogPath:   joinLogPaths(srv.cfg.Installs),
+					LogPath:   joinLogPaths(srv.tailerLogPaths()),
 					LogOffset: offset,
 					Uptime:    time.Since(srv.started).Round(time.Second).String(),
 					Phase:     phase,
@@ -665,10 +837,6 @@ func watchIngestStatus(ctx context.Context, srv *server) {
 				}),
 			})
 			srv.hub.Publish(proto.TopicStatus, msg)
-
-			if phase == "tailing" {
-				return
-			}
 		}
 	}
 }
@@ -830,8 +998,9 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 		})
 
 	case "status":
-		offset, size, caughtUp := aggregateProgress(s.tailers)
-		phase, message, percent := ingestStatus(len(s.tailers) > 0, caughtUp, offset, size)
+		tailers := s.tailerSnapshot()
+		offset, size, caughtUp := aggregateProgress(tailers)
+		phase, message, percent := ingestStatus(len(tailers) > 0, caughtUp, offset, size)
 		if percent != nil {
 			s.debugf("status request id=%s: phase=%q offset=%d size=%d percent=%.4f", msg.ID, phase, offset, size, *percent)
 		} else {
@@ -843,7 +1012,7 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 			Payload: mustMarshal(proto.StatusPayload{
 				Version:   s.cfg.Version,
 				StartTime: s.cfg.StartTime,
-				LogPath:   joinLogPaths(s.cfg.Installs),
+				LogPath:   joinLogPaths(s.tailerLogPaths()),
 				LogOffset: offset,
 				Uptime:    time.Since(s.started).Round(time.Second).String(),
 				Phase:     phase,

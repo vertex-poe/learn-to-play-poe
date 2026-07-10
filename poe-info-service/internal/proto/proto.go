@@ -88,3 +88,12 @@ type StatusPayload struct {
 // to this topic instead of re-polling "status" for the (potentially long)
 // duration of a Client.txt backlog replay.
 const TopicStatus = "status"
+
+// TopicConfig carries the same shape as the "config.list" request's
+// response (a map[string]configEntry under a "settings" key, see
+// server.configSnapshot), published whenever a mutable setting changes —
+// whether from a client's own config.set call, another connected client's,
+// or the auto-detect loop finding a new install dir on its own. Lets a
+// client (e.g. l2p-poe's Settings > Game page, and its startup
+// no-install-dirs notice) stay in sync without re-polling config.list.
+const TopicConfig = "config"

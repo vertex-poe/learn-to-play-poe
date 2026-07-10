@@ -28,6 +28,7 @@ class TaskManager;
 class TaskPanel;
 class WindowTracker;
 class ProgressTrackerWorker;
+class InstallDirNotice;
 
 class MainWindow : public QMainWindow
 {
@@ -85,6 +86,8 @@ private:
     void applyStatusPayload(const QJsonObject &payload);
     void startProgressTracker();
     void stopProgressTracker();
+    void refreshInstallDirsFromService();
+    void applyServiceConfig(const QJsonObject &settings);
 
     AppConfig     m_config;
     bool          m_timingMode{false};
@@ -123,6 +126,14 @@ private:
     QSet<quint32>    m_runningPids;
     QStringList      m_runningInstallDirs;
     QRect            m_lastGameRect;
+
+    // Cached from poe-info-service's own config (config.list/"config" topic)
+    // — no longer stored in m_config/l2p-poe.toml, see Settings > Game.
+    // executableNames still drives this app's own WindowTracker::poll() for
+    // overlay/running-games display; defaults to AppConfig::knownExes()
+    // until the first fetch completes.
+    QStringList        m_executableNames{AppConfig::knownExes()};
+    InstallDirNotice   *m_installDirNotice{};
 
     LiveEventRuleEngine      *m_ruleEngine{};
     bool                      m_orphanCloseInFlight{false};

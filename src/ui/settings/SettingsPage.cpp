@@ -12,6 +12,8 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QDesktopServices>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QTimer>
 #include <QWebEngineProfile>
@@ -301,6 +303,12 @@ void SettingsPage::buildGamePage(QWidget *parent)
     parentLayout->setContentsMargins(0, 0, 0, 0);
 
     // ---- Page 1: Game -------------------------------------------------
+    // Not part of m_config/l2p-poe.toml: poe-info-service owns install
+    // dirs, auto-detection, and executable names as its own config, so this
+    // page is a thin proxy — fetch the full config.list once on connect,
+    // push each edit back via config.set, and re-apply whenever
+    // poe-info-service's "config" topic fires (its own auto-detect finding
+    // a new dir, or another l2p-poe window editing a setting).
     auto *gameScroll = new QScrollArea;
     gameScroll->setWidgetResizable(true);
     gameScroll->setFrameShape(QFrame::NoFrame);
@@ -310,26 +318,108 @@ void SettingsPage::buildGamePage(QWidget *parent)
     gameForm->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
 
     m_autoDetect = new QCheckBox(gameContent);
-    m_autoDetect->setChecked(m_config.autoDetectInstallDir);
+    m_autoDetect->setEnabled(false); // enabled once the current value is known
     gameForm->addRow("Auto-detect install directories:", m_autoDetect);
 
     m_installDirs = new ListEditor({}, gameContent);
     m_installDirs->setBrowseForDirectory(true);
-    m_installDirs->setItems(m_config.installDirs);
+    m_installDirs->setEnabled(false);
     gameForm->addRow("Install directories:", m_installDirs);
 
     m_exeNames = new ListEditor("Executable name (e.g. PathOfExile_x64Steam.exe)", gameContent);
-    m_exeNames->setBuiltinItems(AppConfig::knownExes());
-    m_exeNames->setItems(m_config.executableNames);
     m_exeNames->setInputFileBrowser(true);
+    m_exeNames->setEnabled(false);
     gameForm->addRow("Executable names:", m_exeNames);
 
     gameScroll->setWidget(gameContent);
     parentLayout->addWidget(gameScroll);
-    connect(m_autoDetect, &QCheckBox::toggled, this, [this](bool)
-            { saveAndEmit(); });
-    connect(m_installDirs, &ListEditor::itemsChanged, this, &SettingsPage::saveAndEmit);
-    connect(m_exeNames, &ListEditor::itemsChanged, this, &SettingsPage::saveAndEmit);
+
+    connect(m_autoDetect, &QCheckBox::toggled, this, [this](bool checked)
+            {
+        if (!m_poeInfoClient) return;
+        m_poeInfoClient->request(QStringLiteral("config.set"),
+            {{QStringLiteral("key"), QStringLiteral("auto_detect_install_dir")},
+             {QStringLiteral("value"), checked}},
+            [this, checked](QJsonObject, QString error) {
+                if (!error.isEmpty() && m_autoDetect) {
+                    m_autoDetect->blockSignals(true);
+                    m_autoDetect->setChecked(!checked);
+                    m_autoDetect->blockSignals(false);
+                }
+            }); });
+
+    connect(m_installDirs, &ListEditor::itemsChanged, this, [this]()
+            {
+        if (!m_poeInfoClient || !m_installDirs) return;
+        QJsonArray arr;
+        for (const QString &dir : m_installDirs->items())
+            arr.append(dir);
+        m_poeInfoClient->request(QStringLiteral("config.set"),
+            {{QStringLiteral("key"), QStringLiteral("install_dirs")},
+             {QStringLiteral("value"), arr}},
+            [this](QJsonObject, QString error) {
+                if (!error.isEmpty())
+                    refreshGameSettings(); // resync with the service's actual state
+            }); });
+
+    connect(m_exeNames, &ListEditor::itemsChanged, this, [this]()
+            {
+        if (!m_poeInfoClient || !m_exeNames) return;
+        QJsonArray arr;
+        for (const QString &name : m_exeNames->items())
+            arr.append(name);
+        m_poeInfoClient->request(QStringLiteral("config.set"),
+            {{QStringLiteral("key"), QStringLiteral("executable_names")},
+             {QStringLiteral("value"), arr}},
+            [this](QJsonObject, QString error) {
+                if (!error.isEmpty())
+                    refreshGameSettings();
+            }); });
+
+    if (m_poeInfoClient) {
+        connect(m_poeInfoClient, &PoeInfoClient::connected, this, &SettingsPage::refreshGameSettings);
+        m_poeInfoClient->subscribe(QStringLiteral("config"), [this](QJsonObject payload)
+                                   { applyGameSettings(payload[QStringLiteral("settings")].toObject()); });
+        if (m_poeInfoClient->isConnected())
+            refreshGameSettings();
+    }
+}
+
+void SettingsPage::refreshGameSettings()
+{
+    if (!m_poeInfoClient)
+        return;
+    m_poeInfoClient->request(QStringLiteral("config.list"), {},
+        [this](QJsonObject payload, QString error) {
+            if (!error.isEmpty())
+                return;
+            applyGameSettings(payload[QStringLiteral("settings")].toObject());
+        });
+}
+
+void SettingsPage::applyGameSettings(const QJsonObject &settings)
+{
+    if (m_autoDetect) {
+        m_autoDetect->blockSignals(true);
+        m_autoDetect->setChecked(settings[QStringLiteral("auto_detect_install_dir")]
+                                      .toObject()[QStringLiteral("value")].toBool());
+        m_autoDetect->blockSignals(false);
+        m_autoDetect->setEnabled(true);
+    }
+    if (m_installDirs) {
+        QStringList dirs;
+        for (const QJsonValue &v : settings[QStringLiteral("install_dirs")].toObject()[QStringLiteral("value")].toArray())
+            dirs << v.toString();
+        m_installDirs->setItems(dirs);
+        m_installDirs->setEnabled(true);
+    }
+    if (m_exeNames) {
+        QStringList names;
+        for (const QJsonValue &v : settings[QStringLiteral("executable_names")].toObject()[QStringLiteral("value")].toArray())
+            names << v.toString();
+        m_exeNames->setItems(names);
+        m_exeNames->setEnabled(true);
+    }
 }
 
 void SettingsPage::buildOverlayPage(QWidget *parent)
@@ -1129,6 +1219,11 @@ void SettingsPage::preloadSubPages(QObject *requestor)
     }
 }
 
+void SettingsPage::showGamePage()
+{
+    loadPageAsync(1, "Game");
+}
+
 void SettingsPage::navigateTo(int pageIndex, const QString &title)
 {
     if (pageIndex == 6)
@@ -1399,22 +1494,9 @@ void SettingsPage::updateAccountButton()
 
 void SettingsPage::saveAndEmit()
 {
-    if (m_autoDetect)
-        m_config.autoDetectInstallDir = m_autoDetect->isChecked();
-    if (m_installDirs)
-        m_config.installDirs = m_installDirs->items();
-
-    if (m_exeNames)
-    {
-        const QStringList known = AppConfig::knownExes();
-        QStringList userExes;
-        for (const QString &name : m_exeNames->items())
-        {
-            if (!known.contains(name, Qt::CaseInsensitive))
-                userExes << name;
-        }
-        m_config.executableNames = userExes;
-    }
+    // Game page (auto-detect / install dirs / executable names) is not part
+    // of m_config — it's a live proxy for poe-info-service's own config, see
+    // buildGamePage.
 
     if (m_enableOverlay)
         m_config.useGameOverlay = m_enableOverlay->isChecked();
