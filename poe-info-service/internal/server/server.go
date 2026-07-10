@@ -217,33 +217,67 @@ func negotiate(conn *websocket.Conn, cfg Config) (shouldTakeOver bool, incumbent
 	return false, incumbentHello.Version, nil
 }
 
-// openDB opens poe-info-service's sole SQLite database: one file, one
-// connection, shared by the store and query packages (ADR-006) rather than
-// each opening its own. Creates the containing directory if it doesn't
-// exist yet — --data-dir may point somewhere that's never been used before.
+// sqliteDSN builds the DSN shared by openDB and openReadDB. modernc.org/sqlite
+// (the driver in use) does NOT support the mattn/go-sqlite3-style shorthand
+// params (_journal_mode=, _synchronous=, _busy_timeout=, _foreign_keys=) —
+// those are silently ignored as unknown query params, so this DSN previously
+// ran in SQLite's default rollback journal + synchronous=FULL mode this whole
+// time despite looking correct. The only pragma mechanism this driver
+// supports is repeated _pragma=name(value); see modernc.org/sqlite's
+// Driver.Open doc comment.
+func sqliteDSN(path string) string {
+	return path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+}
+
+// openDB opens poe-info-service's sole SQLite database file for writes: the
+// store package and all ingest writes (installs/writer/tailer bookkeeping)
+// share this single connection, so writes serialize instead of racing each
+// other — see the comment on serve()'s addInstallTarget loop. Creates the
+// containing directory if it doesn't exist yet — --data-dir may point
+// somewhere that's never been used before.
 func openDB(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, fmt.Errorf("create %q: %w", filepath.Dir(path), err)
 	}
-	// modernc.org/sqlite (the driver in use) does NOT support the
-	// mattn/go-sqlite3-style shorthand params (_journal_mode=, _synchronous=,
-	// _busy_timeout=, _foreign_keys=) — those are silently ignored as unknown
-	// query params, so this DSN previously ran in SQLite's default rollback
-	// journal + synchronous=FULL mode this whole time despite looking
-	// correct. The only pragma mechanism this driver supports is repeated
-	// _pragma=name(value); see modernc.org/sqlite's Driver.Open doc comment.
-	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open %q: %w", path, err)
 	}
-	db.SetMaxOpenConns(1) // single connection shared by reads and ingest writes
+	db.SetMaxOpenConns(1) // single connection so ingest writes always serialize
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ping %q: %w", path, err)
 	}
 	return db, nil
 }
+
+// openReadDB opens a second connection pool to the same database file,
+// dedicated to the query package's read-only client requests (log.session,
+// log.sessions, chat.fetch, etc.). WAL mode (set via sqliteDSN, applies at
+// the file level) lets any number of readers proceed concurrently with the
+// single writer from openDB without blocking on it — before this split, a
+// live session's "log.session" query shared openDB's one connection with
+// ingest writes and could error out (busy_timeout exceeded) while a write
+// batch held it, leaving the session log view stuck empty until some
+// unrelated event retried the fetch.
+func openReadDB(path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		return nil, fmt.Errorf("open %q: %w", path, err)
+	}
+	db.SetMaxOpenConns(readDBMaxConns)
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ping %q: %w", path, err)
+	}
+	return db, nil
+}
+
+// readDBMaxConns bounds openReadDB's pool. SQLite WAL readers are cheap and
+// don't contend with each other or the writer, so this just needs to be
+// comfortably above the number of concurrent client read requests expected
+// in practice, not tuned precisely.
+const readDBMaxConns = 4
 
 func serve(cfg Config, listener net.Listener) error {
 	if cfg.DbPath == "" {
@@ -253,13 +287,18 @@ func serve(cfg Config, listener net.Listener) error {
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
+	readDB, err := openReadDB(cfg.DbPath)
+	if err != nil {
+		db.Close()
+		return fmt.Errorf("open read db: %w", err)
+	}
 	log.Printf("opened poe-info-service database %q", cfg.DbPath)
 
 	st, err := store.New(db)
 	if err != nil {
 		return fmt.Errorf("init store: %w", err)
 	}
-	qdb, err := query.New(db)
+	qdb, err := query.New(readDB)
 	if err != nil {
 		return fmt.Errorf("init query db: %w", err)
 	}
@@ -296,7 +335,7 @@ func serve(cfg Config, listener net.Listener) error {
 	// One tailer per configured install, ingesting concurrently — each gets
 	// its own installs row, writer, and event channel, all independent of
 	// the others (see ingest.EnsureInstall/NewWriter, both keyed by
-	// installID). They share the single pooled db connection (SetMaxOpenConns(1)
+	// installID). They share openDB's single write connection (SetMaxOpenConns(1)
 	// above), so writes across installs serialize, but broadcastLogEvents'
 	// timer-based batch commit avoids the deadlock that a naive
 	// channel-emptiness check would risk under that contention (see
@@ -343,6 +382,7 @@ func serve(cfg Config, listener net.Listener) error {
 		st.Checkpoint()
 		httpSrv.Shutdown(context.Background())
 		db.Close()
+		readDB.Close()
 	}()
 
 	if err := httpSrv.Serve(listener); err != http.ErrServerClosed {
@@ -377,17 +417,19 @@ func (s *server) addInstallTarget(inst InstallTarget) error {
 
 	// installs.path stores the install directory (not the Client.txt path),
 	// matching the convention the old C++ Database::upsertInstall used.
-	installID, err := ingest.EnsureInstall(s.queryDB.Raw(), inst.Dir)
+	// These all write, so they use s.db (the write pool) rather than
+	// s.queryDB's read pool — see openDB/openReadDB's doc comments.
+	installID, err := ingest.EnsureInstall(s.db, inst.Dir)
 	if err != nil {
 		return fmt.Errorf("ensure install row for %q: %w", inst.Dir, err)
 	}
-	writer, err := ingest.NewWriter(s.queryDB.Raw(), installID)
+	writer, err := ingest.NewWriter(s.db, installID)
 	if err != nil {
 		return fmt.Errorf("start ingest writer for %q: %w", inst.Dir, err)
 	}
 
 	eventCh := make(chan string, 512)
-	t := tailer.New(inst.LogPath, s.queryDB.Raw(), installID, eventCh)
+	t := tailer.New(inst.LogPath, s.db, installID, eventCh)
 	p := parser.New()
 	tailerCtx, cancel := context.WithCancel(s.rootCtx)
 
@@ -1288,7 +1330,7 @@ func (s *server) handleCloseOrphanSessions(c *hub.Client, msg proto.Message) {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: " + err.Error()})
 		return
 	}
-	closed, err := ingest.CloseOrphanSessions(s.queryDB.Raw(), params.RunningInstallPaths)
+	closed, err := ingest.CloseOrphanSessions(s.db, params.RunningInstallPaths)
 	if err != nil {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
 		return

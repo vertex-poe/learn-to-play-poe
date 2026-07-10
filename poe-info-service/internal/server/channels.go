@@ -29,7 +29,7 @@ func (s *server) handleChannelsRegister(c *hub.Client, msg proto.Message) {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: channel and label required"})
 		return
 	}
-	if err := channels.Register(s.queryDB.Raw(), params.Channel, params.Label, params.ValidFrom, params.ValidTo); err != nil {
+	if err := channels.Register(s.db, params.Channel, params.Label, params.ValidFrom, params.ValidTo); err != nil {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
 		return
 	}
@@ -58,7 +58,7 @@ func (s *server) handleChannelsRename(c *hub.Client, msg proto.Message) {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: old_label and new_label required"})
 		return
 	}
-	if err := channels.Rename(s.queryDB.Raw(), params.Channel, params.ValidFrom, params.ValidTo, params.OldLabel, params.NewLabel); err != nil {
+	if err := channels.Rename(s.db, params.Channel, params.ValidFrom, params.ValidTo, params.OldLabel, params.NewLabel); err != nil {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
 		return
 	}
@@ -87,7 +87,7 @@ func (s *server) handleChannelsDelete(c *hub.Client, msg proto.Message) {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: channel and label required"})
 		return
 	}
-	if err := channels.Delete(s.queryDB.Raw(), params.Channel, params.Label, params.ValidFrom, params.ValidTo); err != nil {
+	if err := channels.Delete(s.db, params.Channel, params.Label, params.ValidFrom, params.ValidTo); err != nil {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
 		return
 	}

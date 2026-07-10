@@ -450,8 +450,12 @@ void SessionViewPage::rebuildDbZones()
       if (!self) return;
       self->m_rebuildInFlight = false;
       if (!error.isEmpty()) {
-        self->m_loadingOverlay->hide();
         self->m_dirty = true;
+        QTimer::singleShot(500, self.data(), [self] {
+          if (self && self->m_dirty && self->m_poeInfoClient
+              && self->m_poeInfoClient->isConnected() && self->isVisible())
+            self->rebuildDbZones();
+        });
         return;
       }
 

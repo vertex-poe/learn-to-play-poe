@@ -142,6 +142,82 @@ func TestOpenDB_ActuallyAppliesWALAndPragmas(t *testing.T) {
 	}
 }
 
+// TestOpenReadDB_ActuallyAppliesWALAndPragmas guards openReadDB the same way
+// TestOpenDB_ActuallyAppliesWALAndPragmas guards openDB above — same DSN
+// helper (sqliteDSN), same pragmas, just a different connection pool size.
+func TestOpenReadDB_ActuallyAppliesWALAndPragmas(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "poe-info-service.db")
+	db, err := openReadDB(dbPath)
+	if err != nil {
+		t.Fatalf("openReadDB: %v", err)
+	}
+	defer db.Close()
+
+	var journalMode string
+	if err := db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatalf("query journal_mode: %v", err)
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		t.Errorf("journal_mode = %q, want \"wal\"", journalMode)
+	}
+}
+
+// TestReadDB_NotBlockedByHeldWriteTransaction is a regression test for a real
+// bug: before openReadDB existed, every client-facing read (including the
+// "log.session" query backing the currently-running session's log view)
+// shared openDB's single connection with ingest writes. A read that arrived
+// while a batch write transaction was in flight queued behind it on that one
+// connection and could exceed busy_timeout, leaving the session log view
+// stuck empty until some unrelated event (a live game event, reconnect,
+// etc.) happened to retry the fetch. WAL mode lets readers proceed
+// independently of a writer holding an open transaction, so a query against
+// openReadDB's pool must return promptly even while openDB's write
+// connection holds an uncommitted transaction.
+func TestReadDB_NotBlockedByHeldWriteTransaction(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "poe-info-service.db")
+
+	writeDB, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB: %v", err)
+	}
+	defer writeDB.Close()
+	if err := schema.EnsureSchema(writeDB); err != nil {
+		t.Fatalf("ensure schema: %v", err)
+	}
+
+	readDB, err := openReadDB(dbPath)
+	if err != nil {
+		t.Fatalf("openReadDB: %v", err)
+	}
+	defer readDB.Close()
+
+	tx, err := writeDB.Begin()
+	if err != nil {
+		t.Fatalf("begin write tx: %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("INSERT INTO installs(path) VALUES(?)", "/game/Client.txt"); err != nil {
+		t.Fatalf("insert in held write tx: %v", err)
+	}
+	// tx is deliberately left open (uncommitted) for the rest of the test,
+	// simulating broadcastLogEvents' in-flight batch.
+
+	done := make(chan error, 1)
+	go func() {
+		var count int
+		done <- readDB.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("read query failed while a write transaction was held open: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("read query on the read pool blocked on the held write transaction — reads and writes are still contending for one connection")
+	}
+}
+
 func TestWatchIdleShutsDownAfterTimeout(t *testing.T) {
 	srv := &server{}
 	srv.touch()

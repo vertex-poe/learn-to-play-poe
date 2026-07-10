@@ -32,20 +32,18 @@ type DB struct {
 }
 
 // New ensures the game-history schema (schema.sql) is created/migrated on
-// db and returns a DB wrapping it. poe-info-service is the sole writer of
-// this database, so this is also where schema ownership lives. db is shared
-// with the store package on the same physical file (ADR-006) — lifecycle
-// (opening and closing the connection) belongs to whoever passed it in.
+// db and returns a DB wrapping it, so this is also where schema ownership
+// lives. db is expected to be the server's dedicated read connection pool
+// (see internal/server's openReadDB) — separate from the write connection
+// ingest and the store package use, on the same physical file (ADR-006:
+// poe-info-service.db is one database, not two) — lifecycle (opening and
+// closing the connection) belongs to whoever passed it in.
 func New(db *sql.DB) (*DB, error) {
 	if err := schema.EnsureSchema(db); err != nil {
 		return nil, fmt.Errorf("ensure schema: %w", err)
 	}
 	return &DB{db: db}, nil
 }
-
-// Raw exposes the underlying *sql.DB so the ingest package can share this
-// connection for writes rather than opening a second one to the same file.
-func (d *DB) Raw() *sql.DB { return d.db }
 
 // FetchChats mirrors Database::fetchChats from the C++ side. Results are
 // returned in chronological order (oldest first).
