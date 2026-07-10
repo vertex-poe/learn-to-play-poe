@@ -47,6 +47,7 @@ struct SessionRecord
     QString endedAt;     // empty if session is still open
     int totalSecs{-1};
     int activeSecs{-1};
+    int afkSecs{0};      // time away (AFK timeout or alt-tab, merged); activeSecs already excludes it
     QString accountName; // may be empty
     QString charName;    // may be empty
     QString charClass;   // may be empty
@@ -73,26 +74,14 @@ struct ZoneTransitionRecord
     int areaLevel{0};
     QString enteredAt;    // "YYYY-MM-DD HH:MM:SS"
     int durationSecs{-1}; // -1 when the span is still open (current zone)
+    int afkSecs{0};       // sum of away intervals (AFK timeout or alt-tab, merged) closed within this span
+    QString afkOpenSince; // afk_on_at of a still-open away interval in this span, or empty if none
 };
 
 struct ClientScreenEventRecord
 {
     QString eventType;  // "login_screen" or "char_select"
     QString occurredAt; // "YYYY-MM-DD HH:MM:SS"
-};
-
-struct AfkRecord
-{
-    QString afkOnAt;      // "YYYY-MM-DD HH:MM:SS"
-    QString afkOffAt;     // empty if the player is still AFK
-    int     durationSecs{-1}; // computed; -1 if still open
-};
-
-struct AltTabRecord
-{
-    QString outAt;        // "YYYY-MM-DD HH:MM:SS"
-    QString inAt;         // empty if still alt-tabbed out
-    int     durationSecs{-1}; // computed; -1 if still out
 };
 
 } // namespace Records

@@ -45,6 +45,12 @@ BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM lParam)
             if (baseName.compare(target, Qt::CaseInsensitive) == 0) {
                 WindowState state;
                 state.executableName = baseName;
+                // QFileInfo::absolutePath() is always forward-slash (Qt
+                // convention) — already the canonical form used everywhere
+                // else a PoE install path is stored or compared (see
+                // ingest.NormalizeInstallPath's doc comment in
+                // poe-info-service), so no conversion is needed here despite
+                // fullPath itself coming from a native Win32 API.
                 state.installDir     = QFileInfo(fullPath).absolutePath();
                 state.pid            = static_cast<quint32>(pid);
                 state.hwnd           = reinterpret_cast<quint64>(hwnd);

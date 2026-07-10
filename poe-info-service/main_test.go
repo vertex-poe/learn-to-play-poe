@@ -2,8 +2,10 @@ package main
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/MovingCairn/poe-info-service/internal/ingest"
 	"github.com/MovingCairn/poe-info-service/internal/server"
 )
 
@@ -13,7 +15,7 @@ func TestResolveInstallDirsSkipsMissingCandidates(t *testing.T) {
 
 	got := resolveInstallDirs(nil, []string{missing, real}, "")
 
-	want := []server.InstallTarget{{Dir: real, LogPath: filepath.Join(real, "logs", "Client.txt")}}
+	want := []server.InstallTarget{{Dir: ingest.NormalizeInstallPath(real), LogPath: filepath.Join(real, "logs", "Client.txt")}}
 	if !equalTargets(got, want) {
 		t.Errorf("expected only the existing candidate %v, got %v", want, got)
 	}
@@ -30,8 +32,8 @@ func TestResolveInstallDirsIngestsEveryExistingCandidate(t *testing.T) {
 	got := resolveInstallDirs(nil, []string{real1, missing, real2}, "")
 
 	want := []server.InstallTarget{
-		{Dir: real1, LogPath: filepath.Join(real1, "logs", "Client.txt")},
-		{Dir: real2, LogPath: filepath.Join(real2, "logs", "Client.txt")},
+		{Dir: ingest.NormalizeInstallPath(real1), LogPath: filepath.Join(real1, "logs", "Client.txt")},
+		{Dir: ingest.NormalizeInstallPath(real2), LogPath: filepath.Join(real2, "logs", "Client.txt")},
 	}
 	if !equalTargets(got, want) {
 		t.Errorf("expected both existing candidates in order %v, got %v", want, got)
@@ -45,7 +47,7 @@ func TestResolveInstallDirsAcceptsDirWithoutClientLog(t *testing.T) {
 
 	got := resolveInstallDirs(nil, []string{real}, "")
 
-	want := []server.InstallTarget{{Dir: real, LogPath: filepath.Join(real, "logs", "Client.txt")}}
+	want := []server.InstallTarget{{Dir: ingest.NormalizeInstallPath(real), LogPath: filepath.Join(real, "logs", "Client.txt")}}
 	if !equalTargets(got, want) {
 		t.Errorf("expected install dir %v (no Client.txt yet) to still be selected, got %v", want, got)
 	}
@@ -76,7 +78,10 @@ func TestResolveInstallDirsExplicitLogPathBypassesSearch(t *testing.T) {
 	// install dir and even if other candidates also exist.
 	got := resolveInstallDirs(nil, []string{"C:/Games/PoE", "C:/Games/PoE2"}, "D:/elsewhere/Client.txt")
 
-	want := []server.InstallTarget{{Dir: "C:/Games/PoE", LogPath: "D:/elsewhere/Client.txt"}}
+	// Dir is normalized (forward-slash canonical) like every other
+	// candidate; LogPath is the explicit override and stays exactly as
+	// passed.
+	want := []server.InstallTarget{{Dir: ingest.NormalizeInstallPath("C:/Games/PoE"), LogPath: "D:/elsewhere/Client.txt"}}
 	if !equalTargets(got, want) {
 		t.Errorf("expected explicit logPath to be used as-is with the first candidate, got %v", got)
 	}
@@ -98,8 +103,8 @@ func TestResolveInstallDirsMergesPersistedAndFlagCandidates(t *testing.T) {
 	got := resolveInstallDirs([]string{persisted}, []string{flagged}, "")
 
 	want := []server.InstallTarget{
-		{Dir: persisted, LogPath: filepath.Join(persisted, "logs", "Client.txt")},
-		{Dir: flagged, LogPath: filepath.Join(flagged, "logs", "Client.txt")},
+		{Dir: ingest.NormalizeInstallPath(persisted), LogPath: filepath.Join(persisted, "logs", "Client.txt")},
+		{Dir: ingest.NormalizeInstallPath(flagged), LogPath: filepath.Join(flagged, "logs", "Client.txt")},
 	}
 	if !equalTargets(got, want) {
 		t.Errorf("expected persisted dirs before flag dirs %v, got %v", want, got)
@@ -114,9 +119,29 @@ func TestResolveInstallDirsDedupesPersistedAndFlagCandidates(t *testing.T) {
 
 	got := resolveInstallDirs([]string{shared}, []string{shared}, "")
 
-	want := []server.InstallTarget{{Dir: shared, LogPath: filepath.Join(shared, "logs", "Client.txt")}}
+	want := []server.InstallTarget{{Dir: ingest.NormalizeInstallPath(shared), LogPath: filepath.Join(shared, "logs", "Client.txt")}}
 	if !equalTargets(got, want) {
 		t.Errorf("expected the duplicate to be deduped to one target %v, got %v", want, got)
+	}
+}
+
+func TestResolveInstallDirsDedupesRegardlessOfSlashDirection(t *testing.T) {
+	// Regression test: a persisted config entry and a --install-dir flag
+	// pointing at the same directory but spelled with different separators
+	// (e.g. forward slashes from l2p-poe's Settings UI vs. backslashes from
+	// Windows auto-detection) must still dedupe to one target, not silently
+	// start two tailers for the same Client.txt.
+	shared := t.TempDir()
+	altSpelling := strings.ReplaceAll(shared, `\`, `/`)
+	if altSpelling == shared {
+		t.Skip("temp dir contains no backslashes on this platform, nothing to dedupe")
+	}
+
+	got := resolveInstallDirs([]string{shared}, []string{altSpelling}, "")
+
+	want := []server.InstallTarget{{Dir: ingest.NormalizeInstallPath(shared), LogPath: filepath.Join(shared, "logs", "Client.txt")}}
+	if !equalTargets(got, want) {
+		t.Errorf("expected the two spellings to be deduped to one target %v, got %v", want, got)
 	}
 }
 

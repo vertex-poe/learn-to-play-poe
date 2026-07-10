@@ -55,3 +55,28 @@ func TestCloseOrphanSessions(t *testing.T) {
 		t.Errorf("second call closed = %d, want 0", closed)
 	}
 }
+
+// TestCloseOrphanSessions_NormalizesSlashDirection covers a still-running
+// install not getting incorrectly closed as orphaned just because
+// l2p-poe's WindowTracker (forward slashes, via Qt) spells its path
+// differently than installs.path (backslashes, via EnsureInstall's
+// filepath.Clean).
+func TestCloseOrphanSessions_NormalizesSlashDirection(t *testing.T) {
+	db := newTestDB(t)
+
+	runningID, err := EnsureInstall(db, `F:\SteamLibrary\steamapps\common\Path of Exile`)
+	if err != nil {
+		t.Fatalf("EnsureInstall: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO sessions(install_id, started_at) VALUES(?, '2024-01-15 10:00:00')`, runningID); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+
+	closed, err := CloseOrphanSessions(db, []string{`F:/SteamLibrary/steamapps/common/Path of Exile`})
+	if err != nil {
+		t.Fatalf("CloseOrphanSessions: %v", err)
+	}
+	if closed != 0 {
+		t.Errorf("closed = %d, want 0 — the running install's session should not have been closed", closed)
+	}
+}

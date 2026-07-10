@@ -8,7 +8,7 @@ import (
 // kVersion mirrors the C++ Database::kDbVersion. Bump it, and add a branch to
 // migrate(), whenever schema.sql changes in a way existing databases need to
 // catch up on.
-const kVersion = 7
+const kVersion = 9
 
 // EnsureSchema creates the schema on a fresh database (and seeds it with
 // reference data) or migrates an existing one up to kVersion. It is
@@ -85,6 +85,57 @@ func migrate(db *sql.DB, fromVersion int) error {
 			return err
 		}
 		fromVersion = 7
+	}
+
+	if fromVersion < 8 {
+		// session_afk gains span_id so a zone's cumulative AFK time can be
+		// recomputed at any time straight from these child rows (see
+		// query.FetchZoneTransitions) instead of trusting a cached total.
+		// Pre-existing rows keep span_id NULL — no reinterpretation needed,
+		// since area_time_spans.afk_secs already carries their historical sum.
+		if _, err := db.Exec(`ALTER TABLE session_afk ADD COLUMN span_id INTEGER REFERENCES area_time_spans(id)`); err != nil {
+			return err
+		}
+		if err := setUserVersion(db, 8); err != nil {
+			return err
+		}
+		fromVersion = 8
+	}
+
+	if fromVersion < 9 {
+		// session_afk and session_alt_tabs are unified: the game treats
+		// alt-tabbing out the same as an AFK timeout for activity purposes, so
+		// both now live in session_afk (distinguished by the new `kind`
+		// column) and share its span_id binding/zone-transition-split
+		// treatment. SQLite can't ALTER a UNIQUE constraint in place, so this
+		// rebuilds the table rather than just adding a column.
+		stmts := []string{
+			`CREATE TABLE session_afk_new (
+				id         INTEGER PRIMARY KEY AUTOINCREMENT,
+				session_id INTEGER NOT NULL REFERENCES sessions(id),
+				span_id    INTEGER REFERENCES area_time_spans(id),
+				kind       TEXT    NOT NULL DEFAULT 'afk' CHECK(kind IN ('afk','alt_tab')),
+				afk_on_at  TEXT    NOT NULL,
+				afk_off_at TEXT,
+				UNIQUE(session_id, kind, afk_on_at)
+			)`,
+			`INSERT INTO session_afk_new(session_id, span_id, kind, afk_on_at, afk_off_at)
+			 SELECT session_id, span_id, 'afk', afk_on_at, afk_off_at FROM session_afk`,
+			`INSERT INTO session_afk_new(session_id, span_id, kind, afk_on_at, afk_off_at)
+			 SELECT session_id, NULL, 'alt_tab', out_at, in_at FROM session_alt_tabs`,
+			`DROP TABLE session_afk`,
+			`ALTER TABLE session_afk_new RENAME TO session_afk`,
+			`DROP TABLE session_alt_tabs`,
+		}
+		for _, stmt := range stmts {
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("migrate to v9: %w", err)
+			}
+		}
+		if err := setUserVersion(db, 9); err != nil {
+			return err
+		}
+		fromVersion = 9
 	}
 
 	if fromVersion < kVersion {

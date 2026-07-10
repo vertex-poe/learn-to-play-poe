@@ -2,6 +2,7 @@
 
 #include "ui/log/SessionViewPage.h"
 #include "ui/log/SessionQueryLimits.h"
+#include "ui/log/ZoneAfkSuffix.h"
 #include "services/PoeInfoRecords.h"
 #include "util/Docs.h"
 #include "events/LiveEvent.h"
@@ -24,40 +25,6 @@
 #include <QScrollBar>
 #include <QTimer>
 #include <QVBoxLayout>
-
-static QString formatDuration(int secs)
-{
-    if (secs <= 0) return {};
-    constexpr int kYear  = 365 * 86400;
-    constexpr int kMonth = 30  * 86400;
-    constexpr int kWeek  = 7   * 86400;
-    const int Y = secs / kYear;
-    const int M = (secs % kYear)  / kMonth;
-    const int W = (secs % kMonth) / kWeek;
-    const int D = (secs % kWeek)  / 86400;
-    const int h = (secs % 86400)  / 3600;
-    const int m = (secs % 3600)   / 60;
-    const int s = secs % 60;
-    if (Y > 0)
-        return (Y > 5 || M == 0) ? QStringLiteral("%1Y").arg(Y)
-                                  : QStringLiteral("%1Y%2M").arg(Y).arg(M);
-    if (M > 0)
-        return (M > 5 || W == 0) ? QStringLiteral("%1M").arg(M)
-                                  : QStringLiteral("%1M%2W").arg(M).arg(W);
-    if (W > 0)
-        return (W > 5 || D == 0) ? QStringLiteral("%1W").arg(W)
-                                  : QStringLiteral("%1W%2D").arg(W).arg(D);
-    if (D > 0)
-        return (D > 5 || h == 0) ? QStringLiteral("%1D").arg(D)
-                                  : QStringLiteral("%1D%2h").arg(D).arg(h);
-    if (h > 0)
-        return (h > 5 || m == 0) ? QStringLiteral("%1h").arg(h)
-                                  : QStringLiteral("%1h%2m").arg(h).arg(m);
-    if (m > 0)
-        return (m > 5 || s == 0) ? QStringLiteral("%1m").arg(m)
-                                  : QStringLiteral("%1m%2s").arg(m).arg(s);
-    return QStringLiteral("%1s").arg(s);
-}
 
 static QString formatDuration(double secs)
 {
@@ -87,20 +54,6 @@ static NotificationStyle clientScreenStyle()
 {
   NotificationStyle s;
   s.accentColor = QColor(160, 130, 95);
-  return s;
-}
-
-static NotificationStyle altTabStyle()
-{
-  NotificationStyle s;
-  s.accentColor = QColor(110, 110, 130);
-  return s;
-}
-
-static NotificationStyle afkStyle()
-{
-  NotificationStyle s;
-  s.accentColor = QColor(120, 100, 160);
   return s;
 }
 
@@ -382,21 +335,23 @@ void SessionViewPage::onLiveEvent(const LiveEvent &event, bool bulk)
           if (arr.size() >= 2) {
             const QJsonObject o = arr[1].toObject();
             const int dur = o["duration_secs"].toInt(-1);
-            if (dur > 0) {
-              const QString durationStr = "\xc2\xb7 " + formatDuration(dur);
-              if (o["area_type"].toString().isEmpty())
-                prevCard->setHeaderSuffix(durationStr);
-              else
-                prevCard->setHeaderSuffix("entered " + durationStr);
-            }
+            const int afkSecs = o["afk_secs"].toInt(0);
+            const bool hasAreaType = !o["area_type"].toString().isEmpty();
+            prevCard->setHeaderSuffix(buildZoneSuffix(hasAreaType, dur, afkSecs, false));
           }
         });
     }
+
+    // AFK continues into the new zone if it was already ongoing (mirrors the
+    // server splitting the interval at the transition boundary — see
+    // writer.closeSpan's continueAfk handling).
+    const bool afkContinues = !m_liveAfkOnAt.isEmpty();
 
     const QString ts = QDateTime::currentDateTime().toString("HH:mm");
     auto *card = makeZoneCard(areaName, areaCode, areaType, areaSubtype, areaLevel, ts, -1);
     appendLiveWidget(card);
     m_prevZoneCard = card;
+    setLiveAfkState(afkContinues ? event.timestamp : QString(), 0, !areaType.isEmpty());
   }
   else if (event.type == LiveEventType::LoginScreen)
   {
@@ -405,6 +360,7 @@ void SessionViewPage::onLiveEvent(const LiveEvent &event, bool bulk)
     card->setLeadingIcon(QStringLiteral(":/icons/box-arrow-in-right.svg"), QColor(160, 130, 95), 20);
     appendLiveWidget(card);
     m_prevZoneCard = nullptr;
+    setLiveAfkState(QString(), 0, false);
   }
   else if (event.type == LiveEventType::CharSelect)
   {
@@ -419,18 +375,41 @@ void SessionViewPage::onLiveEvent(const LiveEvent &event, bool bulk)
     if (isVisible() && m_poeInfoClient && m_poeInfoClient->isConnected())
       rebuildDbZones();
   }
-  else if (event.type == LiveEventType::AltTabOut)
+  else if (event.type == LiveEventType::AfkOn || event.type == LiveEventType::AltTabOut)
   {
-    if (event.timestamp == m_dbAltTabOutTs)
-      return;
-    auto *card = new NotificationWidget("Alt-Tab", {}, {},
-        event.timestamp.mid(11, 5), altTabStyle(), m_content);
-    card->setLeadingIcon(QStringLiteral(":/icons/indent.svg"), QColor(110, 110, 130), 20);
-    appendLiveWidget(card);
+    // AFK and alt-tab are folded into the same indicator on the zone card —
+    // the game treats alt-tabbing out the same as an AFK timeout for
+    // activity purposes (see writer.kindAfk/kindAltTab, both feeding
+    // session_afk), so both are tracked identically here.
+    setLiveAfkState(event.timestamp, m_liveAfkBaseSecs, m_liveZoneHasAreaType);
   }
-  else if (event.type == LiveEventType::AltTabBack)
+  else if (event.type == LiveEventType::AfkOff || event.type == LiveEventType::AltTabBack)
   {
-    m_dirty = true;
+    // Resolve optimistically from the event's own duration_secs so the
+    // highlight drops immediately, then reconcile against the server's
+    // authoritative afk_secs once poe-info-service finalizes the interval —
+    // it may differ if the away period straddled a zone transition (split
+    // at the boundary server-side, see writer.closeSpan).
+    const int durSecs = event.data.value("duration_secs").toInt();
+    setLiveAfkState(QString(), m_liveAfkBaseSecs + durSecs, m_liveZoneHasAreaType);
+
+    if (m_poeInfoClient && m_poeInfoClient->isConnected())
+    {
+      QPointer<SessionViewPage> self(this);
+      QJsonObject zp;
+      zp["session_id"] = qint64(-1);
+      zp["limit"]      = 1;
+      zp["offset"]     = 0;
+      m_poeInfoClient->request("log.zones", zp,
+        [self](QJsonObject payload, QString error) {
+          if (!self || !error.isEmpty()) return;
+          const QJsonArray arr = payload["zones"].toArray();
+          if (arr.isEmpty()) return;
+          const QJsonObject o = arr[0].toObject();
+          self->setLiveAfkState(o["afk_open_since"].toString(), o["afk_secs"].toInt(0),
+                                self->m_liveZoneHasAreaType);
+        });
+    }
   }
 }
 
@@ -489,6 +468,8 @@ void SessionViewPage::rebuildDbZones()
         r.areaLevel   = o["area_level"].toInt(0);
         r.enteredAt   = o["entered_at"].toString();
         r.durationSecs = o["duration_secs"].toInt(-1);
+        r.afkSecs     = o["afk_secs"].toInt(0);
+        r.afkOpenSince = o["afk_open_since"].toString();
         data.zones.append(r);
       }
 
@@ -513,26 +494,6 @@ void SessionViewPage::rebuildDbZones()
         r.eventType  = o["event_type"].toString();
         r.occurredAt = o["occurred_at"].toString();
         data.clientScreenEvents.append(r);
-      }
-
-      const QJsonArray afkArr = payload["afk_records"].toArray();
-      for (const QJsonValue &v : afkArr) {
-        const QJsonObject o = v.toObject();
-        Records::AfkRecord r;
-        r.afkOnAt     = o["afk_on_at"].toString();
-        r.afkOffAt    = o["afk_off_at"].toString();
-        r.durationSecs = o["duration_secs"].toInt(-1);
-        data.afkRecords.append(r);
-      }
-
-      const QJsonArray atArr = payload["alt_tab_records"].toArray();
-      for (const QJsonValue &v : atArr) {
-        const QJsonObject o = v.toObject();
-        Records::AltTabRecord r;
-        r.outAt       = o["out_at"].toString();
-        r.inAt        = o["in_at"].toString();
-        r.durationSecs = o["duration_secs"].toInt(-1);
-        data.altTabRecords.append(r);
       }
 
       self->applyCurrentPageData(data, runningGames, detectedAt, distFromBottom);
@@ -572,8 +533,8 @@ void SessionViewPage::applyCurrentPageData(const PageData &data,
   }
   m_dbZoneWidgets.clear();
   m_prevZoneCard = nullptr;
+  setLiveAfkState(QString(), 0, false);
   m_dbZoneOffset = 0;
-  m_dbAltTabOutTs.clear();
 
   setLoadMoreVisible(false);
 
@@ -690,36 +651,29 @@ void SessionViewPage::applyCurrentPageData(const PageData &data,
         sessionStarts.append(ev);
     }
 
-    const auto &afkMc = data.afkRecords;
-    const auto &atMc  = data.altTabRecords;
     NotificationWidget *lastZoneCard = nullptr;
     int zi   = zones.size() - 1;
     int si   = 0;
-    int ai   = afkMc.size() - 1;
-    int ati  = atMc.size() - 1;
 
-    while (zi >= 0 || si < (int)sessionStarts.size() || ai >= 0 || ati >= 0)
+    while (zi >= 0 || si < (int)sessionStarts.size())
     {
       const QString zTs  = (zi  >= 0) ? zones[zi].enteredAt                              : QString{};
       const QString sTs  = (si  < (int)sessionStarts.size()) ? sessionStarts[si].occurredAt : QString{};
-      const QString aTs  = (ai  >= 0) ? afkMc[ai].afkOnAt                                : QString{};
-      const QString atTs = (ati >= 0) ? atMc[ati].outAt                                  : QString{};
 
-      const bool takeZone    = !zTs.isEmpty()  && (sTs.isEmpty()  || zTs <= sTs)  && (aTs.isEmpty()  || zTs <= aTs)  && (atTs.isEmpty() || zTs <= atTs);
-      const bool takeSession = !takeZone   && !sTs.isEmpty()  && (aTs.isEmpty()  || sTs <= aTs)  && (atTs.isEmpty() || sTs <= atTs);
-      const bool takeAfkMc   = !takeZone   && !takeSession && !aTs.isEmpty()  && (atTs.isEmpty() || aTs <= atTs);
+      const bool takeZone = !zTs.isEmpty() && (sTs.isEmpty() || zTs <= sTs);
 
       if (takeZone)
       {
         const auto &z = zones[zi];
         auto *card = makeZoneCard(z.areaName, z.areaCode, z.areaType, z.areaSubtype,
-                                  z.areaLevel, z.enteredAt.mid(11, 5), z.durationSecs);
+                                  z.areaLevel, z.enteredAt.mid(11, 5), z.durationSecs,
+                                  z.afkSecs, !z.afkOpenSince.isEmpty());
         m_contentLayout->addWidget(card);
         m_dbZoneWidgets.append(card);
         lastZoneCard = card;
         --zi;
       }
-      else if (takeSession)
+      else
       {
         const auto &ev = sessionStarts[si];
         auto *card = new NotificationWidget(
@@ -744,69 +698,40 @@ void SessionViewPage::applyCurrentPageData(const PageData &data,
         m_dbZoneWidgets.append(card);
         ++si;
       }
-      else if (takeAfkMc)
-      {
-        const auto &a = afkMc[ai];
-        auto *card = new NotificationWidget("AFK", {}, {}, a.afkOnAt.mid(11, 5), afkStyle(), m_content);
-        card->setLeadingIcon(QStringLiteral(":/icons/stopwatch-fill.svg"), QColor(120, 100, 160), 20);
-        if (a.durationSecs > 0)
-          card->setHeaderSuffix("\xc2\xb7 " + formatDuration(a.durationSecs));
-        m_contentLayout->addWidget(card);
-        m_dbZoneWidgets.append(card);
-        --ai;
-      }
-      else
-      {
-        const auto &r = atMc[ati];
-        auto *card = new NotificationWidget("Alt-Tab", {}, {}, r.outAt.mid(11, 5), altTabStyle(), m_content);
-        card->setLeadingIcon(QStringLiteral(":/icons/indent.svg"), QColor(110, 110, 130), 20);
-        if (r.durationSecs > 0)
-          card->setHeaderSuffix("\xc2\xb7 " + formatDuration(r.durationSecs));
-        else {
-          m_dbAltTabOutTs = r.outAt;
-          qDebug() << "[SessionViewPage] pending alt-tab card (no duration), out_at=" << r.outAt;
-        }
-        m_contentLayout->addWidget(card);
-        m_dbZoneWidgets.append(card);
-        --ati;
-      }
     }
 
     if (!zones.isEmpty() && zones[0].durationSecs < 0)
+    {
       m_prevZoneCard = lastZoneCard;
+      if (m_targetSessionId < 0)
+        setLiveAfkState(zones[0].afkOpenSince, zones[0].afkSecs, !zones[0].areaType.isEmpty());
+    }
   }
   else
   {
     const auto &cse = data.clientScreenEvents;
-    const auto &afk = data.afkRecords;
-    const auto &at  = data.altTabRecords;
     NotificationWidget *lastZoneCard = nullptr;
     int zi  = zones.size() - 1;
     int ci  = cse.size() - 1;
-    int ai  = afk.size() - 1;
-    int ati = at.size() - 1;
 
-    while (zi >= 0 || ci >= 0 || ai >= 0 || ati >= 0)
+    while (zi >= 0 || ci >= 0)
     {
-      const QString zTs  = (zi  >= 0) ? zones[zi].enteredAt   : QString{};
-      const QString cTs  = (ci  >= 0) ? cse[ci].occurredAt    : QString{};
-      const QString aTs  = (ai  >= 0) ? afk[ai].afkOnAt       : QString{};
-      const QString atTs = (ati >= 0) ? at[ati].outAt          : QString{};
+      const QString zTs = (zi >= 0) ? zones[zi].enteredAt : QString{};
+      const QString cTs = (ci >= 0) ? cse[ci].occurredAt  : QString{};
 
-      const bool takeZone   = !zTs.isEmpty()   && (cTs.isEmpty()  || zTs <= cTs)  && (aTs.isEmpty()  || zTs <= aTs)  && (atTs.isEmpty() || zTs <= atTs);
-      const bool takeScreen = !takeZone   && !cTs.isEmpty()  && (aTs.isEmpty()  || cTs <= aTs)  && (atTs.isEmpty() || cTs <= atTs);
-      const bool takeAfk    = !takeZone   && !takeScreen && !aTs.isEmpty()  && (atTs.isEmpty() || aTs <= atTs);
+      const bool takeZone = !zTs.isEmpty() && (cTs.isEmpty() || zTs <= cTs);
 
       if (takeZone)
       {
         const auto &z = zones[zi];
         auto *card = makeZoneCard(z.areaName, z.areaCode, z.areaType, z.areaSubtype,
-                                  z.areaLevel, z.enteredAt.mid(11, 5), z.durationSecs);
+                                  z.areaLevel, z.enteredAt.mid(11, 5), z.durationSecs,
+                                  z.afkSecs, !z.afkOpenSince.isEmpty());
         appendDbZone(card);
         lastZoneCard = card;
         --zi;
       }
-      else if (takeScreen)
+      else
       {
         const auto &ev = cse[ci];
         const bool isLogin = ev.eventType == QLatin1String("login_screen");
@@ -824,34 +749,14 @@ void SessionViewPage::applyCurrentPageData(const PageData &data,
         appendDbZone(card);
         --ci;
       }
-      else if (takeAfk)
-      {
-        const auto &a = afk[ai];
-        auto *card = new NotificationWidget("AFK", {}, {}, a.afkOnAt.mid(11, 5), afkStyle(), m_content);
-        card->setLeadingIcon(QStringLiteral(":/icons/stopwatch-fill.svg"), QColor(120, 100, 160), 20);
-        if (a.durationSecs > 0)
-          card->setHeaderSuffix("\xc2\xb7 " + formatDuration(a.durationSecs));
-        appendDbZone(card);
-        --ai;
-      }
-      else
-      {
-        const auto &r = at[ati];
-        auto *card = new NotificationWidget("Alt-Tab", {}, {}, r.outAt.mid(11, 5), altTabStyle(), m_content);
-        card->setLeadingIcon(QStringLiteral(":/icons/indent.svg"), QColor(110, 110, 130), 20);
-        if (r.durationSecs > 0)
-          card->setHeaderSuffix("\xc2\xb7 " + formatDuration(r.durationSecs));
-        else {
-          m_dbAltTabOutTs = r.outAt;
-          qDebug() << "[SessionViewPage] pending alt-tab card (no duration), out_at=" << r.outAt;
-        }
-        appendDbZone(card);
-        --ati;
-      }
     }
 
     if (!zones.isEmpty() && zones[0].durationSecs < 0)
+    {
       m_prevZoneCard = lastZoneCard;
+      if (m_targetSessionId < 0)
+        setLiveAfkState(zones[0].afkOpenSince, zones[0].afkSecs, !zones[0].areaType.isEmpty());
+    }
   }
 
   m_pendingScrollTo = (distFromBottom <= 4) ? 0 : distFromBottom;
@@ -899,6 +804,8 @@ void SessionViewPage::onLoadMore()
         r.areaLevel    = o["area_level"].toInt(0);
         r.enteredAt    = o["entered_at"].toString();
         r.durationSecs = o["duration_secs"].toInt(-1);
+        r.afkSecs      = o["afk_secs"].toInt(0);
+        r.afkOpenSince = o["afk_open_since"].toString();
         zones.append(r);
       }
 
@@ -910,7 +817,8 @@ void SessionViewPage::onLoadMore()
       for (const auto &z : zones) {
         const QString ts = z.enteredAt.mid(11, 5);
         auto *card = self->makeZoneCard(z.areaName, z.areaCode, z.areaType, z.areaSubtype,
-                                        z.areaLevel, ts, z.durationSecs);
+                                        z.areaLevel, ts, z.durationSecs,
+                                        z.afkSecs, !z.afkOpenSince.isEmpty());
         self->m_contentLayout->insertWidget(insertPos, card);
         self->m_dbZoneWidgets.append(card);
       }
@@ -961,7 +869,7 @@ static QColor zoneAccent(const QString &areaType, const QString &areaSubtype, co
 NotificationWidget *SessionViewPage::makeZoneCard(const QString &areaName, const QString &areaCode,
                                               const QString &areaType, const QString &areaSubtype,
                                               int areaLevel, const QString &timestamp,
-                                              int durationSecs)
+                                              int durationSecs, int afkSecs, bool afkOngoing)
 {
   const bool showTag = areaLevel > 0 && areaType != QLatin1String("Hideout") && areaType != QLatin1String("Mechanic") && areaSubtype != QLatin1String("Town");
   const QString tag = showTag ? QStringLiteral("lv %1").arg(areaLevel) : QString{};
@@ -975,7 +883,7 @@ NotificationWidget *SessionViewPage::makeZoneCard(const QString &areaName, const
     style.accentColor = accent;
     auto *card = new NotificationWidget(typeLabel, {}, {}, timestamp, style, m_content);
     card->setAreaName(areaName);
-    card->setHeaderSuffix(durationSecs > 0 ? "entered \xc2\xb7 " + formatDuration(durationSecs) : "entered.");
+    card->setHeaderSuffix(buildZoneSuffix(true, durationSecs, afkSecs, afkOngoing));
     if (!tag.isEmpty())
       card->appendTopRowTag(tag);
     static const QHash<QString, QString> kMechanicIcons = {
@@ -1009,8 +917,9 @@ NotificationWidget *SessionViewPage::makeZoneCard(const QString &areaName, const
     return card;
   }
   auto *card = new NotificationWidget(areaName, tag, {}, timestamp, zoneStyle(), m_content);
-  if (durationSecs > 0)
-    card->setHeaderSuffix("\xc2\xb7 " + formatDuration(durationSecs));
+  const QString suffix = buildZoneSuffix(false, durationSecs, afkSecs, afkOngoing);
+  if (!suffix.isEmpty())
+    card->setHeaderSuffix(suffix);
   card->setSource(docSource("Client.txt", "sources/zone-transition"));
   return card;
 }
@@ -1019,6 +928,51 @@ void SessionViewPage::appendDbZone(NotificationWidget *card)
 {
   m_contentLayout->addWidget(card);
   m_dbZoneWidgets.append(card);
+}
+
+// setLiveAfkState updates the tracked AFK baseline for m_prevZoneCard (the
+// current, still-open zone) and starts/stops the 1s tick that keeps an
+// ongoing AFK's displayed duration counting up. afkOnAt empty means "not
+// currently AFK"; baseAfkSecs is the closed AFK time already in this span,
+// to which updateLiveAfkSuffix adds elapsed-since-afkOnAt when ongoing.
+//
+// Called both when a live afk_on/afk_off event arrives and when a zone
+// transition happens mid-AFK — in the latter case afkOnAt is reset to the
+// transition timestamp and baseAfkSecs to 0, mirroring how the server splits
+// the interval into a fresh row bound to the new span (writer.closeSpan).
+void SessionViewPage::setLiveAfkState(const QString &afkOnAt, int baseAfkSecs, bool hasAreaType)
+{
+  m_liveAfkOnAt = afkOnAt;
+  m_liveAfkBaseSecs = baseAfkSecs;
+  m_liveZoneHasAreaType = hasAreaType;
+
+  if (!m_afkTickTimer)
+  {
+    m_afkTickTimer = new QTimer(this);
+    m_afkTickTimer->setInterval(1000);
+    connect(m_afkTickTimer, &QTimer::timeout, this, &SessionViewPage::updateLiveAfkSuffix);
+  }
+  if (!afkOnAt.isEmpty())
+    m_afkTickTimer->start();
+  else
+    m_afkTickTimer->stop();
+
+  updateLiveAfkSuffix();
+}
+
+void SessionViewPage::updateLiveAfkSuffix()
+{
+  if (!m_prevZoneCard) return;
+
+  int afkSecs = m_liveAfkBaseSecs;
+  const bool ongoing = !m_liveAfkOnAt.isEmpty();
+  if (ongoing)
+  {
+    const QDateTime onDt = QDateTime::fromString(m_liveAfkOnAt, "yyyy-MM-dd HH:mm:ss");
+    if (onDt.isValid())
+      afkSecs += static_cast<int>(qMax<qint64>(0, onDt.secsTo(QDateTime::currentDateTime())));
+  }
+  m_prevZoneCard->setHeaderSuffix(buildZoneSuffix(m_liveZoneHasAreaType, -1, afkSecs, ongoing));
 }
 
 void SessionViewPage::setLoadMoreVisible(bool visible)

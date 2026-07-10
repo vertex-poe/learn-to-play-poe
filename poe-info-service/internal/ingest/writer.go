@@ -286,13 +286,36 @@ func (w *Writer) ensureSession(ts string) error {
 	return nil
 }
 
-func (w *Writer) closeSpan(endTs string) error {
+// closeSpan closes the currently open area_time_span at endTs. If AFK or
+// alt-tab is in progress, the segment that occurred within this span is
+// always finalized into a session_afk row (see finalizeAwaySegment) —
+// continueAway then decides whether it itself carries on into whatever span
+// comes next (true for zone transitions, where openSpan follows immediately)
+// or has fully ended here (false when the session itself is closing and
+// there is no next span to carry it into).
+func (w *Writer) closeSpan(endTs string, continueAway bool) error {
 	if w.currentSpanID < 0 || endTs == "" {
 		return nil
 	}
 	if w.afkOnTs != "" {
-		w.currentSpanAfkSecs += max0(tsToSecs(endTs) - tsToSecs(w.afkOnTs))
-		w.afkOnTs = endTs
+		if err := w.finalizeAwaySegment(kindAfk, w.afkOnTs, endTs); err != nil {
+			return err
+		}
+		if continueAway {
+			w.afkOnTs = endTs
+		} else {
+			w.afkOnTs = ""
+		}
+	}
+	if w.altTabOutTs != "" {
+		if err := w.finalizeAwaySegment(kindAltTab, w.altTabOutTs, endTs); err != nil {
+			return err
+		}
+		if continueAway {
+			w.altTabOutTs = endTs
+		} else {
+			w.altTabOutTs = ""
+		}
 	}
 	_, err := w.db.Exec(
 		`UPDATE area_time_spans SET exited_at=?,
@@ -337,28 +360,27 @@ func (w *Writer) closeSession(endTs string) error {
 	if w.sessionID < 0 || endTs == "" {
 		return nil
 	}
-	if err := w.closeSpan(endTs); err != nil {
+	// continueAway=false: the session is ending, so any pending AFK/alt-tab
+	// closeSpan finds has nowhere to continue into.
+	if err := w.closeSpan(endTs, false); err != nil {
 		return err
 	}
 
-	if w.altTabOutTs != "" {
-		if _, err := w.db.Exec(
-			`UPDATE session_alt_tabs SET in_at=? WHERE session_id=? AND out_at=?`,
-			endTs, w.sessionID, w.altTabOutTs); err != nil {
-			return err
-		}
-		w.altTabOutTs = ""
-	}
-
+	// Belt-and-suspenders: closeSpan only finalizes a pending AFK/alt-tab
+	// when a span is actually open (currentSpanID >= 0). If either started
+	// with no span open (e.g. at the character-select screen), it needs
+	// finalizing here too.
 	if w.afkOnTs != "" {
-		w.sessionAfkSecs += max0(tsToSecs(endTs) - tsToSecs(w.afkOnTs))
-		if _, err := w.db.Exec(
-			`INSERT INTO session_afk(session_id, afk_on_at, afk_off_at) VALUES(?,?,?)
-			 ON CONFLICT(session_id, afk_on_at) DO UPDATE SET afk_off_at=excluded.afk_off_at`,
-			w.sessionID, w.afkOnTs, endTs); err != nil {
+		if err := w.finalizeAwaySegment(kindAfk, w.afkOnTs, endTs); err != nil {
 			return err
 		}
 		w.afkOnTs = ""
+	}
+	if w.altTabOutTs != "" {
+		if err := w.finalizeAwaySegment(kindAltTab, w.altTabOutTs, endTs); err != nil {
+			return err
+		}
+		w.altTabOutTs = ""
 	}
 
 	totalSecs := max0(tsToSecs(endTs) - tsToSecs(w.sessionStartTs))
@@ -412,7 +434,9 @@ func (w *Writer) handleAreaEntered(evt proto.ParsedEvent) error {
 	}
 	w.sessionAreaID = areaID
 
-	if err := w.closeSpan(ts); err != nil {
+	// continueAway=true: openSpan immediately follows, so a pending
+	// AFK/alt-tab carries on into the new span rather than ending here.
+	if err := w.closeSpan(ts, true); err != nil {
 		return err
 	}
 	if err := w.openSpan(ts, areaID); err != nil {
@@ -485,21 +509,22 @@ func (w *Writer) handleLevelUp(evt proto.ParsedEvent) error {
 	return nil
 }
 
+// kindAfk/kindAltTab are the session_afk.kind values. The game treats
+// alt-tabbing out the same as an AFK timeout for activity purposes (per
+// product decision), so both accumulate into the same session/span AFK
+// totals and get identical span-binding/split treatment — kind exists only
+// so a future feature could break them back apart if needed.
+const (
+	kindAfk    = "afk"
+	kindAltTab = "alt_tab"
+)
+
 func (w *Writer) handleAfkOff(ts string) error {
 	if w.afkOnTs == "" {
 		return nil
 	}
-	dur := max0(tsToSecs(ts) - tsToSecs(w.afkOnTs))
-	w.sessionAfkSecs += dur
-	w.currentSpanAfkSecs += dur
-
-	if w.sessionID >= 0 {
-		if _, err := w.db.Exec(
-			`INSERT INTO session_afk(session_id, afk_on_at, afk_off_at) VALUES(?,?,?)
-			 ON CONFLICT(session_id, afk_on_at) DO UPDATE SET afk_off_at=excluded.afk_off_at`,
-			w.sessionID, w.afkOnTs, ts); err != nil {
-			return err
-		}
+	if err := w.finalizeAwaySegment(kindAfk, w.afkOnTs, ts); err != nil {
+		return err
 	}
 	w.afkOnTs = ""
 	return nil
@@ -507,26 +532,47 @@ func (w *Writer) handleAfkOff(ts string) error {
 
 func (w *Writer) handleAltTabOut(ts string) error {
 	w.altTabOutTs = ts
-	if w.sessionID < 0 {
-		return nil
-	}
-	_, err := w.db.Exec(`INSERT OR IGNORE INTO session_alt_tabs(session_id, out_at) VALUES(?,?)`, w.sessionID, ts)
-	return err
+	return nil
 }
 
 func (w *Writer) handleAltTabBack(ts string) error {
 	if w.altTabOutTs == "" {
 		return nil
 	}
-	if w.sessionID >= 0 {
-		if _, err := w.db.Exec(
-			`UPDATE session_alt_tabs SET in_at=? WHERE session_id=? AND out_at=?`,
-			ts, w.sessionID, w.altTabOutTs); err != nil {
-			return err
-		}
+	if err := w.finalizeAwaySegment(kindAltTab, w.altTabOutTs, ts); err != nil {
+		return err
 	}
 	w.altTabOutTs = ""
 	return nil
+}
+
+// finalizeAwaySegment records a pending AFK-or-alt-tab segment (onTs, of the
+// given kind) as ending at endTs: it writes a session_afk row bound to the
+// span the player was in when this segment occurred (w.currentSpanID,
+// possibly none) and folds the segment's duration into both the session-
+// and span-level running AFK totals. Callers decide separately whether to
+// clear the corresponding w.afkOnTs/w.altTabOutTs or carry it forward (zone
+// transition mid-segment vs. afk_off/alt-tab-back/session close).
+func (w *Writer) finalizeAwaySegment(kind, onTs, endTs string) error {
+	dur := max0(tsToSecs(endTs) - tsToSecs(onTs))
+	w.sessionAfkSecs += dur
+	w.currentSpanAfkSecs += dur
+	return w.writeAwayRow(kind, w.currentSpanID, onTs, endTs)
+}
+
+// writeAwayRow upserts one session_afk interval, keyed on (session_id, kind,
+// afk_on_at) — the same natural key shape that already made re-ingesting the
+// same Client.txt lines idempotent before kind/span_id existed. spanID may
+// be -1 (no span was open), stored as NULL.
+func (w *Writer) writeAwayRow(kind string, spanID int64, onTs, offTs string) error {
+	if w.sessionID < 0 {
+		return nil
+	}
+	_, err := w.db.Exec(
+		`INSERT INTO session_afk(session_id, span_id, kind, afk_on_at, afk_off_at) VALUES(?,?,?,?,?)
+		 ON CONFLICT(session_id, kind, afk_on_at) DO UPDATE SET afk_off_at=excluded.afk_off_at, span_id=excluded.span_id`,
+		w.sessionID, nullIfNeg(spanID), kind, onTs, offTs)
+	return err
 }
 
 func (w *Writer) handleQuestEvent(evt proto.ParsedEvent) error {

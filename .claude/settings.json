@@ -132,7 +132,9 @@
       "Bash(timeout * ./build/* -o -,txt)",
       "Bash(./build/*)",
       "Bash(sqlite3 *)",
-      "Bash(gofmt -l .)"
+      "Bash(gofmt -l .)",
+      "Bash(sqlite3 --version)",
+      "Bash(sqlite3 -header -column *)"
     ],
     "additionalDirectories": [
       "\\tmp"

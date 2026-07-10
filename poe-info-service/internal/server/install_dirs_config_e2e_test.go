@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/MovingCairn/poe-info-service/config"
+	"github.com/MovingCairn/poe-info-service/internal/ingest"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
 	"github.com/gorilla/websocket"
 
@@ -104,8 +105,8 @@ func TestConfigList_IncludesInstallSettings(t *testing.T) {
 		t.Fatalf("expected mutable install_dirs entry, got %+v (ok=%v)", installDirs, ok)
 	}
 	gotDirs, _ := installDirs.Value.([]any)
-	if len(gotDirs) != 1 || gotDirs[0] != dir {
-		t.Errorf("install_dirs = %v, want [%q]", installDirs.Value, dir)
+	if len(gotDirs) != 1 || gotDirs[0] != ingest.NormalizeInstallPath(dir) {
+		t.Errorf("install_dirs = %v, want [%q]", installDirs.Value, ingest.NormalizeInstallPath(dir))
 	}
 
 	autoDetect, ok := resp.Settings["auto_detect_install_dir"]
@@ -156,8 +157,12 @@ func TestConfigSet_InstallDirs_StartsAndStopsTailers(t *testing.T) {
 	for i, v := range gotAny {
 		got[i] = v.(string)
 	}
-	if !sameSet(got, want) {
-		t.Errorf("install_dirs after config.set = %v, want %v", got, want)
+	// Compared/persisted forms are normalized (forward-slash canonical, see
+	// ingest.NormalizeInstallPath) even though want/dropDir above are raw
+	// t.TempDir() output (native — backslash on Windows).
+	wantNormalized := []string{ingest.NormalizeInstallPath(keepDir), ingest.NormalizeInstallPath(addDir)}
+	if !sameSet(got, wantNormalized) {
+		t.Errorf("install_dirs after config.set = %v, want %v", got, wantNormalized)
 	}
 
 	// Persisted to disk, matching ADR-006 (config.set persists immediately).
@@ -165,12 +170,12 @@ func TestConfigSet_InstallDirs_StartsAndStopsTailers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read persisted config: %v", err)
 	}
-	for _, dir := range want {
+	for _, dir := range wantNormalized {
 		if !strings.Contains(string(data), dir) {
 			t.Errorf("persisted config missing %q:\n%s", dir, data)
 		}
 	}
-	if strings.Contains(string(data), dropDir) {
+	if strings.Contains(string(data), ingest.NormalizeInstallPath(dropDir)) {
 		t.Errorf("persisted config still lists removed dir %q:\n%s", dropDir, data)
 	}
 }

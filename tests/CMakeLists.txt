@@ -12,6 +12,11 @@ add_qt_test(test_dpi test_dpi.cpp)
 add_qt_test(test_session_query_limits test_session_query_limits.cpp)
 target_include_directories(test_session_query_limits PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# ZoneAfkSuffix.h is likewise a plain header, pulled out of SessionViewPage
+# so the zone-card AFK suffix logic is testable without Qt Widget deps.
+add_qt_test(test_zone_afk_suffix test_zone_afk_suffix.cpp)
+target_include_directories(test_zone_afk_suffix PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # TaskManager/BackgroundWorker have no other app dependencies (just Qt), so
 # this links their real sources directly instead of mirroring the logic.
 # The two headers must be listed explicitly (not just #included) so AUTOMOC

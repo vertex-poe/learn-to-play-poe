@@ -265,6 +265,7 @@ void LogPage::rebuild()
                 r.endedAt     = o["ended_at"].toString();
                 r.totalSecs   = o["total_secs"].toInt(-1);
                 r.activeSecs  = o["active_secs"].toInt(-1);
+                r.afkSecs     = o["afk_secs"].toInt(0);
                 r.accountName = o["account_name"].toString();
                 r.charName    = o["char_name"].toString();
                 r.charClass   = o["char_class"].toString();
@@ -330,9 +331,13 @@ void LogPage::applySessions(const QList<Records::SessionRecord> &sessions)
 
             const QString active = formatDuration(s.activeSecs);
             const QString total  = formatDuration(s.totalSecs);
+            const QString afk    = formatDuration(s.afkSecs);
 
             auto *card = new NotificationWidget("Session", {}, {}, timeLabel, style, content);
 
+            // Overview suffix shows active time only (total minus AFK/alt-tab)
+            // plus the character name — the AFK breakdown lives in the detail
+            // rows below, revealed on click.
             QString suffix;
             if (!active.isEmpty())      suffix = active;
             else if (!total.isEmpty())  suffix = total;
@@ -347,6 +352,7 @@ void LogPage::applySessions(const QList<Records::SessionRecord> &sessions)
             details.append({"Started", s.startedAt});
             if (!s.endedAt.isEmpty()) details.append({"Ended",  s.endedAt});
             if (!active.isEmpty())    details.append({"Active", active});
+            if (!afk.isEmpty())       details.append({"AFK",    afk});
             if (!total.isEmpty())     details.append({"Total",  total});
             if (!s.charName.isEmpty()) {
                 QString charInfo = s.charName;

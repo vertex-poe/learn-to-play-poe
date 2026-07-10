@@ -7,6 +7,7 @@ import (
 
 	"github.com/MovingCairn/poe-info-service/config"
 	"github.com/MovingCairn/poe-info-service/internal/hub"
+	"github.com/MovingCairn/poe-info-service/internal/ingest"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
 )
 
@@ -223,10 +224,13 @@ func (s *server) currentExecutableNames() []string {
 // complete current list, see l2p-poe's SettingsPage), but under the hood
 // that has to translate into starting/stopping only what actually changed.
 func (s *server) reconcileInstallDirs(want []string) error {
+	// Normalized the same way addInstallTarget normalizes s.tailers' keys,
+	// so a config-file path spelled with different separators than what's
+	// already tailed doesn't look like a spurious add+remove.
 	wantSet := make(map[string]bool, len(want))
 	for _, dir := range want {
 		if dir != "" {
-			wantSet[dir] = true
+			wantSet[ingest.NormalizeInstallPath(dir)] = true
 		}
 	}
 

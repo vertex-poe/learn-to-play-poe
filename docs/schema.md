@@ -103,11 +103,11 @@ A session is a contiguous block of play — from when the game connects to when 
 
 ### `sessions`
 
-One row per play session. Captures the full time range and, at close time, the active account, active character, and last known area. Time columns (`total_secs`, `active_secs`, `afk_secs`) are computed and written when the session ends.
+One row per play session. Captures the full time range and, at close time, the active account, active character, and last known area. Time columns (`total_secs`, `active_secs`, `afk_secs`) are computed and written when the session ends. `afk_secs` includes both real AFK timeouts and time spent alt-tabbed out — the game treats both as inactivity — and comes from summing `session_afk`.
 
 ### `session_afk`
 
-Individual AFK intervals within a session. Each row is one contiguous AFK block (`afk_on_at` → `afk_off_at`). Summing `(afk_off_at - afk_on_at)` for a session gives `afk_secs`; the open-ended row (NULL `afk_off_at`) is the current AFK if the player is away.
+Individual "away" intervals within a session — either a real AFK timeout or the player alt-tabbing out, distinguished by `kind` (`'afk'` or `'alt_tab'`) but otherwise treated identically (see `sessions.afk_secs`). Each row is one contiguous block (`afk_on_at` → `afk_off_at`); the open-ended row (NULL `afk_off_at`) is the current away period if the player hasn't returned yet. `span_id` binds the interval to the `area_time_spans` row it occurred in, so a zone's cumulative away time can be recomputed at any time straight from these child rows; an interval that straddles a zone transition is split into two rows (one per span) at the boundary.
 
 ---
 
@@ -119,7 +119,7 @@ A lightweight append-only record of every area transition: which install, which 
 
 ### `area_time_spans`
 
-Contiguous blocks of time spent in one area within one session. Unlike `area_moves` (which is a raw sequence of transitions), this table is about *duration*: `entered_at` + `exited_at` + computed `duration_secs`. Also tracks `afk_secs` within the span so time-in-area stats can be broken into active vs. idle. `area_id` is NULL during the character select screen. `char_id` reflects the most recently seen character when the span opened, updated on level-up.
+Contiguous blocks of time spent in one area within one session. Unlike `area_moves` (which is a raw sequence of transitions), this table is about *duration*: `entered_at` + `exited_at` + computed `duration_secs`. Also tracks `afk_secs` (AFK + alt-tab time, see `session_afk`) within the span so time-in-area stats can be broken into active vs. idle. `area_id` is NULL during the character select screen. `char_id` reflects the most recently seen character when the span opened, updated on level-up.
 
 ---
 

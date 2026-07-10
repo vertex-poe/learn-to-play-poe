@@ -360,6 +360,14 @@ func serve(cfg Config, listener net.Listener) error {
 // context of s.rootCtx so it can be torn down individually later via
 // removeInstall, without cancelling every other install's tailer.
 func (s *server) addInstallTarget(inst InstallTarget) error {
+	// Normalize before using Dir as a dedup key / installs.path — see
+	// ingest.NormalizeInstallPath's doc comment for why two spellings of the
+	// same directory (e.g. forward-slash from config vs. backslash from
+	// Windows auto-detection) previously compared unequal here, tailing the
+	// same Client.txt twice and duplicating every session.
+	inst.Dir = ingest.NormalizeInstallPath(inst.Dir)
+	inst.LogPath = ingest.NormalizeInstallPath(inst.LogPath)
+
 	s.tailersMu.Lock()
 	if _, exists := s.tailers[inst.Dir]; exists {
 		s.tailersMu.Unlock()
@@ -405,6 +413,7 @@ func (s *server) addInstall(dir string) error {
 // installs row and any ingested history are left in place — this only
 // stops watching for new lines.
 func (s *server) removeInstall(dir string) {
+	dir = ingest.NormalizeInstallPath(dir)
 	s.tailersMu.Lock()
 	defer s.tailersMu.Unlock()
 	h, ok := s.tailers[dir]

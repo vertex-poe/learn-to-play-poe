@@ -34,7 +34,7 @@ func TestEnsureSchema_freshDatabase(t *testing.T) {
 		t.Errorf("user_version = %d, want %d", version, kVersion)
 	}
 
-	for _, table := range []string{"installs", "sessions", "areas", "chats", "whispers", "session_alt_tabs", "passive_point_snapshots"} {
+	for _, table := range []string{"installs", "sessions", "areas", "chats", "whispers", "session_afk", "passive_point_snapshots"} {
 		var name string
 		err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
@@ -72,11 +72,23 @@ func TestEnsureSchema_idempotent(t *testing.T) {
 
 func TestEnsureSchema_migratesOldVersion(t *testing.T) {
 	db := openMemDB(t)
+	// Reconstruct the pre-v8 shape of session_afk (no span_id, no kind, and
+	// the narrower UNIQUE) *before* applying schema.sql, so schema.sql's
+	// `CREATE TABLE IF NOT EXISTS session_afk` below is a no-op and this old
+	// shape survives to be migrated. A genuine v4 database also predates
+	// session_alt_tabs (added by the fromVersion<5 step), so it's
+	// deliberately not created here either.
+	if _, err := db.Exec(`CREATE TABLE session_afk (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id INTEGER NOT NULL REFERENCES sessions(id),
+		afk_on_at  TEXT    NOT NULL,
+		afk_off_at TEXT,
+		UNIQUE(session_id, afk_on_at)
+	)`); err != nil {
+		t.Fatalf("create pre-v8 session_afk: %v", err)
+	}
 	if _, err := db.Exec(schemaSQL); err != nil {
 		t.Fatalf("apply schema.sql: %v", err)
-	}
-	if _, err := db.Exec("DROP TABLE session_alt_tabs"); err != nil {
-		t.Fatalf("drop session_alt_tabs: %v", err)
 	}
 	if _, err := db.Exec("ALTER TABLE characters DROP COLUMN played_secs"); err != nil {
 		t.Fatalf("drop played_secs: %v", err)
@@ -102,8 +114,8 @@ func TestEnsureSchema_migratesOldVersion(t *testing.T) {
 	}
 
 	var name string
-	if err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='session_alt_tabs'").Scan(&name); err != nil {
-		t.Errorf("session_alt_tabs not recreated by migration: %v", err)
+	if err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='session_alt_tabs'").Scan(&name); err == nil {
+		t.Error("expected session_alt_tabs to be dropped (merged into session_afk) by the v9 migration, but it still exists")
 	}
 
 	if _, err := db.Exec("SELECT played_secs FROM characters"); err != nil {
@@ -112,5 +124,82 @@ func TestEnsureSchema_migratesOldVersion(t *testing.T) {
 
 	if _, err := db.Exec("SELECT name FROM chat_channels"); err == nil {
 		t.Error("expected chat_channels.name to be dropped by migration, but it still exists")
+	}
+
+	if _, err := db.Exec("SELECT span_id, kind FROM session_afk"); err != nil {
+		t.Errorf("span_id/kind columns not added by migration: %v", err)
+	}
+}
+
+// TestMigrateToV9_MergesAltTabIntoSessionAfk covers the actual data movement
+// the v9 migration performs on a real (pre-unification) v8 database: rows in
+// both session_afk and session_alt_tabs must survive into the unified
+// session_afk table, tagged with the right kind and without cross-talk.
+func TestMigrateToV9_MergesAltTabIntoSessionAfk(t *testing.T) {
+	db := openMemDB(t)
+	if _, err := db.Exec(`CREATE TABLE session_afk (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id INTEGER NOT NULL,
+		span_id    INTEGER,
+		afk_on_at  TEXT    NOT NULL,
+		afk_off_at TEXT,
+		UNIQUE(session_id, afk_on_at)
+	)`); err != nil {
+		t.Fatalf("create v8 session_afk: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE session_alt_tabs (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id INTEGER NOT NULL,
+		out_at     TEXT    NOT NULL,
+		in_at      TEXT,
+		UNIQUE(session_id, out_at)
+	)`); err != nil {
+		t.Fatalf("create v8 session_alt_tabs: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO session_afk(session_id, span_id, afk_on_at, afk_off_at) VALUES(1, 10, '2024-01-15 10:01:00', '2024-01-15 10:03:00')`); err != nil {
+		t.Fatalf("seed session_afk: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO session_alt_tabs(session_id, out_at, in_at) VALUES(1, '2024-01-15 10:05:00', '2024-01-15 10:06:00')`); err != nil {
+		t.Fatalf("seed session_alt_tabs: %v", err)
+	}
+	if _, err := db.Exec("PRAGMA user_version = 8"); err != nil {
+		t.Fatalf("set user_version: %v", err)
+	}
+
+	if err := migrate(db, 8); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	rows, err := db.Query(`SELECT kind, afk_on_at, afk_off_at, span_id FROM session_afk ORDER BY afk_on_at`)
+	if err != nil {
+		t.Fatalf("query merged session_afk: %v", err)
+	}
+	defer rows.Close()
+
+	type row struct {
+		kind, onAt, offAt string
+		spanID            sql.NullInt64
+	}
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.kind, &r.onAt, &r.offAt, &r.spanID); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, r)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 merged rows, got %d", len(got))
+	}
+	if got[0].kind != "afk" || got[0].onAt != "2024-01-15 10:01:00" || got[0].offAt != "2024-01-15 10:03:00" || !got[0].spanID.Valid || got[0].spanID.Int64 != 10 {
+		t.Errorf("afk row wrong after merge: %+v", got[0])
+	}
+	if got[1].kind != "alt_tab" || got[1].onAt != "2024-01-15 10:05:00" || got[1].offAt != "2024-01-15 10:06:00" || got[1].spanID.Valid {
+		t.Errorf("alt_tab row wrong after merge: %+v", got[1])
+	}
+
+	if err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='session_alt_tabs'`).Scan(new(string)); err == nil {
+		t.Error("expected session_alt_tabs to be dropped after merge")
 	}
 }

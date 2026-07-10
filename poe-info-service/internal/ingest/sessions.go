@@ -6,10 +6,15 @@ import "database/sql"
 // runningInstallPaths, mirroring Database::closeOrphanSessions from the old
 // C++ side. Only ended_at is set — total/active seconds are left NULL since
 // the precise stop time is unknown. Returns the number of sessions closed.
+//
+// Both runningInstallPaths (from l2p-poe's WindowTracker) and installs.path
+// (normalized by EnsureInstall) are run through NormalizeInstallPath before
+// comparing, so a still-running install isn't incorrectly closed as
+// orphaned just because the two sides spell its path differently.
 func CloseOrphanSessions(db *sql.DB, runningInstallPaths []string) (int, error) {
 	running := make(map[string]bool, len(runningInstallPaths))
 	for _, p := range runningInstallPaths {
-		running[p] = true
+		running[NormalizeInstallPath(p)] = true
 	}
 
 	rows, err := db.Query(`
@@ -28,7 +33,7 @@ func CloseOrphanSessions(db *sql.DB, runningInstallPaths []string) (int, error) 
 			rows.Close()
 			return 0, err
 		}
-		if !running[path] {
+		if !running[NormalizeInstallPath(path)] {
 			staleIDs = append(staleIDs, id)
 		}
 	}

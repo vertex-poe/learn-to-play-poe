@@ -45,7 +45,6 @@ Work items derived from `poe-info-service/docs/decisions/` (ADR-001 through 005)
 
 - [ ] Multi-client detection: investigate whether multiple game instances can run from the same install directory or require separate installs. If separate installs, each PID maps 1:1 to a Client.txt log file, enabling per-instance log tailing and accurate session-to-PID matching for the "Game is running" card timestamp enrichment.
 - [ ] Investigate `replace_object` log lines as a source of in-map events
-- [ ] Investigate `window` "Lost focus" / "Gained focus" lines as AFK or session-pause signals
 
 
 ## Goal: Companion

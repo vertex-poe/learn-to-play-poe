@@ -63,8 +63,6 @@ private:
         QList<Records::SessionEventRecord>        sessionEvents;
         QList<Records::ZoneTransitionRecord>      zones;
         QList<Records::ClientScreenEventRecord>   clientScreenEvents;
-        QList<Records::AfkRecord>                 afkRecords;
-        QList<Records::AltTabRecord>              altTabRecords;
     };
 
     void triggerLoadIfNeeded();
@@ -75,13 +73,20 @@ private:
                               int distFromBottom);
     NotificationWidget *makeZoneCard(const QString &areaName, const QString &areaCode,
                                      const QString &areaType, const QString &areaSubtype,
-                                     int areaLevel, const QString &timestamp, int durationSecs);
+                                     int areaLevel, const QString &timestamp, int durationSecs,
+                                     int afkSecs = 0, bool afkOngoing = false);
     void appendDbZone(NotificationWidget *card);
     void setLoadMoreVisible(bool visible);
     void appendLiveWidget(QWidget *w);
     void scrollToBottom();
     void updateScrollDownBtn();
     void onScrollRangeChanged(int min, int max);
+
+    // Live AFK tracking for m_prevZoneCard (the current, still-open zone).
+    // See setLiveAfkState's doc comment for the split-across-zone-transition
+    // semantics this mirrors from the server (writer.closeSpan).
+    void setLiveAfkState(const QString &afkOnAt, int baseAfkSecs, bool hasAreaType);
+    void updateLiveAfkSuffix();
 
     QWidget        *m_headerBar{};
     QWidget        *m_headerSep{};
@@ -114,7 +119,12 @@ private:
 
     NotificationWidget  *m_prevZoneCard{};
     QWidget             *m_sessionStartCard{};
-    QString              m_dbAltTabOutTs;  // out_at of the pending alt-tab record currently shown via DB
     QLabel              *m_loadingOverlay{};
     ScrollJumpButton    *m_scrollDownBtn{};
+
+    // Live AFK state for m_prevZoneCard — see setLiveAfkState.
+    QTimer               *m_afkTickTimer{};
+    QString               m_liveAfkOnAt;          // empty = not currently AFK
+    int                    m_liveAfkBaseSecs{0};   // closed AFK time already in this span
+    bool                   m_liveZoneHasAreaType{false};
 };

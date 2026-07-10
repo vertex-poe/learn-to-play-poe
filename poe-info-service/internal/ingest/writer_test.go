@@ -137,6 +137,10 @@ func TestLevelUpAndPlayedBackfill(t *testing.T) {
 	}
 }
 
+// TestAfkAndAltTab covers that AFK and alt-tab are tracked as the same kind
+// of "away" time (session_afk.kind distinguishes them, but both accumulate
+// into sessionAfkSecs) — the game treats alt-tabbing out the same as an AFK
+// timeout for activity purposes.
 func TestAfkAndAltTab(t *testing.T) {
 	db := newTestDB(t)
 	w := newTestWriter(t, db)
@@ -144,7 +148,7 @@ func TestAfkAndAltTab(t *testing.T) {
 
 	handle(t, w, proto.ParsedEvent{Type: proto.EventAfkOn, Timestamp: "2024-01-15 10:01:00"})
 	handle(t, w, proto.ParsedEvent{Type: proto.EventAfkOff, Timestamp: "2024-01-15 10:03:00"})
-	dur := scanInt(t, db, `SELECT CAST((julianday(afk_off_at)-julianday(afk_on_at))*86400 AS INTEGER) FROM session_afk WHERE session_id=?`, w.sessionID)
+	dur := scanInt(t, db, `SELECT CAST((julianday(afk_off_at)-julianday(afk_on_at))*86400 AS INTEGER) FROM session_afk WHERE session_id=? AND kind='afk'`, w.sessionID)
 	if dur != 120 {
 		t.Errorf("afk duration = %d, want 120", dur)
 	}
@@ -154,9 +158,69 @@ func TestAfkAndAltTab(t *testing.T) {
 
 	handle(t, w, proto.ParsedEvent{Type: proto.EventAltTabOut, Timestamp: "2024-01-15 10:05:00"})
 	handle(t, w, proto.ParsedEvent{Type: proto.EventAltTabBack, Timestamp: "2024-01-15 10:06:00"})
-	inAt := scanString(t, db, `SELECT in_at FROM session_alt_tabs WHERE session_id=?`, w.sessionID)
-	if inAt != "2024-01-15 10:06:00" {
-		t.Errorf("alt-tab in_at = %q, want 2024-01-15 10:06:00", inAt)
+	offAt := scanString(t, db, `SELECT afk_off_at FROM session_afk WHERE session_id=? AND kind='alt_tab'`, w.sessionID)
+	if offAt != "2024-01-15 10:06:00" {
+		t.Errorf("alt-tab afk_off_at = %q, want 2024-01-15 10:06:00", offAt)
+	}
+	if w.sessionAfkSecs != 180 {
+		t.Errorf("sessionAfkSecs = %d, want 180 (120 afk + 60 alt-tab, merged)", w.sessionAfkSecs)
+	}
+}
+
+// TestAfkStraddlingZoneTransition covers an AFK that is still ongoing when
+// the player changes zones: it must split into two session_afk rows at the
+// transition boundary, each bound (via span_id) to the span it occurred in,
+// rather than folding into a cached number and losing the true start time —
+// see closeSpan's continueAfk handling.
+func TestAfkStraddlingZoneTransition(t *testing.T) {
+	db := newTestDB(t)
+	w := newTestWriter(t, db)
+	handle(t, w, proto.ParsedEvent{Type: proto.EventSessionStart, Timestamp: "2024-01-15 10:00:00"})
+	handle(t, w, proto.ParsedEvent{
+		Type: proto.EventAreaEntered, Timestamp: "2024-01-15 10:00:00",
+		Data: map[string]any{"area_name": "Lioneye's Watch", "area_code": "1_1_town", "area_level": 1},
+	})
+	firstSpanID := w.currentSpanID
+
+	handle(t, w, proto.ParsedEvent{Type: proto.EventAfkOn, Timestamp: "2024-01-15 10:01:00"})
+
+	// Zone transition while still AFK.
+	handle(t, w, proto.ParsedEvent{
+		Type: proto.EventAreaEntered, Timestamp: "2024-01-15 10:04:00",
+		Data: map[string]any{"area_name": "The Coast", "area_code": "1_1_1", "area_level": 1},
+	})
+	secondSpanID := w.currentSpanID
+	if secondSpanID == firstSpanID {
+		t.Fatalf("expected a new span to open on zone transition")
+	}
+	if w.afkOnTs != "2024-01-15 10:04:00" {
+		t.Errorf("afkOnTs = %q, want the transition timestamp (AFK continues into the new span)", w.afkOnTs)
+	}
+
+	handle(t, w, proto.ParsedEvent{Type: proto.EventAfkOff, Timestamp: "2024-01-15 10:06:00"})
+
+	if got := scanInt(t, db, `SELECT COUNT(*) FROM session_afk WHERE session_id=?`, w.sessionID); got != 2 {
+		t.Fatalf("expected 2 session_afk rows (one per span), got %d", got)
+	}
+
+	firstOnAt := scanString(t, db, `SELECT afk_on_at FROM session_afk WHERE span_id=?`, firstSpanID)
+	firstOffAt := scanString(t, db, `SELECT afk_off_at FROM session_afk WHERE span_id=?`, firstSpanID)
+	if firstOnAt != "2024-01-15 10:01:00" || firstOffAt != "2024-01-15 10:04:00" {
+		t.Errorf("first-span AFK row = (%q, %q), want (10:01:00, 10:04:00) — true start must survive the split", firstOnAt, firstOffAt)
+	}
+
+	secondOnAt := scanString(t, db, `SELECT afk_on_at FROM session_afk WHERE span_id=?`, secondSpanID)
+	secondOffAt := scanString(t, db, `SELECT afk_off_at FROM session_afk WHERE span_id=?`, secondSpanID)
+	if secondOnAt != "2024-01-15 10:04:00" || secondOffAt != "2024-01-15 10:06:00" {
+		t.Errorf("second-span AFK row = (%q, %q), want (10:04:00, 10:06:00)", secondOnAt, secondOffAt)
+	}
+
+	firstSpanAfk := scanInt(t, db, `SELECT afk_secs FROM area_time_spans WHERE id=?`, firstSpanID)
+	if firstSpanAfk != 180 {
+		t.Errorf("first span afk_secs = %d, want 180", firstSpanAfk)
+	}
+	if w.sessionAfkSecs != 300 {
+		t.Errorf("sessionAfkSecs = %d, want 300 (180 + 120 across both spans)", w.sessionAfkSecs)
 	}
 }
 

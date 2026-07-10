@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/MovingCairn/poe-info-service/config"
+	"github.com/MovingCairn/poe-info-service/internal/ingest"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
 	"github.com/MovingCairn/poe-info-service/internal/server"
 )
@@ -62,7 +63,16 @@ func resolveInstallDirs(persistedDirs, flagDirs []string, explicitLogPath string
 	dirs := make([]string, 0, len(persistedDirs)+len(flagDirs))
 	seen := map[string]bool{}
 	for _, dir := range append(append([]string{}, persistedDirs...), flagDirs...) {
-		if dir != "" && !seen[dir] {
+		if dir == "" {
+			continue
+		}
+		// Normalized before the seen check — a persisted config entry and a
+		// --install-dir flag pointing at the same directory but spelled with
+		// different separators would otherwise both survive this dedup and
+		// reach addInstallTarget as two candidates (still deduped there, but
+		// via a less obvious path — clean once, here, at the source).
+		dir = ingest.NormalizeInstallPath(dir)
+		if !seen[dir] {
 			seen[dir] = true
 			dirs = append(dirs, dir)
 		}

@@ -33,7 +33,8 @@ CREATE TABLE sessions (
     started_at  TEXT NOT NULL,
     ended_at    TEXT,
     total_secs  INTEGER,
-    active_secs INTEGER
+    active_secs INTEGER,
+    afk_secs    INTEGER
 );
 CREATE TABLE chats (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,6 +51,31 @@ CREATE TABLE whispers (
     player_name TEXT NOT NULL,
     message     TEXT NOT NULL,
     occurred_at TEXT NOT NULL
+);
+CREATE TABLE areas (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    code         TEXT NOT NULL UNIQUE,
+    display_name TEXT,
+    type         TEXT,
+    subtype      TEXT,
+    level        INTEGER
+);
+CREATE TABLE area_time_spans (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id    INTEGER NOT NULL REFERENCES sessions(id),
+    area_id       INTEGER REFERENCES areas(id),
+    entered_at    TEXT NOT NULL,
+    exited_at     TEXT,
+    duration_secs INTEGER,
+    afk_secs      INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE session_afk (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES sessions(id),
+    span_id    INTEGER REFERENCES area_time_spans(id),
+    kind       TEXT NOT NULL DEFAULT 'afk',
+    afk_on_at  TEXT NOT NULL,
+    afk_off_at TEXT
 );
 `
 
@@ -99,6 +125,130 @@ func insertSession(t *testing.T, db *DB, installID int64, startedAt, endedAt str
 	}
 }
 
+func insertArea(t *testing.T, db *DB, code, areaType string) int64 {
+	t.Helper()
+	res, err := db.db.Exec("INSERT INTO areas(code,display_name,type) VALUES(?,?,?)", code, code, areaType)
+	if err != nil {
+		t.Fatalf("insertArea: %v", err)
+	}
+	id, _ := res.LastInsertId()
+	return id
+}
+
+func insertSpan(t *testing.T, db *DB, sessionID, areaID int64, enteredAt, exitedAt string, durationSecs int) int64 {
+	t.Helper()
+	var res sql.Result
+	var err error
+	if exitedAt == "" {
+		res, err = db.db.Exec("INSERT INTO area_time_spans(session_id,area_id,entered_at) VALUES(?,?,?)",
+			sessionID, areaID, enteredAt)
+	} else {
+		res, err = db.db.Exec("INSERT INTO area_time_spans(session_id,area_id,entered_at,exited_at,duration_secs) VALUES(?,?,?,?,?)",
+			sessionID, areaID, enteredAt, exitedAt, durationSecs)
+	}
+	if err != nil {
+		t.Fatalf("insertSpan: %v", err)
+	}
+	id, _ := res.LastInsertId()
+	return id
+}
+
+func insertAfk(t *testing.T, db *DB, sessionID, spanID int64, onAt, offAt string) {
+	t.Helper()
+	insertAway(t, db, sessionID, spanID, "afk", onAt, offAt)
+}
+
+func insertAway(t *testing.T, db *DB, sessionID, spanID int64, kind, onAt, offAt string) {
+	t.Helper()
+	if offAt == "" {
+		mustExec(t, db, "INSERT INTO session_afk(session_id,span_id,kind,afk_on_at) VALUES(?,?,?,?)", sessionID, spanID, kind, onAt)
+	} else {
+		mustExec(t, db, "INSERT INTO session_afk(session_id,span_id,kind,afk_on_at,afk_off_at) VALUES(?,?,?,?,?)",
+			sessionID, spanID, kind, onAt, offAt)
+	}
+}
+
+// ── FetchZoneTransitions ─────────────────────────────────────────────────────
+
+func TestFetchZoneTransitions_afkFields(t *testing.T) {
+	db := openTestDB(t)
+	iid := insertInstall(t, db, "/game/Client.txt")
+	insertSession(t, db, iid, "2024-01-15 10:00:00", "", -1, -1)
+	sid := int64(1)
+	areaID := insertArea(t, db, "1_1_town", "Town")
+
+	// Closed span with two closed AFK intervals — afk_secs should be their sum.
+	closedSpanID := insertSpan(t, db, sid, areaID, "2024-01-15 10:00:00", "2024-01-15 10:30:00", 1800)
+	insertAfk(t, db, sid, closedSpanID, "2024-01-15 10:01:00", "2024-01-15 10:03:00") // 120s
+	insertAfk(t, db, sid, closedSpanID, "2024-01-15 10:10:00", "2024-01-15 10:10:30") // 30s
+
+	// Still-open span with a still-open AFK — afk_open_since should surface it,
+	// and afk_secs must exclude the open interval's time.
+	openSpanID := insertSpan(t, db, sid, areaID, "2024-01-15 10:30:00", "", 0)
+	insertAfk(t, db, sid, openSpanID, "2024-01-15 10:35:00", "")
+
+	zones, err := db.FetchZoneTransitions(sid, 0, 0)
+	if err != nil {
+		t.Fatalf("FetchZoneTransitions: %v", err)
+	}
+	if len(zones) != 2 {
+		t.Fatalf("expected 2 zones, got %d", len(zones))
+	}
+
+	// Results are DESC by entered_at, so index 0 is the open span.
+	openZone, closedZone := zones[0], zones[1]
+
+	if closedZone.AfkSecs != 150 {
+		t.Errorf("closed span AfkSecs = %d, want 150", closedZone.AfkSecs)
+	}
+	if closedZone.AfkOpenSince != "" {
+		t.Errorf("closed span AfkOpenSince = %q, want empty", closedZone.AfkOpenSince)
+	}
+
+	if openZone.AfkSecs != 0 {
+		t.Errorf("open span AfkSecs = %d, want 0 (excludes the still-open interval)", openZone.AfkSecs)
+	}
+	if openZone.AfkOpenSince != "2024-01-15 10:35:00" {
+		t.Errorf("open span AfkOpenSince = %q, want 2024-01-15 10:35:00", openZone.AfkOpenSince)
+	}
+}
+
+// TestFetchZoneTransitions_mergesAltTabWithAfk covers that AfkSecs/
+// AfkOpenSince fold alt-tab intervals in alongside real AFK ones into one
+// number — the game treats alt-tabbing out the same as an AFK timeout for
+// activity purposes, so the query never filters by session_afk.kind.
+func TestFetchZoneTransitions_mergesAltTabWithAfk(t *testing.T) {
+	db := openTestDB(t)
+	iid := insertInstall(t, db, "/game/Client.txt")
+	insertSession(t, db, iid, "2024-01-15 10:00:00", "", -1, -1)
+	sid := int64(1)
+	areaID := insertArea(t, db, "1_1_town", "Town")
+
+	closedSpanID := insertSpan(t, db, sid, areaID, "2024-01-15 10:00:00", "2024-01-15 10:30:00", 1800)
+	insertAway(t, db, sid, closedSpanID, "afk", "2024-01-15 10:01:00", "2024-01-15 10:03:00")     // 120s
+	insertAway(t, db, sid, closedSpanID, "alt_tab", "2024-01-15 10:10:00", "2024-01-15 10:10:30") // 30s
+
+	openSpanID := insertSpan(t, db, sid, areaID, "2024-01-15 10:30:00", "", 0)
+	insertAway(t, db, sid, openSpanID, "alt_tab", "2024-01-15 10:35:00", "")
+
+	zones, err := db.FetchZoneTransitions(sid, 0, 0)
+	if err != nil {
+		t.Fatalf("FetchZoneTransitions: %v", err)
+	}
+	if len(zones) != 2 {
+		t.Fatalf("expected 2 zones, got %d", len(zones))
+	}
+
+	openZone, closedZone := zones[0], zones[1]
+
+	if closedZone.AfkSecs != 150 {
+		t.Errorf("closed span AfkSecs = %d, want 150 (120 afk + 30 alt_tab, merged)", closedZone.AfkSecs)
+	}
+	if openZone.AfkOpenSince != "2024-01-15 10:35:00" {
+		t.Errorf("open span AfkOpenSince = %q, want 2024-01-15 10:35:00 (an open alt_tab interval)", openZone.AfkOpenSince)
+	}
+}
+
 // ── FetchSessions ─────────────────────────────────────────────────────────────
 
 func TestFetchSessions_empty(t *testing.T) {
@@ -139,6 +289,24 @@ func TestFetchSessions_singleOpen(t *testing.T) {
 	}
 	if s.InstallPath != "/game/Client.txt" {
 		t.Errorf("InstallPath: got %q, want %q", s.InstallPath, "/game/Client.txt")
+	}
+}
+
+func TestFetchSessions_afkSecs(t *testing.T) {
+	db := openTestDB(t)
+	iid := insertInstall(t, db, "/game/Client.txt")
+	mustExec(t, db, "INSERT INTO sessions(install_id,started_at,ended_at,total_secs,active_secs,afk_secs) VALUES(?,?,?,?,?,?)",
+		iid, "2024-01-15 10:00:00", "2024-01-15 12:00:00", 7200, 6500, 700)
+
+	sessions, err := db.FetchSessions(0, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	if got := sessions[0].AfkSecs; got != 700 {
+		t.Errorf("AfkSecs: got %d, want 700", got)
 	}
 }
 

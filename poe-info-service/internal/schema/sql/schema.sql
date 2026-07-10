@@ -112,20 +112,24 @@ CREATE TABLE IF NOT EXISTS sessions (
     UNIQUE(install_id, started_at)
 );
 
+-- One row per contiguous "away" interval — either a real AFK timeout or the
+-- player alt-tabbing out (kind). The game treats both as inactivity the same
+-- way, so they share this table and both count toward sessions.afk_secs /
+-- area_time_spans.afk_secs; kind is kept only so a future feature could
+-- break them back apart. span_id binds each interval to the area_time_spans
+-- row it occurred in, so a zone's cumulative away time can be recomputed at
+-- any time straight from these child rows rather than trusting a cached
+-- total. An interval that straddles a zone transition is split into two rows
+-- at the transition boundary (one per span) rather than losing the
+-- pre-transition portion.
 CREATE TABLE IF NOT EXISTS session_afk (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL REFERENCES sessions(id),
+    span_id    INTEGER REFERENCES area_time_spans(id),
+    kind       TEXT    NOT NULL DEFAULT 'afk' CHECK(kind IN ('afk','alt_tab')),
     afk_on_at  TEXT    NOT NULL,
     afk_off_at TEXT,
-    UNIQUE(session_id, afk_on_at)
-);
-
-CREATE TABLE IF NOT EXISTS session_alt_tabs (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id INTEGER NOT NULL REFERENCES sessions(id),
-    out_at     TEXT    NOT NULL,
-    in_at      TEXT,
-    UNIQUE(session_id, out_at)
+    UNIQUE(session_id, kind, afk_on_at)
 );
 
 -- One row per contiguous period spent in a single area (area_id NULL = character select).

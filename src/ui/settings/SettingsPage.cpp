@@ -12,6 +12,7 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QDesktopServices>
+#include <QDir>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QRegularExpression>
@@ -353,7 +354,12 @@ void SettingsPage::buildGamePage(QWidget *parent)
         if (!m_poeInfoClient || !m_installDirs) return;
         QJsonArray arr;
         for (const QString &dir : m_installDirs->items())
-            arr.append(dir);
+            // Forward slash is the canonical form on both sides (see
+            // ingest.NormalizeInstallPath's doc comment in poe-info-service)
+            // — QFileDialog (ListEditor's browse button) already returns
+            // forward-slash paths, so this just collapses any "." / ".."
+            // segments rather than converting anything.
+            arr.append(QDir::cleanPath(dir));
         m_poeInfoClient->request(QStringLiteral("config.set"),
             {{QStringLiteral("key"), QStringLiteral("install_dirs")},
              {QStringLiteral("value"), arr}},
