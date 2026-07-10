@@ -407,6 +407,65 @@ func TestFetchSessions_offsetSkipsNewest(t *testing.T) {
 	}
 }
 
+// ── FetchSessionEvents ────────────────────────────────────────────────────────
+
+// TestFetchSessionEvents_openSession is a regression test for a real bug:
+// the inner UNION ALL subquery selected COALESCE(s.active_secs,-1) and
+// COALESCE(s.total_secs,-1) without aliasing them, but the outer SELECT
+// referenced them by name (active_secs, total_secs) — SQLite has no column
+// by that name on an unaliased expression, so every call errored with "no
+// such column: active_secs". This is always hit for the live session (see
+// SessionQueryLimits.h: session_event_limit is never 0 there), so the
+// current-session detail view errored on every load.
+func TestFetchSessionEvents_openSession(t *testing.T) {
+	db := openTestDB(t)
+	iid := insertInstall(t, db, "/game/Client.txt")
+	insertSession(t, db, iid, "2024-01-15 10:00:00", "", -1, -1)
+
+	events, err := db.FetchSessionEvents(10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].EventType != "start" {
+		t.Errorf("EventType = %q, want \"start\"", events[0].EventType)
+	}
+	if events[0].ActiveSecs != -1 {
+		t.Errorf("ActiveSecs = %d, want -1", events[0].ActiveSecs)
+	}
+	if events[0].TotalSecs != -1 {
+		t.Errorf("TotalSecs = %d, want -1", events[0].TotalSecs)
+	}
+}
+
+func TestFetchSessionEvents_closedSession_includesActiveAndTotalSecs(t *testing.T) {
+	db := openTestDB(t)
+	iid := insertInstall(t, db, "/game/Client.txt")
+	insertSession(t, db, iid, "2024-01-15 10:00:00", "2024-01-15 12:00:00", 7200, 6500)
+
+	events, err := db.FetchSessionEvents(10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events (start+stop), got %d", len(events))
+	}
+	if events[0].EventType != "start" || events[1].EventType != "stop" {
+		t.Fatalf("expected [start, stop] in chronological order, got [%s, %s]",
+			events[0].EventType, events[1].EventType)
+	}
+	for _, ev := range events {
+		if ev.TotalSecs != 7200 {
+			t.Errorf("%s event TotalSecs = %d, want 7200", ev.EventType, ev.TotalSecs)
+		}
+		if ev.ActiveSecs != 6500 {
+			t.Errorf("%s event ActiveSecs = %d, want 6500", ev.EventType, ev.ActiveSecs)
+		}
+	}
+}
+
 // ── FetchChatDates ────────────────────────────────────────────────────────────
 
 func insertChat(t *testing.T, db *DB, channel, occurredAt string) {

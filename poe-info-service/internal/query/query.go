@@ -330,7 +330,8 @@ func (d *DB) FetchSessionEvents(limit int) ([]SessionEventRecord, error) {
 	      FROM (
 	          SELECT 'start' AS event_type, s.started_at AS occurred_at,
 	                 COALESCE(c.name,'') AS char_name, COALESCE(cl.name,'') AS char_class,
-	                 i.path AS install_path, COALESCE(s.active_secs,-1), COALESCE(s.total_secs,-1)
+	                 i.path AS install_path,
+	                 COALESCE(s.active_secs,-1) AS active_secs, COALESCE(s.total_secs,-1) AS total_secs
 	          FROM sessions s
 	          JOIN installs i        ON s.install_id = i.id
 	          LEFT JOIN characters c ON s.char_id    = c.id
