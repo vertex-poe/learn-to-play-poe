@@ -36,9 +36,10 @@ private slots:
     {
         // durationSecs=5400 (1h30m total) minus afkSecs=1800 (30m) is 1h
         // active — the leading number excludes AFK, not the raw wall-clock
-        // zone duration.
+        // zone duration. Closed (non-ongoing) AFK is dimmed to read as less
+        // prominent than the rest of the line.
         QCOMPARE(buildZoneSuffix(true, 5400, 1800, false),
-                  QStringLiteral("entered \xc2\xb7 1h \xc2\xb7 30m afk"));
+                  QStringLiteral("entered \xc2\xb7 1h \xc2\xb7 <span style=\"color:#606060;\">30m afk</span>"));
     }
 
     void closedAfk_entireZoneWasAfk_showsEnteredDotNotZero()
@@ -46,21 +47,22 @@ private slots:
         // durationSecs == afkSecs: active time is 0, not negative or blank —
         // falls back to the same "entered." used when duration is unknown.
         QCOMPARE(buildZoneSuffix(true, 120, 120, false),
-                  QStringLiteral("entered. \xc2\xb7 2m afk"));
+                  QStringLiteral("entered. \xc2\xb7 <span style=\"color:#606060;\">2m afk</span>"));
     }
 
     void closedAfk_withNoZoneDuration_stillAppendsToEnteredDot()
     {
         // Still-open zone (durationSecs=-1) with only closed AFK time in it.
         QCOMPARE(buildZoneSuffix(true, -1, 120, false),
-                  QStringLiteral("entered. \xc2\xb7 2m afk"));
+                  QStringLiteral("entered. \xc2\xb7 <span style=\"color:#606060;\">2m afk</span>"));
     }
 
     void closedAfk_plainZone_noDuration_isJustTheAfkPart()
     {
         // The plain (no areaType, no known duration) variant has an empty
         // base — the AFK part should stand alone with no leading separator.
-        QCOMPARE(buildZoneSuffix(false, -1, 120, false), QStringLiteral("2m afk"));
+        QCOMPARE(buildZoneSuffix(false, -1, 120, false),
+                  QStringLiteral("<span style=\"color:#606060;\">2m afk</span>"));
     }
 
     void ongoingAfk_isHighlighted()

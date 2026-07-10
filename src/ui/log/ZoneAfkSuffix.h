@@ -68,6 +68,8 @@ inline QString buildZoneSuffix(bool hasAreaType, int durationSecs, int afkSecs, 
     QString afkPart = formatDuration(afkSecs) + " afk";
     if (afkOngoing)
         afkPart = QStringLiteral("<span style=\"color:#b79bea;\">\xE2\x8F\xB1 %1</span>").arg(afkPart);
+    else
+        afkPart = QStringLiteral("<span style=\"color:#606060;\">%1</span>").arg(afkPart);
 
     return base.isEmpty() ? afkPart : base + " \xc2\xb7 " + afkPart;
 }
