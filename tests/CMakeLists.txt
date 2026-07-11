@@ -64,6 +64,52 @@ target_compile_definitions(test_log_startup PRIVATE
 )
 add_test(NAME test_log_startup COMMAND test_log_startup)
 
+# SessionViewPage/LogPage's request-retry-on-error paths (see ROADMAP.md
+# history): PoeInfoClient isn't mockable (concrete QObject, non-virtual
+# request(), real QWebSocket), so these drive it through FakePoeInfoServer, an
+# in-process QWebSocketServer double that speaks its request/response wire
+# protocol, instead of mocking PoeInfoClient itself.
+find_package(Qt6 COMPONENTS WebSockets REQUIRED)
+
+set(_poe_info_retry_test_support
+    FakePoeInfoServer.cpp
+    FakePoeInfoServer.h
+    ${CMAKE_SOURCE_DIR}/src/services/PoeInfoClient.cpp
+    ${CMAKE_SOURCE_DIR}/src/services/PoeInfoClient.h
+    ${CMAKE_SOURCE_DIR}/src/events/LiveEventBus.cpp
+    ${CMAKE_SOURCE_DIR}/src/events/LiveEventBus.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/NotificationWidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/NotificationWidget.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/ScrollJumpButton.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/ScrollJumpButton.h
+    ${CMAKE_SOURCE_DIR}/src/ui/Theme.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/Theme.h
+    ${CMAKE_SOURCE_DIR}/src/ui/AppStyle.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/AppStyle.h
+)
+
+qt_add_executable(test_sessionviewpage_retry
+    test_sessionviewpage_retry.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/log/SessionViewPage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/log/SessionViewPage.h
+    ${_poe_info_retry_test_support}
+)
+target_include_directories(test_sessionviewpage_retry PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_sessionviewpage_retry PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::WebSockets Qt6::Test)
+add_test(NAME test_sessionviewpage_retry COMMAND test_sessionviewpage_retry)
+
+qt_add_executable(test_logpage_retry
+    test_logpage_retry.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/log/LogPage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/log/LogPage.h
+    ${_poe_info_retry_test_support}
+)
+target_include_directories(test_logpage_retry PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_logpage_retry PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::WebSockets Qt6::Test)
+add_test(NAME test_logpage_retry COMMAND test_logpage_retry)
+
 add_subdirectory(ref_basic)
 add_test(NAME test_ref_basic COMMAND ref_basic_app)
 

@@ -1,0 +1,44 @@
+#pragma once
+
+#include <QHash>
+#include <QJsonObject>
+#include <QList>
+#include <QObject>
+#include <QPair>
+#include <QWebSocketServer>
+
+class QWebSocket;
+
+// Minimal in-process stand-in for poe-info-service's WebSocket endpoint.
+// A real PoeInfoClient connects to this exactly as it would the real
+// service, so tests exercise PoeInfoClient's actual wire protocol and
+// reconnect logic instead of mocking it away (PoeInfoClient itself isn't
+// mockable: concrete QObject, non-virtual request(), real QWebSocket).
+//
+// Only speaks the "request"/"response" half of the protocol used by
+// PoeInfoClient::request() — enough to drive SessionViewPage/LogPage's
+// request-retry-on-error paths. Subscriptions aren't handled since neither
+// page uses PoeInfoClient::subscribe().
+class FakePoeInfoServer : public QObject
+{
+    Q_OBJECT
+public:
+    explicit FakePoeInfoServer(QObject *parent = nullptr);
+
+    quint16 port() const;
+
+    // Queues one response for the next request of `method`, consumed in FIFO
+    // order. Once a method's queue is empty, further requests for it get a
+    // default success response with an empty payload.
+    void queueResponse(const QString &method, const QJsonObject &payload, const QString &error = {});
+
+    int requestCount(const QString &method) const;
+
+private:
+    void onNewConnection();
+    void onTextMessageReceived(QWebSocket *socket, const QString &message);
+
+    QWebSocketServer m_server;
+    QHash<QString, QList<QPair<QJsonObject, QString>>> m_queuedResponses;
+    QHash<QString, int> m_requestCounts;
+};
