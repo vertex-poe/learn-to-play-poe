@@ -17,6 +17,11 @@ target_include_directories(test_session_query_limits PRIVATE ${CMAKE_SOURCE_DIR}
 add_qt_test(test_zone_afk_suffix test_zone_afk_suffix.cpp)
 target_include_directories(test_zone_afk_suffix PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+# SteamApiKeyExtractor.h is likewise a plain header (no WebEngine dep), pulled
+# out of SteamKeyLoginWindow so the scrape-regex logic is testable directly.
+add_qt_test(test_steam_api_key_extractor test_steam_api_key_extractor.cpp)
+target_include_directories(test_steam_api_key_extractor PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 # TaskManager/BackgroundWorker have no other app dependencies (just Qt), so
 # this links their real sources directly instead of mirroring the logic.
 # The two headers must be listed explicitly (not just #included) so AUTOMOC
@@ -109,6 +114,22 @@ target_include_directories(test_logpage_retry PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_logpage_retry PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::WebSockets Qt6::Test)
 add_test(NAME test_logpage_retry COMMAND test_logpage_retry)
+
+# SteamAccountStore's credentials.* round trip, driven through the same
+# FakePoeInfoServer double (no Widgets/Gui needed — SteamAccountStore, like
+# PoeInfoClient, is plain QObject/QtCore).
+qt_add_executable(test_steamaccountstore
+    test_steamaccountstore.cpp
+    ${CMAKE_SOURCE_DIR}/src/util/SteamAccountStore.cpp
+    ${CMAKE_SOURCE_DIR}/src/util/SteamAccountStore.h
+    FakePoeInfoServer.cpp
+    FakePoeInfoServer.h
+    ${CMAKE_SOURCE_DIR}/src/services/PoeInfoClient.cpp
+    ${CMAKE_SOURCE_DIR}/src/services/PoeInfoClient.h
+)
+target_include_directories(test_steamaccountstore PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_steamaccountstore PRIVATE Qt6::Core Qt6::WebSockets Qt6::Test)
+add_test(NAME test_steamaccountstore COMMAND test_steamaccountstore)
 
 add_subdirectory(ref_basic)
 add_test(NAME test_ref_basic COMMAND ref_basic_app)

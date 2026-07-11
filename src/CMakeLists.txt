@@ -32,6 +32,9 @@ qt_add_executable(l2p-poe
     util/Docs.h
     util/PoeAccountStore.cpp
     util/PoeAccountStore.h
+    util/SteamAccountStore.cpp
+    util/SteamAccountStore.h
+    util/SteamApiKeyExtractor.h
     util/ScopedBudget.h
     ui/AppStyle.cpp
     ui/AppStyle.h
@@ -56,6 +59,8 @@ qt_add_executable(l2p-poe
     ui/log/LogPage.h
     ui/settings/PoeLoginWindow.cpp
     ui/settings/PoeLoginWindow.h
+    ui/settings/SteamKeyLoginWindow.cpp
+    ui/settings/SteamKeyLoginWindow.h
     ui/settings/SettingsPage.cpp
     ui/settings/SettingsPage.h
     ui/widgets/ListEditor.cpp

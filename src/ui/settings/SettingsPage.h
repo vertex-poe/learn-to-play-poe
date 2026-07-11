@@ -15,6 +15,7 @@ class QListWidget;
 class QPushButton;
 class QStackedWidget;
 class PoeAccountStore;
+class SteamAccountStore;
 class PoeInfoClient;
 struct LiveEventRule;
 
@@ -140,6 +141,13 @@ private:
     QPushButton     *m_accountsUaCopyBtn{};
 
     void updateAccountButton();
+
+    // Accounts page: Steam Web API key
+    SteamAccountStore *m_steamAccountStore{};
+    QPushButton       *m_steamActionBtn{};
+    bool               m_hasSteamKey{false};
+
+    void updateSteamButton();
 
     // Native Chromium UA (fetched once, async)
     QString m_nativeChromiumUA;

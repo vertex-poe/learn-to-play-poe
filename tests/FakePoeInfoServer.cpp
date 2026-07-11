@@ -27,6 +27,11 @@ int FakePoeInfoServer::requestCount(const QString &method) const
     return m_requestCounts.value(method, 0);
 }
 
+QJsonObject FakePoeInfoServer::lastParams(const QString &method) const
+{
+    return m_lastParams.value(method);
+}
+
 void FakePoeInfoServer::onNewConnection()
 {
     QWebSocket *socket = m_server.nextPendingConnection();
@@ -44,6 +49,7 @@ void FakePoeInfoServer::onTextMessageReceived(QWebSocket *socket, const QString 
     const QString method = obj[QStringLiteral("method")].toString();
     const QString id = obj[QStringLiteral("id")].toString();
     m_requestCounts[method] = m_requestCounts.value(method, 0) + 1;
+    m_lastParams[method] = obj[QStringLiteral("payload")].toObject();
 
     QJsonObject payload;
     QString error;

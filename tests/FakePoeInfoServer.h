@@ -34,6 +34,10 @@ public:
 
     int requestCount(const QString &method) const;
 
+    // The payload ("params") of the most recent request for `method`, or an
+    // empty object if none has been received yet.
+    QJsonObject lastParams(const QString &method) const;
+
 private:
     void onNewConnection();
     void onTextMessageReceived(QWebSocket *socket, const QString &message);
@@ -41,4 +45,5 @@ private:
     QWebSocketServer m_server;
     QHash<QString, QList<QPair<QJsonObject, QString>>> m_queuedResponses;
     QHash<QString, int> m_requestCounts;
+    QHash<QString, QJsonObject> m_lastParams;
 };

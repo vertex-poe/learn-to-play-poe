@@ -8,6 +8,8 @@
 #include "ui/widgets/ListEditor.h"
 #include "util/PoeAccountStore.h"
 #include "ui/settings/PoeLoginWindow.h"
+#include "util/SteamAccountStore.h"
+#include "ui/settings/SteamKeyLoginWindow.h"
 
 #include <QCheckBox>
 #include <QClipboard>
@@ -155,6 +157,7 @@ SettingsPage::SettingsPage(AppConfig &config, PoeInfoClient *poeInfoClient, QWid
     : QWidget(parent), m_config(config), m_poeInfoClient(poeInfoClient)
 {
     m_accountStore = new PoeAccountStore(poeInfoClient, this);
+    m_steamAccountStore = new SteamAccountStore(poeInfoClient, this);
 
     // ---- Header -------------------------------------------------------
     m_backBtn = new QPushButton("← Back", this);
@@ -1133,7 +1136,70 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
     m_accountsUaDisplay->setVisible(m_config.debugMode);
     m_accountsUaCopyBtn->setVisible(m_config.debugMode);
 
+    {
+        auto *sectionLabel = new QLabel("Steam", accountsContent);
+        QFont f = sectionLabel->font();
+        f.setBold(true);
+        sectionLabel->setFont(f);
+        accountsForm->addRow(sectionLabel);
+    }
+
+    m_steamActionBtn = new QPushButton(accountsContent);
+    m_steamActionBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_steamActionBtn->setText("Checking...");
+    m_steamActionBtn->setEnabled(false);
+    connect(m_steamActionBtn, &QPushButton::clicked, this, [this]()
+            {
+        if (m_hasSteamKey) {
+            m_hasSteamKey = false;
+            m_steamAccountStore->deleteKey();
+            updateSteamButton();
+        } else {
+            auto *win = new SteamKeyLoginWindow(this);
+            connect(win, &SteamKeyLoginWindow::keyCaptured,
+                    m_steamAccountStore, &SteamAccountStore::storeKey);
+        } });
+
+    {
+        const int px = QFontMetrics(font()).height();
+        auto *steamInfoBtn = new QPushButton(accountsContent);
+        steamInfoBtn->setFlat(true);
+        steamInfoBtn->setFixedSize(px + 8, px + 8);
+        steamInfoBtn->setIcon(QIcon(Theme::renderSvgIcon(
+            QStringLiteral(":/icons/info-circle.svg"),
+            palette().buttonText().color(),
+            {px, px}, devicePixelRatioF())));
+        steamInfoBtn->setIconSize({px, px});
+        steamInfoBtn->setToolTip("Steam Web API Key");
+        connect(steamInfoBtn, &QPushButton::clicked, this, []()
+                { QDesktopServices::openUrl(
+                      QUrl(docSource("", "rationales/steam-api-key").url)); });
+
+        auto *steamActionRow = new QHBoxLayout;
+        steamActionRow->setContentsMargins(0, 0, 0, 0);
+        steamActionRow->addWidget(m_steamActionBtn);
+        steamActionRow->addWidget(steamInfoBtn);
+        steamActionRow->addStretch();
+        accountsForm->addRow("Steam Web API Key:", steamActionRow);
+    }
+
     parentLayout->addWidget(accountsContent);
+    connect(m_steamAccountStore, &SteamAccountStore::keyChecked, this,
+            [this](bool present)
+            {
+                m_hasSteamKey = present;
+                updateSteamButton();
+            });
+    connect(m_steamAccountStore, &SteamAccountStore::keyStored, this,
+            [this](bool ok)
+            {
+                if (ok)
+                {
+                    m_hasSteamKey = true;
+                    updateSteamButton();
+                }
+            });
+    m_steamAccountStore->checkKey();
     connect(m_accountStore, &PoeAccountStore::sessionChecked, this,
             [this](bool present)
             {
@@ -1496,6 +1562,12 @@ void SettingsPage::updateAccountButton()
 {
     m_accountsActionBtn->setText(m_hasSession ? "Logout" : "Login");
     m_accountsActionBtn->setEnabled(true);
+}
+
+void SettingsPage::updateSteamButton()
+{
+    m_steamActionBtn->setText(m_hasSteamKey ? "Logout" : "Login");
+    m_steamActionBtn->setEnabled(true);
 }
 
 void SettingsPage::saveAndEmit()
