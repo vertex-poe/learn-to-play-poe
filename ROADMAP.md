@@ -24,7 +24,6 @@ Work items derived from `poe-info-service/docs/decisions/` (ADR-001 through 005)
 - [ ] Credential storage package — macOS/Linux backends: `internal/creds` (`Store`/`Get`/`Delete`, build-tag-selected per platform) now has a Windows backend (danieljoos/wincred); still needs keybase/go-keychain (macOS) and godbus/dbus Secret Service (Linux), plus an in-memory backend for automated tests (ADR-005)
 - [ ] OAuth PKCE flow: service-initiated OAuth token acquisition via the system's default browser plus a local loopback redirect listener, for providers whose flow allows it, so future data sources (PoE official API, Steam) don't require WebView capability (ADR-004)
 - [ ] Credential expiry/staleness policy: explicitly left open by ADR-004/ADR-005 and not yet the subject of a dedicated ADR — needs its own design pass once the storage mechanism above lands
-- [ ] Ingest status "waiting" vs. missing log file: the `status` WS method's `phase` field reports `"ingesting"` (with no percent) if `Client.txt` doesn't exist yet at startup, since `Tailer.poll` returns early on `os.Open` failure and `caughtUp` never flips — should report `"waiting"` in that case instead
 - [ ] "Scan filesystem for install directories" button on the Game settings page: invokes an on-demand filesystem scan RPC on poe-info-service (Steam library folders, Program Files, GOG, etc.) to find PoE installs, independent of whether the game process is currently running — distinct from the process-based auto-detect (`internal/detect`) that watches for a running game process
 
 ## Goal: Basic Features

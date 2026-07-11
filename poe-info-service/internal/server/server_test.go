@@ -466,6 +466,7 @@ func TestIngestStatus(t *testing.T) {
 	tests := []struct {
 		name        string
 		hasTailer   bool
+		fileFound   bool
 		caughtUp    bool
 		offset      int64
 		size        int64
@@ -480,8 +481,19 @@ func TestIngestStatus(t *testing.T) {
 			wantMessage: "waiting",
 		},
 		{
+			name:        "tailer configured but log file not found yet",
+			hasTailer:   true,
+			fileFound:   false,
+			caughtUp:    false,
+			offset:      0,
+			size:        0,
+			wantPhase:   "waiting",
+			wantMessage: "waiting for log file",
+		},
+		{
 			name:        "caught up and tailing live",
 			hasTailer:   true,
+			fileFound:   true,
 			caughtUp:    true,
 			offset:      1000,
 			size:        1000,
@@ -491,6 +503,7 @@ func TestIngestStatus(t *testing.T) {
 		{
 			name:        "ingesting backlog with known size",
 			hasTailer:   true,
+			fileFound:   true,
 			caughtUp:    false,
 			offset:      25,
 			size:        100,
@@ -501,6 +514,7 @@ func TestIngestStatus(t *testing.T) {
 		{
 			name:        "ingesting backlog with size not yet known",
 			hasTailer:   true,
+			fileFound:   true,
 			caughtUp:    false,
 			offset:      0,
 			size:        0,
@@ -512,7 +526,7 @@ func TestIngestStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			phase, message, percent := ingestStatus(tt.hasTailer, tt.caughtUp, tt.offset, tt.size)
+			phase, message, percent := ingestStatus(tt.hasTailer, tt.fileFound, tt.caughtUp, tt.offset, tt.size)
 			if phase != tt.wantPhase {
 				t.Errorf("phase = %q, want %q", phase, tt.wantPhase)
 			}

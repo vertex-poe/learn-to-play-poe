@@ -32,6 +32,7 @@ type Tailer struct {
 	db           *sql.DB
 	installID    int64
 	out          chan<- string
+	fileFound    atomic.Bool
 	caughtUp     atomic.Bool
 	lastActivity atomic.Int64 // UnixNano of the last poll that read new lines
 	offset       atomic.Int64 // bytes consumed so far
@@ -48,6 +49,14 @@ func New(logPath string, db *sql.DB, installID int64, out chan<- string) *Tailer
 // broadcasting backlog events (replayed after a restart) as if they were
 // live. A one-way latch: once true, it stays true for the rest of this run.
 func (t *Tailer) CaughtUp() bool { return t.caughtUp.Load() }
+
+// FileFound reports whether the tailer has successfully opened the log file
+// at least once since this process started. Client.txt may not exist yet at
+// startup — until the game has run at least once for this install — and
+// poll() returns early on os.Open failure without ever touching caughtUp, so
+// callers need this to distinguish "still waiting for the file to appear"
+// from genuine backlog replay. A one-way latch, like caughtUp.
+func (t *Tailer) FileFound() bool { return t.fileFound.Load() }
 
 // LastActivity returns the time new lines were last read from the log file,
 // or the zero Time if none have been read yet this run. Per ADR-001, this
@@ -120,6 +129,7 @@ func (t *Tailer) poll(ctx context.Context, offset int64) (int64, bool, error) {
 		return offset, false, err
 	}
 	defer f.Close()
+	t.fileFound.Store(true)
 
 	fi, err := f.Stat()
 	if err != nil {

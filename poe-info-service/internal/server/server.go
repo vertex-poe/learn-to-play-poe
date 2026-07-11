@@ -790,12 +790,19 @@ func watchIngestStall(ctx context.Context, interval time.Duration, currentLine, 
 
 // ingestStatus derives the human-facing ingestion phase, message, and
 // backlog-replay percent from the tailer's state: no tailer configured means
-// nothing is happening yet; otherwise the tailer's one-way caughtUp latch
-// (see tailer.go) distinguishes backlog replay from live tailing. percent is
-// only populated during backlog replay, and only once a file size is known.
-func ingestStatus(hasTailer, caughtUp bool, offset, size int64) (phase, message string, percent *float64) {
+// nothing is happening yet; fileFound false means a tailer is configured but
+// hasn't yet found Client.txt to open (e.g. the game has never run for this
+// install) — reported as "waiting" rather than "ingesting" since there's
+// nothing to show progress against. Otherwise the tailer's one-way caughtUp
+// latch (see tailer.go) distinguishes backlog replay from live tailing.
+// percent is only populated during backlog replay, and only once a file size
+// is known.
+func ingestStatus(hasTailer, fileFound, caughtUp bool, offset, size int64) (phase, message string, percent *float64) {
 	if !hasTailer {
 		return "waiting", "waiting", nil
+	}
+	if !fileFound {
+		return "waiting", "waiting for log file", nil
 	}
 	if caughtUp {
 		return "tailing", "waiting for game events", nil
@@ -812,18 +819,24 @@ func ingestStatus(hasTailer, caughtUp bool, offset, size int64) (phase, message 
 // of one per install — a caught-up tailer contributes offset==size to both
 // sums, so it doesn't skew the ratio once it's done. caughtUp is true only
 // once every tailer has caught up: a partial replay (some installs done,
-// others not) still counts as "ingesting" overall.
-func aggregateProgress(tailers []*tailer.Tailer) (offset, size int64, caughtUp bool) {
+// others not) still counts as "ingesting" overall. fileFound follows the
+// same all-or-nothing rule: if any configured install's Client.txt hasn't
+// been found yet, the overall status isn't ready to claim real progress.
+func aggregateProgress(tailers []*tailer.Tailer) (offset, size int64, fileFound, caughtUp bool) {
+	fileFound = true
 	caughtUp = true
 	for _, t := range tailers {
 		o, s := t.Progress()
 		offset += o
 		size += s
+		if !t.FileFound() {
+			fileFound = false
+		}
 		if !t.CaughtUp() {
 			caughtUp = false
 		}
 	}
-	return offset, size, caughtUp
+	return offset, size, fileFound, caughtUp
 }
 
 // joinLogPaths renders every currently-tailed install's Client.txt path into
@@ -860,8 +873,8 @@ func watchIngestStatus(ctx context.Context, srv *server) {
 			return
 		case <-ticker.C:
 			tailers := srv.tailerSnapshot()
-			offset, size, caughtUp := aggregateProgress(tailers)
-			phase, message, percent := ingestStatus(len(tailers) > 0, caughtUp, offset, size)
+			offset, size, fileFound, caughtUp := aggregateProgress(tailers)
+			phase, message, percent := ingestStatus(len(tailers) > 0, fileFound, caughtUp, offset, size)
 
 			wholePercent := -1
 			if percent != nil {
@@ -1050,8 +1063,8 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 
 	case "status":
 		tailers := s.tailerSnapshot()
-		offset, size, caughtUp := aggregateProgress(tailers)
-		phase, message, percent := ingestStatus(len(tailers) > 0, caughtUp, offset, size)
+		offset, size, fileFound, caughtUp := aggregateProgress(tailers)
+		phase, message, percent := ingestStatus(len(tailers) > 0, fileFound, caughtUp, offset, size)
 		if percent != nil {
 			s.debugf("status request id=%s: phase=%q offset=%d size=%d percent=%.4f", msg.ID, phase, offset, size, *percent)
 		} else {

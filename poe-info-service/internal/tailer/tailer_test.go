@@ -47,6 +47,63 @@ func TestLastActivityZeroBeforeAnyPoll(t *testing.T) {
 	}
 }
 
+// TestFileFoundFalseWhenLogMissing reproduces the ROADMAP scenario that
+// motivated FileFound: Client.txt not existing yet at startup (e.g. the game
+// has never run for this install). poll() returns early on os.Open failure
+// without ever touching caughtUp, so before this fix, callers had no signal
+// to distinguish "still waiting for the file" from real backlog replay.
+func TestFileFoundFalseWhenLogMissing(t *testing.T) {
+	db, installID := newTestDB(t)
+	out := make(chan string, 8)
+	tl := New(filepath.Join(t.TempDir(), "Client.txt"), db, installID, out)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tl.Run(ctx)
+
+	// Give the tailer a few poll intervals to try (and fail) opening the
+	// nonexistent file.
+	time.Sleep(3 * pollInterval)
+	if tl.FileFound() {
+		t.Fatal("expected FileFound to stay false when Client.txt doesn't exist")
+	}
+	if tl.CaughtUp() {
+		t.Fatal("expected CaughtUp to stay false when Client.txt doesn't exist")
+	}
+}
+
+// TestFileFoundTrueOnceFileAppears confirms the latch flips once the log
+// file shows up after the tailer has already been polling for it.
+func TestFileFoundTrueOnceFileAppears(t *testing.T) {
+	db, installID := newTestDB(t)
+	logPath := filepath.Join(t.TempDir(), "Client.txt")
+
+	out := make(chan string, 8)
+	tl := New(logPath, db, installID, out)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go tl.Run(ctx)
+
+	time.Sleep(2 * pollInterval)
+	if tl.FileFound() {
+		t.Fatal("expected FileFound to be false before the log file exists")
+	}
+
+	if err := os.WriteFile(logPath, []byte("first line\n"), 0644); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if tl.FileFound() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("expected FileFound to flip true once the log file appears")
+}
+
 func TestLastActivityUpdatesWhenNewLinesAppear(t *testing.T) {
 	db, installID := newTestDB(t)
 	logPath := filepath.Join(t.TempDir(), "Client.txt")
