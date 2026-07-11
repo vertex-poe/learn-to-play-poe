@@ -63,6 +63,15 @@ func (h *Hub) UnsubscribeAll(c *Client) {
 	}
 }
 
+// HasSubscribers reports whether any client is currently subscribed to
+// topic. Used to gate expensive/rate-limited background work (e.g. polling
+// an external API) so it only runs while someone is actually listening.
+func (h *Hub) HasSubscribers(topic string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.subs[topic]) > 0
+}
+
 // Publish delivers msg to all subscribers of topic. Slow clients are dropped,
 // never allowed to stall fast ones.
 func (h *Hub) Publish(topic string, msg []byte) {

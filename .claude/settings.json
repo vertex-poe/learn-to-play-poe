@@ -134,7 +134,8 @@
       "Bash(sqlite3 *)",
       "Bash(gofmt -l .)",
       "Bash(sqlite3 --version)",
-      "Bash(sqlite3 -header -column *)"
+      "Bash(sqlite3 -header -column *)",
+      "Bash(gofmt -l -w *)"
     ],
     "additionalDirectories": [
       "\\tmp"

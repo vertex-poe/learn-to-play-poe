@@ -12,3 +12,12 @@ Path of Exile is a trademark of Grinding Gear Games Ltd.
 Path of Exile is a remarkable game to build around. Grinding Gear Games has maintained an open relationship with third-party developers — publishing passive skill tree data, providing trade and character APIs, and making `Client.txt` a reliable, structured source of game events. This project exists because of that foundation.
 
 The broader Path of Exile tooling community — loot filter authors, skill planners, trade utilities, map trackers, and currency sites — represents years of accumulated insight into what information players actually need alongside the game. That ecosystem shaped the thinking behind this project.
+
+## Code Inspiration
+
+steam-presence
+https://github.com/JustTemmie/steam-presence
+Copyright (c) 2022-Current GitHub user JustTemmie and Contributors
+Licensed under the MIT License
+
+The approach to fetching Steam rich presence data in internal/steam — scraping steamcommunity.com/miniprofile/<id3> (id3 = steamid64 - 76561197960265728) for its `rich_presence` span — was adapted from this project's getSteamRichPresence function.

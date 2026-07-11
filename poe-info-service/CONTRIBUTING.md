@@ -22,6 +22,8 @@ concern the service's own architecture rather than any one consumer's:
 - [ADR-003: Backward-Compatible Client API, Not Backward-Compatible Database Schema](docs/decisions/003-client-api-versioning.md)
 - [ADR-004: Credential Custody for POESESSID and OAuth Sessions](docs/decisions/004-credential-custody.md)
 - [ADR-005: Credential Storage Mechanism](docs/decisions/005-credential-storage-mechanism.md)
+- [ADR-006: User-Facing Config Lives in the External TOML File, Never in SQLite](docs/decisions/006-user-config-storage.md)
+- [ADR-007: Outbound HTTP Integration Policy](docs/decisions/007-outbound-http-integration-policy.md)
 
 Read ADR-001 first — it explains the singleton-election and keep-alive model
 that most of the rest of the service is built around.
@@ -122,6 +124,40 @@ service name so they never touch a real stored `POESESSID`.
 2. Add a handler in [`internal/server/server.go`](internal/server/server.go) and register it in `handleRequest`'s switch.
 3. If it's a read, back it with a method on [`internal/query.DB`](internal/query/query.go); if it's a write reacting to log events, add it to [`internal/ingest.Writer`](internal/ingest/writer.go).
 4. Once shipped, per ADR-003, that method's response shape is permanent — new fields only, never removed/renamed/repurposed ones.
+
+## Steam presence
+
+`internal/steam` fetches a Steam user's "playing now" status from two
+sources, combined into one entry per tracked steamid64 and exposed over the
+`steam.presence` WebSocket method / `steamPresence` push topic (see
+`internal/proto.SteamPresenceEntry`, `internal/server/steam.go`):
+
+- **Official Steam Web API** (`ISteamUser/GetPlayerSummaries`) — gives
+  `personaName`/`gameName`/`gameAppId`/`inGame`. Requires a Steam Web API
+  key. A client supplies one the same way it supplies `POESESSID` — via
+  `credentials.store` with `key: "steamApiKey"` — never over config.set, and
+  this service never returns the key's value back to a client, only whether
+  one is present (`credentials.has`). **A missing key is not an error**:
+  these fields simply stay empty/false, and the rich-presence scrape below
+  still runs independently.
+- **Unofficial rich-presence scrape** (`steamcommunity.com/miniprofile/<id3>`)
+  — gives `richPresence`, the actual rich text the Steam client itself shows
+  (e.g. a game's league/character/level). No credential needed, but this is
+  an undocumented HTML page with no stability guarantee from Valve — see
+  [ADR-007](docs/decisions/007-outbound-http-integration-policy.md).
+
+Which steamid64s to track is user-facing, non-secret config: the
+`steam_ids` setting (`config.set`/`config.list`, persisted to
+`poe-info-service.toml` like `install_dirs`/`executable_names`).
+
+**Polling is subscriber-gated.** The background poller
+(`watchSteamPresence` in `internal/server/steam.go`) only ever contacts
+Steam while at least one client is subscribed to the `steamPresence` topic
+— Steam is a rate-limited, ToS-sensitive external resource, so an idle
+service with nobody listening must not poll it (see ADR-007). Practically,
+this means a client must **subscribe** to get live data: requesting
+`steam.presence` without subscribing returns whatever is cached (possibly
+every entry still `"pending"`) and never triggers a fetch by itself.
 
 ## Database schema
 

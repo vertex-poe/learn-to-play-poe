@@ -34,6 +34,7 @@ type Config struct {
 	InstallDirs          []string `toml:"install_dirs" comment:"PoE install directories to ingest Client.txt from."`
 	AutoDetectInstallDir bool     `toml:"auto_detect_install_dir" comment:"Automatically add an install directory when a matching game process is seen running."`
 	ExecutableNames      []string `toml:"executable_names" comment:"Executable basenames to look for when auto-detecting an install directory."`
+	SteamIDs             []string `toml:"steam_ids" comment:"Steam64 IDs to track combined official + rich-presence data for (see the steam.presence WS method)."`
 }
 
 // DefaultExecutableNames is the canonical list of PoE executable basenames

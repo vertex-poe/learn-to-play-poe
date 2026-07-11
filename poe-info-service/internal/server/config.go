@@ -9,6 +9,7 @@ import (
 	"github.com/MovingCairn/poe-info-service/internal/hub"
 	"github.com/MovingCairn/poe-info-service/internal/ingest"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
+	"github.com/MovingCairn/poe-info-service/internal/steam"
 )
 
 // configEntry describes one entry in the config.list/config.get response: its
@@ -90,6 +91,23 @@ func mutableSettingsRegistry() map[string]mutableSetting {
 					return fmt.Errorf("executable_names must be an array of strings")
 				}
 				s.executableNames.Store(v)
+				return nil
+			},
+		},
+		"steam_ids": {
+			description: "Steam64 IDs to track combined official + rich-presence data for (see the steam.presence WS method).",
+			get:         func(s *server) any { return s.currentSteamIDs() },
+			set: func(s *server, raw json.RawMessage) error {
+				var v []string
+				if err := json.Unmarshal(raw, &v); err != nil {
+					return fmt.Errorf("steam_ids must be an array of strings")
+				}
+				for _, id := range v {
+					if _, err := steam.ValidateSteamID64(id); err != nil {
+						return fmt.Errorf("steam_ids: %w", err)
+					}
+				}
+				s.steamIDs.Store(v)
 				return nil
 			},
 		},
@@ -191,6 +209,7 @@ func (s *server) persistConfig() error {
 		InstallDirs:          s.installDirsList(),
 		AutoDetectInstallDir: s.autoDetect.Load(),
 		ExecutableNames:      s.currentExecutableNames(),
+		SteamIDs:             s.currentSteamIDs(),
 	})
 }
 
@@ -216,6 +235,12 @@ func (s *server) currentExecutableNames() []string {
 		return config.DefaultExecutableNames()
 	}
 	return names
+}
+
+// currentSteamIDs returns the effective steam_ids setting.
+func (s *server) currentSteamIDs() []string {
+	ids, _ := s.steamIDs.Load().([]string)
+	return ids
 }
 
 // reconcileInstallDirs diffs want against the currently-tailed install dirs

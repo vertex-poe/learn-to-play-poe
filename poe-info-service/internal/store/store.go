@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 // Store wraps poe-info-service's own internal bookkeeping tables (state,
@@ -58,4 +59,34 @@ func (s *Store) SetState(key, value string) error {
 // ownership to a new server instance.
 func (s *Store) Checkpoint() {
 	s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+}
+
+// GetCache returns the cached value stored under key, and ok=false if no
+// row exists or the row's TTL (set via SetCache) has already elapsed — an
+// expired row is treated as a miss rather than being pruned by GetCache
+// itself, since callers are expected to overwrite it via SetCache on their
+// next successful fetch regardless.
+func (s *Store) GetCache(key string) (value []byte, ok bool, err error) {
+	var expiresAt int64
+	err = s.db.QueryRow(`SELECT value, expires_at FROM api_cache WHERE key = ?`, key).Scan(&value, &expiresAt)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if time.Now().Unix() > expiresAt {
+		return nil, false, nil
+	}
+	return value, true, nil
+}
+
+// SetCache stores value under key, valid for ttl from now.
+func (s *Store) SetCache(key string, value []byte, ttl time.Duration) error {
+	now := time.Now().Unix()
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO api_cache (key, value, fetched_at, expires_at) VALUES (?, ?, ?, ?)`,
+		key, value, now, now+int64(ttl.Seconds()),
+	)
+	return err
 }

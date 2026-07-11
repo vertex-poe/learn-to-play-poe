@@ -27,6 +27,12 @@ This file tracks unimplemented work only — once an item is done, remove it fro
 - [ ] OAuth PKCE flow
 - [ ] Credential expiry/staleness policy
 - [ ] "Scan filesystem for install directories" button on the Game settings page
+- [ ] Steam presence: richer retry/backoff for outbound Steam requests
+- [ ] Steam presence: resolve Steam vanity URLs to steamid64 server-side
+- [ ] Steam presence: Steam OpenID webview login to auto-fill the user's own steamid64
+- [ ] Steam presence: l2p-poe WebView capture of the Steam Web API key, instead of manual copy/paste
+- [ ] Steam presence: distinguish a private Steam profile from "not currently playing anything"
+- [ ] Steam presence: per-steamid configurable poll interval / on-demand refresh
 
 ## Goal: Basic Features
 

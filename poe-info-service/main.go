@@ -189,6 +189,7 @@ func main() {
 		Installs:             installs,
 		AutoDetectInstallDir: fileCfg.AutoDetectInstallDir,
 		ExecutableNames:      fileCfg.ExecutableNames,
+		SteamIDs:             fileCfg.SteamIDs,
 		DbPath:               resolvedDbPath,
 		IdleTimeout:          *idleTimeout,
 	}

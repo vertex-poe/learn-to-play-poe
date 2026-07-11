@@ -24,6 +24,7 @@ import (
 	"github.com/MovingCairn/poe-info-service/internal/parser"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
 	"github.com/MovingCairn/poe-info-service/internal/query"
+	"github.com/MovingCairn/poe-info-service/internal/steam"
 	"github.com/MovingCairn/poe-info-service/internal/store"
 	"github.com/MovingCairn/poe-info-service/internal/tailer"
 	"github.com/gorilla/websocket"
@@ -80,6 +81,7 @@ type Config struct {
 	Installs             []InstallTarget // every install to ingest concurrently at startup — one tailer per entry; callers (main.go) have already filtered out candidates that don't exist on disk. More can be added/removed live afterward via config.set or auto-detection (see server.addInstall/removeInstall).
 	AutoDetectInstallDir bool            // initial value of the auto_detect_install_dir setting
 	ExecutableNames      []string        // initial value of the executable_names setting, used by the auto-detect loop
+	SteamIDs             []string        // initial value of the steam_ids setting, used by watchSteamPresence
 	DbPath               string          // path to poe-info-service's sole SQLite database (game history + internal state)
 	IdleTimeout          time.Duration   // shut down after this long with no client keep-alive or Client.txt activity; 0 uses DefaultIdleTimeout
 }
@@ -107,6 +109,11 @@ type server struct {
 
 	autoDetect      atomic.Bool  // current effective auto_detect_install_dir setting; client-settable via config.set
 	executableNames atomic.Value // current effective executable_names setting ([]string); client-settable via config.set
+	steamIDs        atomic.Value // current effective steam_ids setting ([]string); client-settable via config.set
+
+	steamClient   *steam.Client
+	steamMu       sync.RWMutex
+	steamPresence map[string]proto.SteamPresenceEntry // keyed by steamid64; hydrated from store.GetCache at startup, kept current by watchSteamPresence
 
 	started      time.Time
 	shutdown     context.CancelFunc
@@ -331,6 +338,10 @@ func serve(cfg Config, listener net.Listener) error {
 		execNames = config.DefaultExecutableNames()
 	}
 	srv.executableNames.Store(execNames)
+	srv.steamIDs.Store(cfg.SteamIDs)
+	srv.steamClient = steam.NewClient(nil)
+	srv.steamPresence = make(map[string]proto.SteamPresenceEntry, len(cfg.SteamIDs))
+	srv.hydrateSteamPresenceCache(cfg.SteamIDs)
 
 	// One tailer per configured install, ingesting concurrently — each gets
 	// its own installs row, writer, and event channel, all independent of
@@ -349,6 +360,7 @@ func serve(cfg Config, listener net.Listener) error {
 		}
 	}
 	go watchIngestStatus(ctx, srv)
+	go watchSteamPresence(ctx, srv)
 
 	idleTimeout := cfg.IdleTimeout
 	if idleTimeout <= 0 {
@@ -1108,6 +1120,9 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 
 	case "sessions.closeOrphans":
 		s.handleCloseOrphanSessions(c, msg)
+
+	case "steam.presence":
+		s.handleSteamPresence(c, msg)
 
 	case "credentials.store":
 		s.handleCredentialsStore(c, msg)

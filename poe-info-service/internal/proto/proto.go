@@ -97,3 +97,49 @@ const TopicStatus = "status"
 // client (e.g. l2p-poe's Settings > Game page, and its startup
 // no-install-dirs notice) stay in sync without re-polling config.list.
 const TopicConfig = "config"
+
+// SteamPresenceEntry is one tracked steamid64's most recently fetched Steam
+// presence — official-API fields (personaName/gameName/gameAppId/inGame;
+// populated only once a client has stored a "steamApiKey" credential via
+// credentials.store) combined with the unofficial rich-presence scrape
+// (richPresence; works with no credential) into a single entry, per the
+// project's "one combined method" decision. See poe-info-service's
+// CONTRIBUTING.md "Steam presence" section for the full contract.
+type SteamPresenceEntry struct {
+	SteamID64    string `json:"steamId64"`
+	PersonaName  string `json:"personaName,omitempty"`  // "" without a stored steamApiKey, or before first successful official fetch
+	GameName     string `json:"gameName,omitempty"`     // gameextrainfo; "" if not in a game, or no steamApiKey
+	GameAppID    string `json:"gameAppId,omitempty"`    // gameid; "" alongside GameName
+	InGame       bool   `json:"inGame"`                 // always false without a stored steamApiKey
+	RichPresence string `json:"richPresence,omitempty"` // parsed rich_presence text; "" if absent, or the mismatch guard suppressed it
+	FetchedAt    int64  `json:"fetchedAt"`              // unix seconds of the last successful fetch; 0 if never fetched
+	Status       string `json:"status"`                 // SteamPresenceStatus*; an open string so new values are addable later per ADR-003
+	Error        string `json:"error,omitempty"`        // human-readable detail, populated only when status=="error"
+}
+
+// SteamPresencePayload is both the "steam.presence" request's response shape
+// and the payload published to TopicSteamPresence — one entry per configured
+// steam_ids entry, in configured order.
+type SteamPresencePayload struct {
+	Entries []SteamPresenceEntry `json:"entries"`
+}
+
+const (
+	// SteamPresenceStatusPending marks an id that's configured but has not
+	// been fetched yet — e.g. the server just started, or no client has
+	// subscribed to TopicSteamPresence yet (fetching is subscriber-gated).
+	SteamPresenceStatusPending = "pending"
+	SteamPresenceStatusOK      = "ok"
+	// SteamPresenceStatusError marks an id whose most recent fetch attempt
+	// failed (network error, non-200, etc.) — Error carries the detail.
+	SteamPresenceStatusError = "error"
+)
+
+// TopicSteamPresence carries SteamPresencePayload, published after each
+// completed Steam poll cycle. A client must subscribe to this topic to
+// activate polling at all: the background poller only contacts Steam while
+// at least one subscriber exists (Hub.HasSubscribers), since it's a
+// rate-limited external resource. Requesting "steam.presence" without
+// subscribing returns whatever is cached (possibly every entry still
+// "pending") and never triggers a fetch itself.
+const TopicSteamPresence = "steamPresence"
