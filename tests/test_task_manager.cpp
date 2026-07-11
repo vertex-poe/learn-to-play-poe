@@ -56,11 +56,11 @@ private slots:
         QCOMPARE(findRecord(manager, id)->percent, 100);
 
         // cleanupTask() (see TaskManager.cpp) quits the now-idle worker
-        // thread and deleteLater()s it asynchronously; give the event loop a
-        // moment to actually finish that before manager's destructor runs at
-        // the end of this scope; destroying a QThread that hasn't finished
-        // quitting yet is a real (if narrow) crash risk.
-        QTest::qWait(100);
+        // thread and deleteLater()s it asynchronously, so manager's
+        // destructor below runs immediately, before that quit necessarily
+        // takes effect. This is the regression case for the shutdown race:
+        // the destructor must still wait for the thread itself rather than
+        // relying solely on the (by-then detached) TaskRecord.
     }
 
 private:

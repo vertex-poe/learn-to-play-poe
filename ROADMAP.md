@@ -9,7 +9,6 @@ This file tracks unimplemented work only — once an item is done, remove it rat
 ## Goal: Maintenance
 
 - [ ] Switch CI aqtinstall from pinned git hash to a stable release once Qt 6.11 is properly supported (currently using `bbfb1f7c` of miurahr/aqtinstall as a workaround; check after 2026-08-01; see `.github/workflows/ci-windows.yml`)
-- [ ] `TaskManager` shutdown race: `cleanupTask()` (`src/workers/TaskManager.cpp`) calls `thread->quit()` and relies on a `deleteLater()`-chained connection to actually delete the `QThread`/worker later, asynchronously. If `TaskManager` itself is destroyed before that `deleteLater()` runs (its own destructor only `wait()`s on tasks where `record.thread` is still non-null, skipping ones already mid-cleanup), Qt destroys the still-not-fully-quit `QThread` synchronously, which can crash ("QThread: Destroyed while thread is still running"). Reproduced directly in `tests/test_task_manager.cpp` (worked around there with a `QTest::qWait(100)` before the local `TaskManager` goes out of scope) — in production this needs a real app shutdown at almost the exact moment a task finishes, so it's narrow, but MainWindow's `m_taskManager` is destroyed on every app close.
 
 ## Goal: poe-info-service
 

@@ -18,6 +18,17 @@ TaskManager::~TaskManager()
         delete record.worker;
         // record.thread is a child of TaskManager; destroyed by parent-child after wait()
     }
+
+    // Tasks that finished between the loop above running its cleanup and now
+    // (or that finished earlier and are still winding down) have already had
+    // their TaskRecord detached by cleanupTask(), so the loop above can't see
+    // them. Their QThread is still a child of this object though, and its
+    // quit() may not have taken effect yet — wait for every remaining one so
+    // Qt never has to synchronously destroy a QThread that's still running.
+    for (auto *thread : findChildren<QThread *>(Qt::FindDirectChildrenOnly)) {
+        thread->quit();
+        thread->wait();
+    }
 }
 
 int TaskManager::submit(const QString &name, TaskKind kind, BackgroundWorker *worker)
