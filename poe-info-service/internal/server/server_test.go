@@ -25,6 +25,34 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// syncBuffer is a bytes.Buffer guarded by a mutex so it can be safely
+// written to by log.Logger's output goroutine while being read (via
+// String) by a test polling for log output — bytes.Buffer itself isn't
+// safe for concurrent read/write, and log.Logger's own mutex only
+// protects the Write call, not a separate String() read racing against it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *syncBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
+}
+
 // waitForCancel blocks until ctx is done or the timeout elapses, returning
 // whether ctx was actually cancelled.
 func waitForCancel(ctx context.Context, timeout time.Duration) bool {
@@ -46,7 +74,7 @@ func waitForCancel(ctx context.Context, timeout time.Duration) bool {
 // stuck line/event once it's been "in flight" longer than the interval, and
 // stays quiet while a line is still being processed within that window.
 func TestWatchIngestStall_LogsWhenStuckOnSameLine(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncBuffer
 	origOutput := log.Writer()
 	origFlags := log.Flags()
 	log.SetOutput(&buf)
