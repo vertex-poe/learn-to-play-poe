@@ -159,6 +159,51 @@ this means a client must **subscribe** to get live data: requesting
 `steam.presence` without subscribing returns whatever is cached (possibly
 every entry still `"pending"`) and never triggers a fetch by itself.
 
+## PoE OAuth (official Developer API)
+
+`internal/poe` implements the OAuth 2.0 Authorization Code + PKCE flow for
+`api.pathofexile.com`, exposed over three WebSocket methods and one push
+topic (`internal/server/poe_oauth.go`, `internal/proto.PoeOAuthStatusPayload`):
+
+- **`poe.oauth.login`** — starts an interactive login: this service itself
+  opens the system's default browser to PoE's authorize page and runs a
+  loopback HTTP listener (`127.0.0.1:{dynamic port}/auth/path-of-exile`) to
+  capture the redirect, per
+  [ADR-004](docs/decisions/004-credential-custody.md) — no WebView-capable
+  client is needed, unlike `POESESSID`. The response only confirms the flow
+  (re)started (`{"started": true|false}`); the actual outcome arrives via
+  `TopicPoeOAuthStatus`, or a follow-up `poe.oauth.status` call.
+- **`poe.oauth.status`** — the current state: `authorized`, `inProgress`,
+  and (only while authorized) `username`/`scope`/`accessExpiration`. Never
+  the token itself, per ADR-004.
+- **`poe.oauth.logout`** — discards the stored token and cancels any
+  scheduled refresh.
+
+The resulting token set is persisted through `internal/creds` under key
+`poeOAuthToken` (a JSON-serialized `poe.Token`, including the derived
+`birthday`/`access_expiration`/`refresh_expiration` fields) — this service
+both originates and owns this credential, unlike `steamApiKey`/`POESESSID`
+which a client supplies via `credentials.store`. A background timer
+refreshes the access token 5 minutes before it expires and reschedules
+itself; a failed refresh retries after a short backoff rather than
+immediately forcing re-login, unless the assumed 7-day refresh-token
+lifetime has actually elapsed, in which case the token is dropped and
+`poe.oauth.status` reports unauthorized again.
+
+See [`_reference/poe-apis/poe-apis.md`](../_reference/poe-apis/poe-apis.md)
+§3.3 for the full protocol reference this implements (PKCE mechanics,
+loopback redirect rationale, token lifecycle state machine, the
+`client_secret` refresh quirk). This service only implements
+*authentication* — the OAuth data endpoints themselves (`/character`,
+`/stash`, etc., §6.2 of that doc) are not yet wired up.
+
+**Automated tests never exercise `loadPoeOAuthToken`/`savePoeOAuthToken`/
+`clearPoeOAuthToken`** (poe_oauth.go's sole points of contact with
+`internal/creds`), for the same reason noted above for
+`credentials.store`/`has`/`delete`: a test must never risk touching or
+deleting a real stored credential. Only the in-memory login/status/refresh
+logic around that boundary is covered.
+
 ## Database schema
 
 The `l2p` database schema lives in [`internal/schema/sql/`](internal/schema/sql/)

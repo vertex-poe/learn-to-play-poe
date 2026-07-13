@@ -22,6 +22,7 @@ import (
 	"github.com/MovingCairn/poe-info-service/internal/hub"
 	"github.com/MovingCairn/poe-info-service/internal/ingest"
 	"github.com/MovingCairn/poe-info-service/internal/parser"
+	"github.com/MovingCairn/poe-info-service/internal/poe"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
 	"github.com/MovingCairn/poe-info-service/internal/query"
 	"github.com/MovingCairn/poe-info-service/internal/steam"
@@ -114,6 +115,9 @@ type server struct {
 	steamClient   *steam.Client
 	steamMu       sync.RWMutex
 	steamPresence map[string]proto.SteamPresenceEntry // keyed by steamid64; hydrated from store.GetCache at startup, kept current by watchSteamPresence
+
+	poeClient *poe.Client
+	poeOAuth  poeOAuthState // PoE OAuth token + login/refresh state; see poe_oauth.go
 
 	started      time.Time
 	shutdown     context.CancelFunc
@@ -342,6 +346,9 @@ func serve(cfg Config, listener net.Listener) error {
 	srv.steamClient = steam.NewClient(nil)
 	srv.steamPresence = make(map[string]proto.SteamPresenceEntry, len(cfg.SteamIDs))
 	srv.hydrateSteamPresenceCache(cfg.SteamIDs)
+
+	srv.poeClient = poe.NewClient(nil)
+	srv.hydratePoeOAuthToken()
 
 	// One tailer per configured install, ingesting concurrently — each gets
 	// its own installs row, writer, and event channel, all independent of
@@ -1132,6 +1139,15 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 
 	case "credentials.delete":
 		s.handleCredentialsDelete(c, msg)
+
+	case "poe.oauth.login":
+		s.handlePoeOAuthLogin(c, msg)
+
+	case "poe.oauth.status":
+		s.handlePoeOAuthStatus(c, msg)
+
+	case "poe.oauth.logout":
+		s.handlePoeOAuthLogout(c, msg)
 
 	case "config.list":
 		s.handleConfigList(c, msg)

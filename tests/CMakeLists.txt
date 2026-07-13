@@ -131,6 +131,21 @@ target_include_directories(test_steamaccountstore PRIVATE ${CMAKE_SOURCE_DIR}/sr
 target_link_libraries(test_steamaccountstore PRIVATE Qt6::Core Qt6::WebSockets Qt6::Test)
 add_test(NAME test_steamaccountstore COMMAND test_steamaccountstore)
 
+# PoeOAuthStore's poe.oauth.* round trip (request/response) plus the
+# "poeOAuthStatus" push-topic path, via the same FakePoeInfoServer double.
+qt_add_executable(test_poeoauthstore
+    test_poeoauthstore.cpp
+    ${CMAKE_SOURCE_DIR}/src/util/PoeOAuthStore.cpp
+    ${CMAKE_SOURCE_DIR}/src/util/PoeOAuthStore.h
+    FakePoeInfoServer.cpp
+    FakePoeInfoServer.h
+    ${CMAKE_SOURCE_DIR}/src/services/PoeInfoClient.cpp
+    ${CMAKE_SOURCE_DIR}/src/services/PoeInfoClient.h
+)
+target_include_directories(test_poeoauthstore PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_poeoauthstore PRIVATE Qt6::Core Qt6::WebSockets Qt6::Test)
+add_test(NAME test_poeoauthstore COMMAND test_poeoauthstore)
+
 add_subdirectory(ref_basic)
 add_test(NAME test_ref_basic COMMAND ref_basic_app)
 

@@ -8,6 +8,7 @@
 #include "ui/widgets/ListEditor.h"
 #include "util/PoeAccountStore.h"
 #include "ui/settings/PoeLoginWindow.h"
+#include "util/PoeOAuthStore.h"
 #include "util/SteamAccountStore.h"
 #include "ui/settings/SteamKeyLoginWindow.h"
 
@@ -31,6 +32,7 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QFrame>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
@@ -157,6 +159,7 @@ SettingsPage::SettingsPage(AppConfig &config, PoeInfoClient *poeInfoClient, QWid
     : QWidget(parent), m_config(config), m_poeInfoClient(poeInfoClient)
 {
     m_accountStore = new PoeAccountStore(poeInfoClient, this);
+    m_poeOAuthStore = new PoeOAuthStore(poeInfoClient, this);
     m_steamAccountStore = new SteamAccountStore(poeInfoClient, this);
 
     // ---- Header -------------------------------------------------------
@@ -1052,11 +1055,120 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
     parentLayout->setContentsMargins(0, 0, 0, 0);
 
     // ---- Page 8: Accounts ---------------------------------------------
+    // Two-column grid: column 0 holds each section's own label/controls
+    // and its trailing divider (all confined to that column, never
+    // spanning into column 1); column 1 holds a short caption on what that
+    // credential is actually used for. Each section is one grid row so its
+    // caption stays vertically aligned with it.
     auto *accountsContent = new QWidget;
-    auto *accountsForm = new QFormLayout(accountsContent);
-    accountsForm->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
+    auto *accountsGrid = new QGridLayout(accountsContent);
+    accountsGrid->setContentsMargins(Theme::spacingBase, Theme::spacingBase, Theme::spacingBase, Theme::spacingBase);
+    accountsGrid->setColumnStretch(0, 3);
+    accountsGrid->setColumnStretch(1, 2);
 
-    m_accountsActionBtn = new QPushButton(accountsContent);
+    int accountsRow = 0;
+    const auto addAccountsSection = [&](QWidget *sectionWidget, const QString &caption)
+    {
+        accountsGrid->addWidget(sectionWidget, accountsRow, 0, Qt::AlignTop);
+        if (!caption.isEmpty())
+        {
+            auto *captionLabel = new QLabel(caption, accountsContent);
+            captionLabel->setWordWrap(true);
+            captionLabel->setForegroundRole(QPalette::PlaceholderText);
+            accountsGrid->addWidget(captionLabel, accountsRow, 1, Qt::AlignTop);
+        }
+        ++accountsRow;
+    };
+
+    // Full-width divider between sections — spans both grid columns, but
+    // with a generous left/right margin so the line itself doesn't reach
+    // the page edges.
+    const auto addAccountsDivider = [&]()
+    {
+        auto *line = new QFrame(accountsContent);
+        line->setFrameShape(QFrame::HLine);
+        line->setFrameShadow(QFrame::Sunken);
+        auto *w = new QWidget(accountsContent);
+        auto *l = new QVBoxLayout(w);
+        l->setContentsMargins(Theme::spacing3xl, Theme::spacingXs, Theme::spacing3xl, Theme::spacingBase);
+        l->addWidget(line);
+        accountsGrid->addWidget(w, accountsRow, 0, 1, 2);
+        ++accountsRow;
+    };
+
+    // Bold, enlarged section heading shared by all three sections below.
+    const auto addAccountsSectionLabel = [&](QWidget *sectionParent, QFormLayout *sectionForm, const QString &text)
+    {
+        auto *sectionLabel = new QLabel(text, sectionParent);
+        QFont f = sectionLabel->font();
+        f.setBold(true);
+        f.setPointSizeF(Theme::fontXl);
+        sectionLabel->setFont(f);
+        sectionForm->addRow(sectionLabel);
+    };
+
+    // ---- Official OAuth API ---------------------------------------
+    auto *oauthSectionWidget = new QWidget(accountsContent);
+    auto *oauthForm = new QFormLayout(oauthSectionWidget);
+    oauthForm->setContentsMargins(0, 0, 0, 0);
+
+    addAccountsSectionLabel(oauthSectionWidget, oauthForm, "Official OAuth API");
+
+    m_poeOAuthActionBtn = new QPushButton(oauthSectionWidget);
+    m_poeOAuthActionBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    m_poeOAuthActionBtn->setText("Checking...");
+    m_poeOAuthActionBtn->setEnabled(false);
+    connect(m_poeOAuthActionBtn, &QPushButton::clicked, this, [this]()
+            {
+        if (m_poeOAuthAuthorized) {
+            m_poeOAuthStore->logout();
+        } else if (!m_poeOAuthInProgress) {
+            // poe-info-service opens the system browser itself (ADR-004) —
+            // reflect "in progress" immediately rather than waiting for the
+            // poe.oauth.login response (which only confirms it started) or
+            // the first poeOAuthStatus push, so a second click can't fire a
+            // duplicate login while the first is still awaiting the browser.
+            m_poeOAuthInProgress = true;
+            updatePoeOAuthButton();
+            m_poeOAuthStore->login();
+        } });
+
+    m_poeOAuthStatusLabel = new QLabel(oauthSectionWidget);
+    m_poeOAuthStatusLabel->setWordWrap(true);
+
+    {
+        const int px = QFontMetrics(font()).height();
+        auto *oauthInfoBtn = new QPushButton(oauthSectionWidget);
+        oauthInfoBtn->setFlat(true);
+        oauthInfoBtn->setFixedSize(px + 8, px + 8);
+        oauthInfoBtn->setIcon(QIcon(Theme::renderSvgIcon(
+            QStringLiteral(":/icons/info-circle.svg"),
+            palette().buttonText().color(),
+            {px, px}, devicePixelRatioF())));
+        oauthInfoBtn->setIconSize({px, px});
+        oauthInfoBtn->setToolTip("Official OAuth API");
+        connect(oauthInfoBtn, &QPushButton::clicked, this, []()
+                { QDesktopServices::openUrl(
+                      QUrl(docSource("", "rationales/oauth-api").url)); });
+
+        auto *oauthActionRow = new QHBoxLayout;
+        oauthActionRow->setContentsMargins(0, 0, 0, 0);
+        oauthActionRow->addWidget(m_poeOAuthActionBtn);
+        oauthActionRow->addWidget(oauthInfoBtn);
+        oauthActionRow->addStretch();
+        oauthForm->addRow("PathOfExile.com Account (OAuth):", oauthActionRow);
+    }
+    oauthForm->addRow(QString(), m_poeOAuthStatusLabel);
+
+    addAccountsSection(oauthSectionWidget, QString());
+    addAccountsDivider();
+
+    // ---- Official Legacy POE API -----------------------------------
+    auto *legacySectionWidget = new QWidget(accountsContent);
+    auto *legacyForm = new QFormLayout(legacySectionWidget);
+    legacyForm->setContentsMargins(0, 0, 0, 0);
+
+    m_accountsActionBtn = new QPushButton(legacySectionWidget);
     m_accountsActionBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_accountsActionBtn->setText("Checking...");
     m_accountsActionBtn->setEnabled(false);
@@ -1076,17 +1188,11 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
                     m_accountStore, &PoeAccountStore::storeSession);
         } });
 
-    {
-        auto *sectionLabel = new QLabel("Official Legacy POE API", accountsContent);
-        QFont f = sectionLabel->font();
-        f.setBold(true);
-        sectionLabel->setFont(f);
-        accountsForm->addRow(sectionLabel);
-    }
+    addAccountsSectionLabel(legacySectionWidget, legacyForm, "Official Legacy POE API");
 
     {
         const int px = QFontMetrics(font()).height();
-        auto *infoBtn = new QPushButton(accountsContent);
+        auto *infoBtn = new QPushButton(legacySectionWidget);
         infoBtn->setFlat(true);
         infoBtn->setFixedSize(px + 8, px + 8);
         infoBtn->setIcon(QIcon(Theme::renderSvgIcon(
@@ -1104,17 +1210,17 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
         accountsActionRow->addWidget(m_accountsActionBtn);
         accountsActionRow->addWidget(infoBtn);
         accountsActionRow->addStretch();
-        accountsForm->addRow("PathOfExile.com Account:", accountsActionRow);
+        legacyForm->addRow("PathOfExile.com Account:", accountsActionRow);
     }
 
-    m_accountsUaLabel = new QLabel("User agent:", accountsContent);
-    m_accountsUaDisplay = new QLineEdit(accountsContent);
+    m_accountsUaLabel = new QLabel("User agent:", legacySectionWidget);
+    m_accountsUaDisplay = new QLineEdit(legacySectionWidget);
     m_accountsUaDisplay->setReadOnly(true);
     m_accountsUaDisplay->setPlaceholderText("Native Chromium UA");
 
     {
         const int px = QFontMetrics(font()).height();
-        m_accountsUaCopyBtn = new QPushButton(accountsContent);
+        m_accountsUaCopyBtn = new QPushButton(legacySectionWidget);
         m_accountsUaCopyBtn->setFlat(true);
         m_accountsUaCopyBtn->setFixedSize(px + 8, px + 8);
         m_accountsUaCopyBtn->setIcon(QIcon(Theme::renderSvgIcon(
@@ -1131,20 +1237,22 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
     accountsUaRow->setContentsMargins(0, 0, 0, 0);
     accountsUaRow->addWidget(m_accountsUaDisplay, 1);
     accountsUaRow->addWidget(m_accountsUaCopyBtn);
-    accountsForm->addRow(m_accountsUaLabel, accountsUaRow);
+    legacyForm->addRow(m_accountsUaLabel, accountsUaRow);
     m_accountsUaLabel->setVisible(m_config.debugMode);
     m_accountsUaDisplay->setVisible(m_config.debugMode);
     m_accountsUaCopyBtn->setVisible(m_config.debugMode);
 
-    {
-        auto *sectionLabel = new QLabel("Steam", accountsContent);
-        QFont f = sectionLabel->font();
-        f.setBold(true);
-        sectionLabel->setFont(f);
-        accountsForm->addRow(sectionLabel);
-    }
+    addAccountsSection(legacySectionWidget, "Used for unique tab search.");
+    addAccountsDivider();
 
-    m_steamActionBtn = new QPushButton(accountsContent);
+    // ---- Steam -------------------------------------------------------
+    auto *steamSectionWidget = new QWidget(accountsContent);
+    auto *steamForm = new QFormLayout(steamSectionWidget);
+    steamForm->setContentsMargins(0, 0, 0, 0);
+
+    addAccountsSectionLabel(steamSectionWidget, steamForm, "Steam");
+
+    m_steamActionBtn = new QPushButton(steamSectionWidget);
     m_steamActionBtn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     m_steamActionBtn->setText("Checking...");
     m_steamActionBtn->setEnabled(false);
@@ -1162,7 +1270,7 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
 
     {
         const int px = QFontMetrics(font()).height();
-        auto *steamInfoBtn = new QPushButton(accountsContent);
+        auto *steamInfoBtn = new QPushButton(steamSectionWidget);
         steamInfoBtn->setFlat(true);
         steamInfoBtn->setFixedSize(px + 8, px + 8);
         steamInfoBtn->setIcon(QIcon(Theme::renderSvgIcon(
@@ -1180,8 +1288,11 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
         steamActionRow->addWidget(m_steamActionBtn);
         steamActionRow->addWidget(steamInfoBtn);
         steamActionRow->addStretch();
-        accountsForm->addRow("Steam Web API Key:", steamActionRow);
+        steamForm->addRow("Steam Web API Key:", steamActionRow);
     }
+
+    addAccountsSection(steamSectionWidget, "Used for current league, level.");
+    accountsGrid->setRowStretch(accountsRow, 1);
 
     parentLayout->addWidget(accountsContent);
     connect(m_steamAccountStore, &SteamAccountStore::keyChecked, this,
@@ -1216,6 +1327,17 @@ void SettingsPage::buildAccountsPage(QWidget *parent)
                 }
             });
     m_accountStore->checkSession();
+    connect(m_poeOAuthStore, &PoeOAuthStore::statusChanged, this,
+            [this](bool authorized, bool inProgress, const QString &username,
+                   const QString & /*scope*/, qint64 /*accessExpiration*/, const QString &error)
+            {
+                m_poeOAuthAuthorized = authorized;
+                m_poeOAuthInProgress = inProgress;
+                m_poeOAuthUsername = username;
+                m_poeOAuthLastError = error;
+                updatePoeOAuthButton();
+            });
+    m_poeOAuthStore->checkStatus();
     m_accountsUaLabel->setVisible(m_config.debugMode);
     m_accountsUaDisplay->setVisible(m_config.debugMode);
     m_accountsUaCopyBtn->setVisible(m_config.debugMode);
@@ -1568,6 +1690,31 @@ void SettingsPage::updateSteamButton()
 {
     m_steamActionBtn->setText(m_hasSteamKey ? "Logout" : "Login");
     m_steamActionBtn->setEnabled(true);
+}
+
+void SettingsPage::updatePoeOAuthButton()
+{
+    if (m_poeOAuthInProgress)
+    {
+        m_poeOAuthActionBtn->setText("Waiting for browser...");
+        m_poeOAuthActionBtn->setEnabled(false);
+        m_poeOAuthStatusLabel->setText(
+            "A browser window should have opened — sign in there to finish.");
+        return;
+    }
+
+    if (m_poeOAuthAuthorized)
+    {
+        m_poeOAuthActionBtn->setText("Logout");
+        m_poeOAuthActionBtn->setEnabled(true);
+        m_poeOAuthStatusLabel->setText(
+            m_poeOAuthUsername.isEmpty() ? QString() : QStringLiteral("Signed in as %1").arg(m_poeOAuthUsername));
+        return;
+    }
+
+    m_poeOAuthActionBtn->setText("Login");
+    m_poeOAuthActionBtn->setEnabled(true);
+    m_poeOAuthStatusLabel->setText(m_poeOAuthLastError);
 }
 
 void SettingsPage::saveAndEmit()

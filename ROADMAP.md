@@ -24,8 +24,8 @@ This file tracks unimplemented work only — once an item is done, remove it fro
 - [ ] Manual installer
 - [ ] Binary signing + checksum verification
 - [ ] Credential storage package — macOS/Linux backends
-- [ ] OAuth PKCE flow
 - [ ] Credential expiry/staleness policy
+- [ ] PoE OAuth data endpoints (characters, stash, leagues)
 - [ ] "Scan filesystem for install directories" button on the Game settings page
 - [ ] Steam presence: richer retry/backoff for outbound Steam requests
 - [ ] Steam presence: resolve Steam vanity URLs to steamid64 server-side

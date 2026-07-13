@@ -32,12 +32,29 @@ QJsonObject FakePoeInfoServer::lastParams(const QString &method) const
     return m_lastParams.value(method);
 }
 
+void FakePoeInfoServer::publishEvent(const QString &topic, const QJsonObject &payload)
+{
+    const QJsonObject msg{
+        {QStringLiteral("type"),    QStringLiteral("event")},
+        {QStringLiteral("topic"),   topic},
+        {QStringLiteral("payload"), payload},
+    };
+    const QString data = QString::fromUtf8(QJsonDocument(msg).toJson(QJsonDocument::Compact));
+    const QList<QWebSocket *> sockets = m_sockets;
+    for (QWebSocket *socket : sockets)
+        socket->sendTextMessage(data);
+}
+
 void FakePoeInfoServer::onNewConnection()
 {
     QWebSocket *socket = m_server.nextPendingConnection();
+    m_sockets.append(socket);
     connect(socket, &QWebSocket::textMessageReceived, this,
             [this, socket](const QString &message) { onTextMessageReceived(socket, message); });
-    connect(socket, &QWebSocket::disconnected, socket, &QWebSocket::deleteLater);
+    connect(socket, &QWebSocket::disconnected, this, [this, socket]() {
+        m_sockets.removeAll(socket);
+        socket->deleteLater();
+    });
 }
 
 void FakePoeInfoServer::onTextMessageReceived(QWebSocket *socket, const QString &message)

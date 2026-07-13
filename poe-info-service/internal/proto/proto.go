@@ -143,3 +143,27 @@ const (
 // subscribing returns whatever is cached (possibly every entry still
 // "pending") and never triggers a fetch itself.
 const TopicSteamPresence = "steamPresence"
+
+// PoeOAuthStatusPayload is both the "poe.oauth.status" request's response
+// shape and the payload published to TopicPoeOAuthStatus. Per ADR-004, this
+// service never returns the underlying access/refresh token to a client —
+// only whether one is held and, if so, non-secret metadata about it.
+type PoeOAuthStatusPayload struct {
+	Authorized bool `json:"authorized"` // a token is stored and hasn't outlived its assumed refresh-token lifetime
+	InProgress bool `json:"inProgress"` // a poe.oauth.login flow is currently waiting on the browser
+	// Username/Scope/AccessExpiration are populated only when Authorized —
+	// display-only metadata, never the token itself.
+	Username         string `json:"username,omitempty"`
+	Scope            string `json:"scope,omitempty"`
+	AccessExpiration int64  `json:"accessExpiration,omitempty"` // unix seconds
+	// Error carries the most recent login/refresh failure's message, if any
+	// — cleared on the next successful login.
+	Error string `json:"error,omitempty"`
+}
+
+// TopicPoeOAuthStatus carries PoeOAuthStatusPayload, published whenever the
+// PoE OAuth state changes: a login attempt starts, succeeds, or fails; a
+// background refresh succeeds or fails; or the client logs out
+// (poe.oauth.logout). Lets a client reflect connection status live instead
+// of polling poe.oauth.status.
+const TopicPoeOAuthStatus = "poeOAuthStatus"

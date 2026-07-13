@@ -32,6 +32,8 @@ qt_add_executable(l2p-poe
     util/Docs.h
     util/PoeAccountStore.cpp
     util/PoeAccountStore.h
+    util/PoeOAuthStore.cpp
+    util/PoeOAuthStore.h
     util/SteamAccountStore.cpp
     util/SteamAccountStore.h
     util/SteamApiKeyExtractor.h

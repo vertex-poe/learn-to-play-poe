@@ -15,6 +15,7 @@ class QListWidget;
 class QPushButton;
 class QStackedWidget;
 class PoeAccountStore;
+class PoeOAuthStore;
 class SteamAccountStore;
 class PoeInfoClient;
 struct LiveEventRule;
@@ -141,6 +142,20 @@ private:
     QPushButton     *m_accountsUaCopyBtn{};
 
     void updateAccountButton();
+
+    // Accounts page: official OAuth API. Unlike m_accountStore/
+    // m_steamAccountStore, poe-info-service originates and owns this login
+    // itself (system browser + loopback listener, ADR-004) — this store
+    // only starts/stops the flow and relays its live status.
+    PoeOAuthStore *m_poeOAuthStore{};
+    QPushButton   *m_poeOAuthActionBtn{};
+    QLabel        *m_poeOAuthStatusLabel{};
+    bool           m_poeOAuthAuthorized{false};
+    bool           m_poeOAuthInProgress{false};
+    QString        m_poeOAuthUsername;
+    QString        m_poeOAuthLastError;
+
+    void updatePoeOAuthButton();
 
     // Accounts page: Steam Web API key
     SteamAccountStore *m_steamAccountStore{};

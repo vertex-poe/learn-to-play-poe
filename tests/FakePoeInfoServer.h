@@ -15,10 +15,15 @@ class QWebSocket;
 // reconnect logic instead of mocking it away (PoeInfoClient itself isn't
 // mockable: concrete QObject, non-virtual request(), real QWebSocket).
 //
-// Only speaks the "request"/"response" half of the protocol used by
+// Speaks the "request"/"response" half of the protocol used by
 // PoeInfoClient::request() — enough to drive SessionViewPage/LogPage's
-// request-retry-on-error paths. Subscriptions aren't handled since neither
-// page uses PoeInfoClient::subscribe().
+// request-retry-on-error paths — plus publishEvent() for the "event"/topic
+// half used by PoeInfoClient::subscribe() (e.g. PoeOAuthStore's
+// "poeOAuthStatus" subscription). Incoming "subscribe" messages themselves
+// are not tracked/filtered on — publishEvent() simply broadcasts to every
+// connected socket, since PoeInfoClient already filters incoming events by
+// its own per-topic subscription table, so an unfiltered broadcast is
+// observably identical to the real service for a single test client.
 class FakePoeInfoServer : public QObject
 {
     Q_OBJECT
@@ -38,6 +43,11 @@ public:
     // empty object if none has been received yet.
     QJsonObject lastParams(const QString &method) const;
 
+    // Broadcasts an "event" message on topic to every currently connected
+    // socket — see the class doc comment for why no subscribe-tracking is
+    // needed for this to behave correctly from a single test client's view.
+    void publishEvent(const QString &topic, const QJsonObject &payload);
+
 private:
     void onNewConnection();
     void onTextMessageReceived(QWebSocket *socket, const QString &message);
@@ -46,4 +56,5 @@ private:
     QHash<QString, QList<QPair<QJsonObject, QString>>> m_queuedResponses;
     QHash<QString, int> m_requestCounts;
     QHash<QString, QJsonObject> m_lastParams;
+    QList<QWebSocket *> m_sockets;
 };
