@@ -24,7 +24,7 @@ func TestSaveThenLoadRoundTrips(t *testing.T) {
 		InstallDirs:          []string{`C:\Games\PoE`, `D:\SteamLibrary\PoE`},
 		AutoDetectInstallDir: false,
 		ExecutableNames:      []string{"PathOfExile_x64Steam.exe"},
-		SteamIDs:             []string{"76561197960287930"},
+		SteamID:              "76561197960287930",
 	}
 
 	if err := Save(path, want); err != nil {
@@ -44,7 +44,7 @@ func TestSaveAcceptsArbitraryFileName(t *testing.T) {
 		DebugLogging:    true,
 		InstallDirs:     []string{`C:\Games\PoE`},
 		ExecutableNames: []string{"PathOfExile.exe"},
-		SteamIDs:        []string{"76561197960287930"},
+		SteamID:         "76561197960287930",
 	}
 
 	if err := Save(path, want); err != nil {

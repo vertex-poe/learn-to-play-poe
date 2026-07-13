@@ -12,7 +12,7 @@ const SteamMiniprofileWithRichPresence = `<div class="miniprofile">
 		<span class="miniprofile_game_name">Path of Exile</span>
 	</div>
 	<div class="rich_presence_ctn">
-		<span class="rich_presence">Standard League - LvL 92 Witch, Act 10</span>
+		<span class="rich_presence">SSF Ancestors: 92 Warden - The Sarn Encampment</span>
 	</div>
 </div>`
 

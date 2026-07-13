@@ -31,7 +31,8 @@ This file tracks unimplemented work only — once an item is done, remove it fro
 - [ ] Steam presence: resolve Steam vanity URLs to steamid64 server-side
 - [ ] Steam presence: Steam OpenID webview login to auto-fill the user's own steamid64
 - [ ] Steam presence: distinguish a private Steam profile from "not currently playing anything"
-- [ ] Steam presence: per-steamid configurable poll interval / on-demand refresh
+- [ ] Steam presence: support tracking friends (additional steamids) for group play
+- [ ] Steam presence: investigate rich presence as a primary league/level/zone source for detecting game state on a different computer (e.g. a Steam Deck) than the one running poe-info-service
 
 ## Goal: Basic Features
 

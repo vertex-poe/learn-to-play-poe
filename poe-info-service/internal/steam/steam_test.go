@@ -61,7 +61,7 @@ func TestFetchPresenceBothSourcesSucceedAndAgree(t *testing.T) {
 	if p.GameName != "Path of Exile" || !p.InGame {
 		t.Errorf("official fields = %+v, want GameName=Path of Exile, InGame=true", p)
 	}
-	if p.RichPresence != "Standard League - LvL 92 Witch, Act 10" {
+	if p.RichPresence != "SSF Ancestors: 92 Warden - The Sarn Encampment" {
 		t.Errorf("RichPresence = %q, want the fixture's rich presence text", p.RichPresence)
 	}
 }
@@ -79,7 +79,7 @@ func TestFetchPresenceNoAPIKeyStillGetsRichPresence(t *testing.T) {
 	if p.GameName != "" || p.InGame {
 		t.Errorf("official fields = %+v, want zero-valued without an API key", p)
 	}
-	if p.RichPresence != "Standard League - LvL 92 Witch, Act 10" {
+	if p.RichPresence != "SSF Ancestors: 92 Warden - The Sarn Encampment" {
 		t.Errorf("RichPresence = %q, want the fixture's rich presence text even with no API key", p.RichPresence)
 	}
 }

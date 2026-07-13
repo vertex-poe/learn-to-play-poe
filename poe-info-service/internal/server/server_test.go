@@ -382,7 +382,7 @@ func TestBroadcastLogEvents_FlushesPendingBatchWhenIdle(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go broadcastLogEvents(ctx, h, eventCh, p, w, db, func() bool { return true }, func() bool { return false })
+	go broadcastLogEvents(ctx, h, eventCh, p, w, db, func() bool { return true }, func() bool { return false }, nil)
 
 	eventCh <- "2024/01/15 10:00:00 ***** LOG FILE OPENING *****"
 	eventCh <- "2024/01/15 10:00:05 104 a [INFO] Client 1 : You have entered Lioneye's Watch."
@@ -449,7 +449,7 @@ func TestBroadcastLogEvents_DoesNotDeadlockWhenChannelBufferOverflows(t *testing
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go tl.Run(ctx)
-	go broadcastLogEvents(ctx, h, eventCh, p, w, db, tl.CaughtUp, func() bool { return false })
+	go broadcastLogEvents(ctx, h, eventCh, p, w, db, tl.CaughtUp, func() bool { return false }, nil)
 
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {

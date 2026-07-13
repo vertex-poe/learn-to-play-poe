@@ -11,10 +11,10 @@ import (
 	"github.com/MovingCairn/poe-info-service/internal/proto"
 )
 
-// TestConfigList_IncludesSteamIDs proves config.list reports steam_ids as a
+// TestConfigList_IncludesSteamID proves config.list reports steam_id as a
 // mutable entry, mirroring executable_names/install_dirs.
-func TestConfigList_IncludesSteamIDs(t *testing.T) {
-	conn := dialTestServer(t, Config{SteamIDs: []string{"76561197960287930"}})
+func TestConfigList_IncludesSteamID(t *testing.T) {
+	conn := dialTestServer(t, Config{SteamID: "76561197960287930"})
 
 	payload, errStr := wsRequest(t, conn, "config.list", map[string]any{})
 	if errStr != "" {
@@ -28,110 +28,107 @@ func TestConfigList_IncludesSteamIDs(t *testing.T) {
 		t.Fatalf("unmarshal config.list payload: %v", err)
 	}
 
-	entry, ok := resp.Settings["steam_ids"]
+	entry, ok := resp.Settings["steam_id"]
 	if !ok || !entry.Mutable {
-		t.Fatalf("expected mutable steam_ids entry, got %+v (ok=%v)", entry, ok)
+		t.Fatalf("expected mutable steam_id entry, got %+v (ok=%v)", entry, ok)
 	}
-	got, _ := entry.Value.([]any)
-	if len(got) != 1 || got[0] != "76561197960287930" {
-		t.Errorf("steam_ids = %v, want [76561197960287930]", entry.Value)
+	if entry.Value != "76561197960287930" {
+		t.Errorf("steam_id = %v, want 76561197960287930", entry.Value)
 	}
 }
 
-// TestConfigSet_SteamIDs_RejectsInvalidID proves a non-numeric or
+// TestConfigSet_SteamID_RejectsInvalidID proves a non-numeric or
 // below-base-offset id is rejected at config.set time, rather than being
-// accepted and only failing later inside a poll cycle.
-func TestConfigSet_SteamIDs_RejectsInvalidID(t *testing.T) {
+// accepted and only failing later inside a fetch.
+func TestConfigSet_SteamID_RejectsInvalidID(t *testing.T) {
 	tests := []struct {
 		name string
-		ids  []string
+		id   string
 	}{
-		{name: "non-numeric", ids: []string{"not-a-number"}},
-		{name: "below base offset", ids: []string{"1"}},
+		{name: "non-numeric", id: "not-a-number"},
+		{name: "below base offset", id: "1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			conn := dialTestServer(t, Config{})
-			_, errStr := wsRequest(t, conn, "config.set", map[string]any{"key": "steam_ids", "value": tt.ids})
+			_, errStr := wsRequest(t, conn, "config.set", map[string]any{"key": "steam_id", "value": tt.id})
 			if errStr == "" {
-				t.Fatalf("config.set steam_ids=%v: want error, got none", tt.ids)
+				t.Fatalf("config.set steam_id=%v: want error, got none", tt.id)
 			}
 		})
 	}
 }
 
-// TestConfigSet_SteamIDs_RejectsNonArray mirrors
+// TestConfigSet_SteamID_RejectsNonString mirrors
 // TestConfigSet_InstallDirs_RejectsNonArray.
-func TestConfigSet_SteamIDs_RejectsNonArray(t *testing.T) {
+func TestConfigSet_SteamID_RejectsNonString(t *testing.T) {
 	conn := dialTestServer(t, Config{})
-	_, errStr := wsRequest(t, conn, "config.set", map[string]any{"key": "steam_ids", "value": "not-an-array"})
+	_, errStr := wsRequest(t, conn, "config.set", map[string]any{"key": "steam_id", "value": []string{"not-a-string"}})
 	if errStr == "" {
-		t.Fatal("expected an error for a non-array steam_ids value, got none")
+		t.Fatal("expected an error for a non-string steam_id value, got none")
 	}
 }
 
-// TestConfigSet_SteamIDs_PersistsAndRoundTrips proves a valid steam_ids
+// TestConfigSet_SteamID_AcceptsEmptyToUnset proves an empty string is
+// accepted (steam_id is optional — no rich-presence fetch happens without
+// one configured, see TestEnsureFreshRichPresence_NoSteamIDConfiguredIsNoop).
+func TestConfigSet_SteamID_AcceptsEmptyToUnset(t *testing.T) {
+	conn := dialTestServer(t, Config{SteamID: "76561197960287930"})
+	_, errStr := wsRequest(t, conn, "config.set", map[string]any{"key": "steam_id", "value": ""})
+	if errStr != "" {
+		t.Fatalf("config.set steam_id=\"\": want no error, got %s", errStr)
+	}
+}
+
+// TestConfigSet_SteamID_PersistsAndRoundTrips proves a valid steam_id
 // config.set is both reflected immediately in config.get and written to
 // disk, matching install_dirs' persistence contract (ADR-006).
-func TestConfigSet_SteamIDs_PersistsAndRoundTrips(t *testing.T) {
+func TestConfigSet_SteamID_PersistsAndRoundTrips(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), config.FileName)
 	conn := dialTestServer(t, Config{ConfigFilePath: configPath})
 
-	want := []string{"76561197960287930", "76561197960287931"}
-	_, errStr := wsRequest(t, conn, "config.set", map[string]any{"key": "steam_ids", "value": want})
+	const want = "76561197960287930"
+	_, errStr := wsRequest(t, conn, "config.set", map[string]any{"key": "steam_id", "value": want})
 	if errStr != "" {
-		t.Fatalf("config.set steam_ids error: %s", errStr)
+		t.Fatalf("config.set steam_id error: %s", errStr)
 	}
 
-	payload, errStr := wsRequest(t, conn, "config.get", map[string]any{"key": "steam_ids"})
+	payload, errStr := wsRequest(t, conn, "config.get", map[string]any{"key": "steam_id"})
 	if errStr != "" {
-		t.Fatalf("config.get steam_ids error: %s", errStr)
+		t.Fatalf("config.get steam_id error: %s", errStr)
 	}
 	var entry configEntry
 	if err := json.Unmarshal(payload, &entry); err != nil {
 		t.Fatalf("unmarshal config.get payload: %v", err)
 	}
-	gotAny, _ := entry.Value.([]any)
-	got := make([]string, len(gotAny))
-	for i, v := range gotAny {
-		got[i] = v.(string)
-	}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Errorf("steam_ids after config.set = %v, want %v", got, want)
+	if entry.Value != want {
+		t.Errorf("steam_id after config.set = %v, want %v", entry.Value, want)
 	}
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("read persisted config: %v", err)
 	}
-	for _, id := range want {
-		if !strings.Contains(string(data), id) {
-			t.Errorf("persisted config missing %q:\n%s", id, data)
-		}
+	if !strings.Contains(string(data), want) {
+		t.Errorf("persisted config missing %q:\n%s", want, data)
 	}
 }
 
-// TestSteamPresence_SynthesizesPendingForUnfetchedIDs proves steam.presence
-// returns a "pending" entry for every configured id that hasn't been
-// fetched yet (no poll cycle has run because dialTestServer's client never
-// subscribes to TopicSteamPresence) — never an empty response or an error.
-func TestSteamPresence_SynthesizesPendingForUnfetchedIDs(t *testing.T) {
-	conn := dialTestServer(t, Config{SteamIDs: []string{"76561197960287930", "76561197960287931"}})
+// TestSteamPresence_PendingWithNoSteamIDConfigured proves steam.presence
+// returns a "pending" status rather than an empty response or an error when
+// no steam_id is configured.
+func TestSteamPresence_PendingWithNoSteamIDConfigured(t *testing.T) {
+	conn := dialTestServer(t, Config{})
 
 	payload, errStr := wsRequest(t, conn, "steam.presence", map[string]any{})
 	if errStr != "" {
 		t.Fatalf("steam.presence error: %s", errStr)
 	}
-	var resp proto.SteamPresencePayload
+	var resp proto.RichPresencePayload
 	if err := json.Unmarshal(payload, &resp); err != nil {
 		t.Fatalf("unmarshal steam.presence payload: %v", err)
 	}
-	if len(resp.Entries) != 2 {
-		t.Fatalf("steam.presence entries = %v, want 2", resp.Entries)
-	}
-	for _, e := range resp.Entries {
-		if e.Status != proto.SteamPresenceStatusPending {
-			t.Errorf("entry %+v: status = %q, want %q", e, e.Status, proto.SteamPresenceStatusPending)
-		}
+	if resp.Status != proto.RichPresenceStatusPending {
+		t.Errorf("steam.presence status = %q, want %q", resp.Status, proto.RichPresenceStatusPending)
 	}
 }

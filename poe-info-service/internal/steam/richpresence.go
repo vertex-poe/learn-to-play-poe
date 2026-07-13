@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -91,4 +92,29 @@ func (c *Client) FetchRichPresence(ctx context.Context, steamID64 string, knownG
 		return "", nil
 	}
 	return strings.TrimSpace(richPresence.Text()), nil
+}
+
+// richPresencePartsRE matches the shape PoE's Steam rich-presence text uses:
+// "<league>: <level> <class> - <zone>", e.g.
+// "SSF Ancestors: 92 Warden - The Sarn Encampment". The zone suffix is
+// optional in the pattern (and its captured value discarded) since it's
+// intentionally not extracted — Client.txt zone-transfer events already
+// track the player's current zone, more authoritatively than this text.
+var richPresencePartsRE = regexp.MustCompile(`^(.+): (\d{1,3}) (\S+)(?: - .+)?$`)
+
+// ParseRichPresence extracts league, character level, and class from raw (a
+// FetchRichPresence result). ok is false if raw doesn't match the expected
+// shape — e.g. empty (not currently playing, or no rich presence set for the
+// current game), or Steam changes its rich-presence format — in which case
+// league/level/class are all zero-valued.
+func ParseRichPresence(raw string) (league string, level int, class string, ok bool) {
+	m := richPresencePartsRE.FindStringSubmatch(raw)
+	if m == nil {
+		return "", 0, "", false
+	}
+	lvl, err := strconv.Atoi(m[2])
+	if err != nil {
+		return "", 0, "", false
+	}
+	return m[1], lvl, m[3], true
 }

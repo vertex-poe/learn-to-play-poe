@@ -82,7 +82,7 @@ type Config struct {
 	Installs             []InstallTarget // every install to ingest concurrently at startup — one tailer per entry; callers (main.go) have already filtered out candidates that don't exist on disk. More can be added/removed live afterward via config.set or auto-detection (see server.addInstall/removeInstall).
 	AutoDetectInstallDir bool            // initial value of the auto_detect_install_dir setting
 	ExecutableNames      []string        // initial value of the executable_names setting, used by the auto-detect loop
-	SteamIDs             []string        // initial value of the steam_ids setting, used by watchSteamPresence
+	SteamID              string          // initial value of the steam_id setting, used by watchRichPresence
 	DbPath               string          // path to poe-info-service's sole SQLite database (game history + internal state)
 	IdleTimeout          time.Duration   // shut down after this long with no client keep-alive or Client.txt activity; 0 uses DefaultIdleTimeout
 }
@@ -110,11 +110,13 @@ type server struct {
 
 	autoDetect      atomic.Bool  // current effective auto_detect_install_dir setting; client-settable via config.set
 	executableNames atomic.Value // current effective executable_names setting ([]string); client-settable via config.set
-	steamIDs        atomic.Value // current effective steam_ids setting ([]string); client-settable via config.set
+	steamID         atomic.Value // current effective steam_id setting (string); client-settable via config.set
 
-	steamClient   *steam.Client
-	steamMu       sync.RWMutex
-	steamPresence map[string]proto.SteamPresenceEntry // keyed by steamid64; hydrated from store.GetCache at startup, kept current by watchSteamPresence
+	steamClient *steam.Client
+
+	richPresenceMu      sync.RWMutex
+	richPresence        richPresenceState // hydrated from store.GetCache at startup, kept current by watchRichPresence
+	richPresenceFetchMu sync.Mutex        // serializes fetch attempts and gates richPresenceRequestTTL across every trigger (request, zone transfer, poller)
 
 	poeClient *poe.Client
 	poeOAuth  poeOAuthState // PoE OAuth token + login/refresh state; see poe_oauth.go
@@ -342,10 +344,9 @@ func serve(cfg Config, listener net.Listener) error {
 		execNames = config.DefaultExecutableNames()
 	}
 	srv.executableNames.Store(execNames)
-	srv.steamIDs.Store(cfg.SteamIDs)
+	srv.steamID.Store(cfg.SteamID)
 	srv.steamClient = steam.NewClient(nil)
-	srv.steamPresence = make(map[string]proto.SteamPresenceEntry, len(cfg.SteamIDs))
-	srv.hydrateSteamPresenceCache(cfg.SteamIDs)
+	srv.hydrateRichPresenceCache()
 
 	srv.poeClient = poe.NewClient(nil)
 	srv.hydratePoeOAuthToken()
@@ -367,7 +368,7 @@ func serve(cfg Config, listener net.Listener) error {
 		}
 	}
 	go watchIngestStatus(ctx, srv)
-	go watchSteamPresence(ctx, srv)
+	go watchRichPresence(ctx, srv)
 
 	idleTimeout := cfg.IdleTimeout
 	if idleTimeout <= 0 {
@@ -458,7 +459,7 @@ func (s *server) addInstallTarget(inst InstallTarget) error {
 
 	log.Printf("ingest: starting backlog replay for %q (install %q)", inst.LogPath, inst.Dir)
 	go t.Run(tailerCtx)
-	go broadcastLogEvents(tailerCtx, s.hub, eventCh, p, writer, s.db, t.CaughtUp, s.debugLogging.Load)
+	go broadcastLogEvents(tailerCtx, s.hub, eventCh, p, writer, s.db, t.CaughtUp, s.debugLogging.Load, s.onAreaEntered(inst))
 	return nil
 }
 
@@ -663,7 +664,14 @@ const batchFlushIdle = 100 * time.Millisecond
 // is the primary place to see per-event write timing and periodic
 // throughput, which is the main lever for diagnosing a stuck/slow-climbing
 // backlog-replay percent (see ingestStatus).
-func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, p *parser.Parser, w *ingest.Writer, db *sql.DB, caughtUp func() bool, debugEnabled func() bool) {
+//
+// onLiveEvent, if non-nil, is called with every event that reaches the live
+// broadcast below (same liveBroadcastTypes/caughtUp gate) — server.go's
+// addInstallTarget wires this to onAreaEntered, so a zone-transfer event
+// from the Steam-associated install can trigger an on-demand rich-presence
+// fetch. Callers not wired to that (e.g. the direct-call tests in
+// server_test.go) may pass nil.
+func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, p *parser.Parser, w *ingest.Writer, db *sql.DB, caughtUp func() bool, debugEnabled func() bool, onLiveEvent func(proto.ParsedEvent)) {
 	const slowWriteThreshold = 20 * time.Millisecond
 	const progressLogInterval = 5 * time.Second
 	const stallLogInterval = 10 * time.Second
@@ -767,6 +775,9 @@ func broadcastLogEvents(ctx context.Context, h *hub.Hub, eventCh <-chan string, 
 					Payload: mustMarshal(evt),
 				})
 				h.Publish("clientlog", msg)
+				if onLiveEvent != nil {
+					onLiveEvent(evt)
+				}
 			}
 			stepStartedNs.Store(0)
 			flushTimer.Reset(batchFlushIdle)
@@ -1130,6 +1141,15 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 
 	case "steam.presence":
 		s.handleSteamPresence(c, msg)
+
+	case "character.level":
+		s.handleCharacterLevel(c, msg)
+
+	case "character.class":
+		s.handleCharacterClass(c, msg)
+
+	case "poe.league":
+		s.handleLeague(c, msg)
 
 	case "credentials.store":
 		s.handleCredentialsStore(c, msg)

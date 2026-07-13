@@ -73,13 +73,13 @@ func TestFetchRichPresence(t *testing.T) {
 		{
 			name: "rich presence present, no known game name to check",
 			html: testfixtures.SteamMiniprofileWithRichPresence,
-			want: "Standard League - LvL 92 Witch, Act 10",
+			want: "SSF Ancestors: 92 Warden - The Sarn Encampment",
 		},
 		{
 			name:          "rich presence present, known game name matches",
 			html:          testfixtures.SteamMiniprofileWithRichPresence,
 			knownGameName: "Path of Exile",
-			want:          "Standard League - LvL 92 Witch, Act 10",
+			want:          "SSF Ancestors: 92 Warden - The Sarn Encampment",
 		},
 		{
 			name: "game with no rich presence span",
@@ -153,5 +153,64 @@ func TestFetchRichPresenceRequestsExpectedURL(t *testing.T) {
 	}
 	if !strings.HasPrefix(wantPath, "/miniprofile/") {
 		t.Fatalf("test sanity check failed: wantPath %q", wantPath)
+	}
+}
+
+func TestParseRichPresence(t *testing.T) {
+	tests := []struct {
+		name      string
+		raw       string
+		wantOK    bool
+		wantLg    string
+		wantLevel int
+		wantClass string
+	}{
+		{
+			name:      "typical",
+			raw:       "SSF Ancestors: 92 Warden - The Sarn Encampment",
+			wantOK:    true,
+			wantLg:    "SSF Ancestors",
+			wantLevel: 92,
+			wantClass: "Warden",
+		},
+		{
+			name:      "single digit level",
+			raw:       "Standard: 3 Witch - The Twilight Strand",
+			wantOK:    true,
+			wantLg:    "Standard",
+			wantLevel: 3,
+			wantClass: "Witch",
+		},
+		{
+			name:      "no zone suffix",
+			raw:       "SSF Ancestors: 92 Warden",
+			wantOK:    true,
+			wantLg:    "SSF Ancestors",
+			wantLevel: 92,
+			wantClass: "Warden",
+		},
+		{
+			name: "empty",
+			raw:  "",
+		},
+		{
+			name: "unrecognized shape",
+			raw:  "In Menus",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			league, level, class, ok := ParseRichPresence(tt.raw)
+			if ok != tt.wantOK {
+				t.Fatalf("ParseRichPresence(%q) ok = %v, want %v", tt.raw, ok, tt.wantOK)
+			}
+			if !tt.wantOK {
+				return
+			}
+			if league != tt.wantLg || level != tt.wantLevel || class != tt.wantClass {
+				t.Errorf("ParseRichPresence(%q) = (%q, %d, %q), want (%q, %d, %q)",
+					tt.raw, league, level, class, tt.wantLg, tt.wantLevel, tt.wantClass)
+			}
+		})
 	}
 }

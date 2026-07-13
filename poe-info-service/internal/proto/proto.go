@@ -98,51 +98,89 @@ const TopicStatus = "status"
 // no-install-dirs notice) stay in sync without re-polling config.list.
 const TopicConfig = "config"
 
-// SteamPresenceEntry is one tracked steamid64's most recently fetched Steam
-// presence — official-API fields (personaName/gameName/gameAppId/inGame;
-// populated only once a client has stored a "steamApiKey" credential via
-// credentials.store) combined with the unofficial rich-presence scrape
-// (richPresence; works with no credential) into a single entry, per the
-// project's "one combined method" decision. See poe-info-service's
-// CONTRIBUTING.md "Steam presence" section for the full contract.
-type SteamPresenceEntry struct {
-	SteamID64    string `json:"steamId64"`
-	PersonaName  string `json:"personaName,omitempty"`  // "" without a stored steamApiKey, or before first successful official fetch
-	GameName     string `json:"gameName,omitempty"`     // gameextrainfo; "" if not in a game, or no steamApiKey
-	GameAppID    string `json:"gameAppId,omitempty"`    // gameid; "" alongside GameName
-	InGame       bool   `json:"inGame"`                 // always false without a stored steamApiKey
-	RichPresence string `json:"richPresence,omitempty"` // parsed rich_presence text; "" if absent, or the mismatch guard suppressed it
-	FetchedAt    int64  `json:"fetchedAt"`              // unix seconds of the last successful fetch; 0 if never fetched
-	Status       string `json:"status"`                 // SteamPresenceStatus*; an open string so new values are addable later per ADR-003
-	Error        string `json:"error,omitempty"`        // human-readable detail, populated only when status=="error"
-}
-
-// SteamPresencePayload is both the "steam.presence" request's response shape
-// and the payload published to TopicSteamPresence — one entry per configured
-// steam_ids entry, in configured order.
-type SteamPresencePayload struct {
-	Entries []SteamPresenceEntry `json:"entries"`
+// RichPresencePayload is both the "steam.presence" request's response shape
+// and the payload published to TopicSteamPresence: the single tracked
+// steam_id's most recently fetched Steam rich-presence text, verbatim (no
+// parsing — see CharacterLevelPayload/CharacterClassPayload/LeaguePayload
+// for the parsed parts). See poe-info-service's CONTRIBUTING.md "Steam
+// presence" section for the full contract.
+type RichPresencePayload struct {
+	RichPresence string `json:"richPresence,omitempty"` // "" if never fetched, or Steam reported no rich-presence text
+	FetchedAt    int64  `json:"fetchedAt"`               // unix seconds of the last fetch attempt; 0 if never fetched
+	Status       string `json:"status"`                  // RichPresenceStatus*; an open string so new values are addable later per ADR-003
+	Error        string `json:"error,omitempty"`         // human-readable detail, populated only when status=="error"
 }
 
 const (
-	// SteamPresenceStatusPending marks an id that's configured but has not
-	// been fetched yet — e.g. the server just started, or no client has
-	// subscribed to TopicSteamPresence yet (fetching is subscriber-gated).
-	SteamPresenceStatusPending = "pending"
-	SteamPresenceStatusOK      = "ok"
-	// SteamPresenceStatusError marks an id whose most recent fetch attempt
-	// failed (network error, non-200, etc.) — Error carries the detail.
-	SteamPresenceStatusError = "error"
+	// RichPresenceStatusPending marks a steam_id that's configured but has
+	// not been fetched yet — e.g. the server just started, or no client has
+	// requested/subscribed yet.
+	RichPresenceStatusPending = "pending"
+	RichPresenceStatusOK      = "ok"
+	// RichPresenceStatusError marks a fetch attempt that failed (network
+	// error, non-200, etc.) — Error carries the detail. The previous
+	// RichPresence/league/level/class values are left in place rather than
+	// cleared, so a transient failure doesn't blank out otherwise-still-valid
+	// data.
+	RichPresenceStatusError = "error"
 )
 
-// TopicSteamPresence carries SteamPresencePayload, published after each
-// completed Steam poll cycle. A client must subscribe to this topic to
-// activate polling at all: the background poller only contacts Steam while
-// at least one subscriber exists (Hub.HasSubscribers), since it's a
-// rate-limited external resource. Requesting "steam.presence" without
-// subscribing returns whatever is cached (possibly every entry still
-// "pending") and never triggers a fetch itself.
+// RichPresenceSourceSteam identifies Steam's rich-presence scrape as the
+// origin of a CharacterLevelPayload/CharacterClassPayload/LeaguePayload
+// value. Deliberately an open string, not baked into the topic/method name
+// (see TopicCharacterLevel etc.) — per ADR-003, once these concept-named
+// topics ship their shape is permanent, so a future second source (e.g.
+// Client.txt-derived level/class, or a Steam Deck acting as the primary
+// source when Client.txt isn't locally available — see ROADMAP) can be
+// added as a new Source value without any rename.
+const RichPresenceSourceSteam = "steamRichPresence"
+
+// TopicSteamPresence carries RichPresencePayload, published whenever the raw
+// rich-presence text changes. A client must subscribe to this topic (or one
+// of TopicCharacterLevel/TopicCharacterClass/TopicLeague) to activate
+// background polling at all — the poller only contacts Steam while at least
+// one subscriber exists across any of those topics (Hub.HasSubscribers),
+// since it's a rate-limited external resource. Requesting "steam.presence"
+// (or character.level/character.class/poe.league) always fetches fresh data
+// first if the cached copy is more than 25s old, regardless of subscription
+// state — see CONTRIBUTING.md.
 const TopicSteamPresence = "steamPresence"
+
+// CharacterLevelPayload is both the "character.level" request's response
+// shape and the payload published to TopicCharacterLevel, parsed from the
+// rich-presence text (e.g. "SSF Ancestors: 92 Warden - The Sarn Encampment"
+// → Level: 92). Level is 0 and Source is "" if the current rich-presence
+// text doesn't match the expected shape (not in a PoE session, or nothing
+// fetched yet).
+type CharacterLevelPayload struct {
+	Level     int    `json:"level"`
+	Source    string `json:"source,omitempty"`
+	FetchedAt int64  `json:"fetchedAt"`
+}
+
+const TopicCharacterLevel = "character.level"
+
+// CharacterClassPayload is both the "character.class" request's response
+// shape and the payload published to TopicCharacterClass, parsed from the
+// rich-presence text (e.g. "...92 Warden..." → Class: "Warden").
+type CharacterClassPayload struct {
+	Class     string `json:"class,omitempty"`
+	Source    string `json:"source,omitempty"`
+	FetchedAt int64  `json:"fetchedAt"`
+}
+
+const TopicCharacterClass = "character.class"
+
+// LeaguePayload is both the "poe.league" request's response shape and the
+// payload published to TopicLeague, parsed from the rich-presence text
+// (e.g. "SSF Ancestors: ..." → League: "SSF Ancestors").
+type LeaguePayload struct {
+	League    string `json:"league,omitempty"`
+	Source    string `json:"source,omitempty"`
+	FetchedAt int64  `json:"fetchedAt"`
+}
+
+const TopicLeague = "poe.league"
 
 // PoeOAuthStatusPayload is both the "poe.oauth.status" request's response
 // shape and the payload published to TopicPoeOAuthStatus. Per ADR-004, this

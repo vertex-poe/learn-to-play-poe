@@ -94,20 +94,20 @@ func mutableSettingsRegistry() map[string]mutableSetting {
 				return nil
 			},
 		},
-		"steam_ids": {
-			description: "Steam64 IDs to track combined official + rich-presence data for (see the steam.presence WS method).",
-			get:         func(s *server) any { return s.currentSteamIDs() },
+		"steam_id": {
+			description: "Steam64 ID of the local Steam-based PoE client to track rich-presence data for (see the steam.presence WS method).",
+			get:         func(s *server) any { return s.currentSteamID() },
 			set: func(s *server, raw json.RawMessage) error {
-				var v []string
+				var v string
 				if err := json.Unmarshal(raw, &v); err != nil {
-					return fmt.Errorf("steam_ids must be an array of strings")
+					return fmt.Errorf("steam_id must be a string")
 				}
-				for _, id := range v {
-					if _, err := steam.ValidateSteamID64(id); err != nil {
-						return fmt.Errorf("steam_ids: %w", err)
+				if v != "" {
+					if _, err := steam.ValidateSteamID64(v); err != nil {
+						return fmt.Errorf("steam_id: %w", err)
 					}
 				}
-				s.steamIDs.Store(v)
+				s.steamID.Store(v)
 				return nil
 			},
 		},
@@ -209,7 +209,7 @@ func (s *server) persistConfig() error {
 		InstallDirs:          s.installDirsList(),
 		AutoDetectInstallDir: s.autoDetect.Load(),
 		ExecutableNames:      s.currentExecutableNames(),
-		SteamIDs:             s.currentSteamIDs(),
+		SteamID:              s.currentSteamID(),
 	})
 }
 
@@ -237,10 +237,10 @@ func (s *server) currentExecutableNames() []string {
 	return names
 }
 
-// currentSteamIDs returns the effective steam_ids setting.
-func (s *server) currentSteamIDs() []string {
-	ids, _ := s.steamIDs.Load().([]string)
-	return ids
+// currentSteamID returns the effective steam_id setting.
+func (s *server) currentSteamID() string {
+	id, _ := s.steamID.Load().(string)
+	return id
 }
 
 // reconcileInstallDirs diffs want against the currently-tailed install dirs

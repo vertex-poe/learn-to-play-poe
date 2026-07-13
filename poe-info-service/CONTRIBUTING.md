@@ -127,37 +127,63 @@ service name so they never touch a real stored `POESESSID`.
 
 ## Steam presence
 
-`internal/steam` fetches a Steam user's "playing now" status from two
-sources, combined into one entry per tracked steamid64 and exposed over the
-`steam.presence` WebSocket method / `steamPresence` push topic (see
-`internal/proto.SteamPresenceEntry`, `internal/server/steam.go`):
+`internal/steam` fetches the local Steam-based PoE client's rich-presence
+text — the same rich text the Steam client itself shows (e.g. a game's
+league/character/level) — by scraping
+`steamcommunity.com/miniprofile/<id3>`. No credential is needed, but this is
+an undocumented HTML page with no stability guarantee from Valve — see
+[ADR-007](docs/decisions/007-outbound-http-integration-policy.md).
 
-- **Official Steam Web API** (`ISteamUser/GetPlayerSummaries`) — gives
-  `personaName`/`gameName`/`gameAppId`/`inGame`. Requires a Steam Web API
-  key. A client supplies one the same way it supplies `POESESSID` — via
-  `credentials.store` with `key: "steamApiKey"` — never over config.set, and
-  this service never returns the key's value back to a client, only whether
-  one is present (`credentials.has`). **A missing key is not an error**:
-  these fields simply stay empty/false, and the rich-presence scrape below
-  still runs independently.
-- **Unofficial rich-presence scrape** (`steamcommunity.com/miniprofile/<id3>`)
-  — gives `richPresence`, the actual rich text the Steam client itself shows
-  (e.g. a game's league/character/level). No credential needed, but this is
-  an undocumented HTML page with no stability guarantee from Valve — see
-  [ADR-007](docs/decisions/007-outbound-http-integration-policy.md).
+This project supports only a **single** local Steam-based PoE client: which
+steamid64 to track is user-facing, non-secret config — the `steam_id`
+setting (`config.set`/`config.list`, persisted to `poe-info-service.toml`
+like `install_dirs`/`executable_names`). Auto-discovering "who's currently
+logged into Steam locally" isn't built yet (see ROADMAP's "Steam OpenID
+webview login" item); `steam_id` must be entered manually today. Tracking
+additional steamids (friends, for group play) is also on the ROADMAP, not
+built yet.
 
-Which steamid64s to track is user-facing, non-secret config: the
-`steam_ids` setting (`config.set`/`config.list`, persisted to
-`poe-info-service.toml` like `install_dirs`/`executable_names`).
+The raw rich-presence text is parsed (`steam.ParseRichPresence`) into
+**league**, **character level**, and **class** — e.g.
+`"SSF Ancestors: 92 Warden - The Sarn Encampment"` → league `"SSF Ancestors"`,
+level `92`, class `"Warden"`. The zone suffix is intentionally discarded:
+Client.txt zone-transfer events (`area_entered`) already track the player's
+current zone more authoritatively. Each parsed part is exposed as its own
+concept-named request method / push topic — `character.level`,
+`character.class`, `poe.league` — deliberately *not* named after Steam (per
+[ADR-003](docs/decisions/003-backward-compatible-client-api-not-backward-compatible-database-schema.md),
+these shapes are permanent once shipped), since a future second source (e.g.
+Client.txt-derived level/class, or a Steam Deck acting as the *primary*
+source when Client.txt isn't locally available — see ROADMAP) can then be
+added as a new `source` value without any rename. The raw text itself is
+still available verbatim via `steam.presence` / the `steamPresence` topic.
 
-**Polling is subscriber-gated.** The background poller
-(`watchSteamPresence` in `internal/server/steam.go`) only ever contacts
-Steam while at least one client is subscribed to the `steamPresence` topic
-— Steam is a rate-limited, ToS-sensitive external resource, so an idle
-service with nobody listening must not poll it (see ADR-007). Practically,
-this means a client must **subscribe** to get live data: requesting
-`steam.presence` without subscribing returns whatever is cached (possibly
-every entry still `"pending"`) and never triggers a fetch by itself.
+The official Steam Web API (`ISteamUser/GetPlayerSummaries`,
+`internal/steam/official.go`) and the `steamApiKey` credential it needs
+(supplied via `credentials.store`, same as `POESESSID`) are **not** used by
+rich presence — they're unused/dormant code kept around in case
+`personaName`/`gameName`/`gameAppId`/`inGame` are wanted again later; process
+scanning already tells this service whether the game is running, and
+Client.txt already tells it most of what's going on.
+
+**Every rich-presence request fetches first if stale.** Unlike a pure
+subscription push, `steam.presence`/`character.level`/`character.class`/
+`poe.league` always fetch a fresh value first when the cached copy is more
+than 25s old (`richPresenceRequestTTL` in `internal/server/steam.go`),
+regardless of subscription state, then return the (possibly just-refreshed)
+cached copy. A Client.txt zone-transfer event from the Steam-associated
+install (`isSteamInstall` — matched by install path containing `steamapps`,
+or by a currently running process whose name contains "steam") triggers the
+same on-demand fetch, subject to the same 25s gate.
+
+**Background polling is still subscriber-gated.** The background poller
+(`watchRichPresence` in `internal/server/steam.go`) only ever contacts Steam
+on its own initiative (every 60s by default) while at least one client is
+subscribed to `steamPresence`/`character.level`/`character.class`/
+`poe.league` — Steam is a rate-limited, ToS-sensitive external resource, so
+an idle service with nobody listening must not poll it (see ADR-007). It
+only broadcasts a topic whose value actually changed since the last fetch —
+a level-up doesn't also fire a spurious league-changed event.
 
 ## PoE OAuth (official Developer API)
 
