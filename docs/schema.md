@@ -53,7 +53,7 @@ Game zones — maps, towns, the character select screen (NULL area_id elsewhere)
 
 ### `accounts`
 
-Player account names seen in whispers or chat. Optionally carries `guild_name` when the game includes it in a chat prefix.
+Player account names, keyed by name. Most rows come from `Client.txt` guild events and carry only `guild_name`. The local player's own account additionally gains `poe_uuid` (the PoE OAuth token's `sub` claim), `oauth_credential_key`, and `oauth_authenticated_at` once they sign in via PoE OAuth (see `poe-info-service/internal/server/poe_oauth.go`). `oauth_authenticated_at` is non-NULL exactly while that account is the one currently signed in — it and `oauth_credential_key` are cleared on logout, leaving `name`/`poe_uuid` behind as a historical record. Only one account can be OAuth-authenticated at a time today (ADR-005); see `ROADMAP_DETAILS.md`'s "Multi-account PoE OAuth support" entry for why `oauth_credential_key` exists as its own column already.
 
 ### `classes`
 

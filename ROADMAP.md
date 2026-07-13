@@ -26,6 +26,9 @@ This file tracks unimplemented work only — once an item is done, remove it fro
 - [ ] Credential storage package — macOS/Linux backends
 - [ ] Credential expiry/staleness policy
 - [ ] PoE OAuth data endpoints (characters, stash, leagues)
+- [ ] Multi-account PoE OAuth support
+- [ ] Account identity: key `accounts` by both `name` and `poe_uuid`; reconcile renames on OAuth login
+- [ ] Account selector (name or uuid) on account-attributable WebSocket requests
 - [ ] "Scan filesystem for install directories" button on the Game settings page
 - [ ] Steam presence: richer retry/backoff for outbound Steam requests
 - [ ] Steam presence: resolve Steam vanity URLs to steamid64 server-side
@@ -73,6 +76,7 @@ This file tracks unimplemented work only — once an item is done, remove it fro
 - [ ] Local chat capture
 - [ ] DM/whisper push notification while tabbed out
 - [ ] Tab-out chat client
+- [ ] Optional unified chat view across concurrently-logged-in accounts
 
 ## Goal: Reminders
 

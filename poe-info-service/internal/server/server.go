@@ -1169,6 +1169,9 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 	case "poe.oauth.logout":
 		s.handlePoeOAuthLogout(c, msg)
 
+	case "poe.accounts.list":
+		s.handlePoeAccountsList(c, msg)
+
 	case "config.list":
 		s.handleConfigList(c, msg)
 

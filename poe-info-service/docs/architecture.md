@@ -104,7 +104,7 @@ a level-up doesn't also fire a spurious league-changed event.
 ## PoE OAuth (official Developer API)
 
 `internal/poe` implements the OAuth 2.0 Authorization Code + PKCE flow for
-`api.pathofexile.com`, exposed over three WebSocket methods and one push
+`api.pathofexile.com`, exposed over four WebSocket methods and one push
 topic (`internal/server/poe_oauth.go`, `internal/proto.PoeOAuthStatusPayload`):
 
 - **`poe.oauth.login`** — starts an interactive login: this service itself
@@ -120,6 +120,14 @@ topic (`internal/server/poe_oauth.go`, `internal/proto.PoeOAuthStatusPayload`):
   the token itself, per ADR-004.
 - **`poe.oauth.logout`** — discards the stored token and cancels any
   scheduled refresh.
+- **`poe.accounts.list`** — every account this service knows of (from
+  `Client.txt` guild events and/or a PoE OAuth login, merged onto one row by
+  name — see the `accounts` table), each with `name`, `poeUuid` (empty if
+  that account has never been OAuth-authenticated locally), and `active`
+  (true for the one account, if any, currently signed in via OAuth). Lets a
+  client decide whether to show an account switcher at all — only once this
+  list has more than one entry — without every other request needing an
+  explicit account argument for the common single-account case.
 
 The resulting token set is persisted through `internal/creds` under key
 `poeOAuthToken` (a JSON-serialized `poe.Token`, including the derived

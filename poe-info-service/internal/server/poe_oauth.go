@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"log"
 	"sync"
@@ -117,6 +118,43 @@ func clearPoeOAuthToken() error {
 	return creds.Delete(creds.ServiceName, poeOAuthCredKey)
 }
 
+// upsertOAuthAccount records (or refreshes) the accounts row for an
+// OAuth-authenticated PoE account, keyed by name — the same ON CONFLICT(name)
+// convention internal/ingest/writer.go already uses for accounts rows
+// sourced from Client.txt guild events, so an account seen both ways
+// collapses onto one row rather than duplicating. oauth_authenticated_at
+// doubles as the "this is the currently signed-in account" flag (non-NULL)
+// and a record of when, mirroring the ended_at/exited_at convention used
+// elsewhere in the schema. oauth_credential_key is only the fixed
+// poeOAuthCredKey constant today (one global credential per ADR-005), but the
+// column exists so a future per-account key (see ROADMAP_DETAILS.md's
+// "Multi-account PoE OAuth support" entry) needs no further schema change.
+func upsertOAuthAccount(db *sql.DB, tok poe.Token) error {
+	_, err := db.Exec(
+		`INSERT INTO accounts(name, poe_uuid, oauth_credential_key, oauth_authenticated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(name) DO UPDATE SET
+		   poe_uuid = excluded.poe_uuid,
+		   oauth_credential_key = excluded.oauth_credential_key,
+		   oauth_authenticated_at = excluded.oauth_authenticated_at`,
+		tok.Username, tok.Sub, poeOAuthCredKey, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+// clearOAuthAccountActive marks the account identified by sub (the token's
+// `sub` claim) as no longer the signed-in PoE OAuth account, without
+// deleting the row — name/poe_uuid survive as a historical record. Called on
+// logout; a no-op if sub is empty (nothing was ever authenticated).
+func clearOAuthAccountActive(db *sql.DB, sub string) error {
+	if sub == "" {
+		return nil
+	}
+	_, err := db.Exec(
+		`UPDATE accounts SET oauth_credential_key = NULL, oauth_authenticated_at = NULL WHERE poe_uuid = ?`,
+		sub)
+	return err
+}
+
 // hydratePoeOAuthToken loads any previously persisted token at startup and
 // schedules its next refresh, discarding it outright if it's already past
 // the assumed refresh-token lifetime (poe-apis.md §3.3's "On startup"
@@ -194,6 +232,9 @@ func (s *server) runPoeOAuthRefresh() {
 	if err := savePoeOAuthToken(newTok); err != nil {
 		log.Printf("poe oauth: persisting refreshed token failed: %v", err)
 	}
+	if err := upsertOAuthAccount(s.db, newTok); err != nil {
+		log.Printf("poe oauth: recording account failed: %v", err)
+	}
 	s.poeOAuth.mu.Lock()
 	s.poeOAuth.token = &newTok
 	s.poeOAuth.lastError = ""
@@ -251,6 +292,9 @@ func (s *server) runPoeOAuthLogin() {
 	if err := savePoeOAuthToken(tok); err != nil {
 		log.Printf("poe oauth: persisting token failed: %v", err)
 	}
+	if err := upsertOAuthAccount(s.db, tok); err != nil {
+		log.Printf("poe oauth: recording account failed: %v", err)
+	}
 	s.poeOAuth.mu.Lock()
 	s.poeOAuth.token = &tok
 	s.poeOAuth.lastError = ""
@@ -276,6 +320,10 @@ func (s *server) handlePoeOAuthLogout(c *hub.Client, msg proto.Message) {
 		s.poeOAuth.refreshTimer.Stop()
 		s.poeOAuth.refreshTimer = nil
 	}
+	var sub string
+	if s.poeOAuth.token != nil {
+		sub = s.poeOAuth.token.Sub
+	}
 	s.poeOAuth.token = nil
 	s.poeOAuth.lastError = ""
 	s.poeOAuth.mu.Unlock()
@@ -285,11 +333,60 @@ func (s *server) handlePoeOAuthLogout(c *hub.Client, msg proto.Message) {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
 		return
 	}
+	if err := clearOAuthAccountActive(s.db, sub); err != nil {
+		log.Printf("poe oauth: clearing account active state failed: %v", err)
+	}
 
 	s.publishPoeOAuthStatus()
 	s.send(c, proto.Message{
 		Type:    proto.TypeResponse,
 		ID:      msg.ID,
 		Payload: mustMarshal(map[string]bool{"ok": true}),
+	})
+}
+
+// fetchPoeAccounts returns every row of accounts as a PoeAccountSummary,
+// ordered by name. PoeUUID is empty for an account never seen via OAuth
+// login (e.g. a friend's account known only from Client.txt guild events);
+// Active reflects oauth_authenticated_at, non-NULL for exactly the one
+// account (if any) currently signed in via PoE OAuth on this service.
+func fetchPoeAccounts(db *sql.DB) ([]proto.PoeAccountSummary, error) {
+	rows, err := db.Query(`
+		SELECT name, COALESCE(poe_uuid, ''), oauth_authenticated_at IS NOT NULL
+		FROM accounts
+		ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	accounts := []proto.PoeAccountSummary{}
+	for rows.Next() {
+		var a proto.PoeAccountSummary
+		if err := rows.Scan(&a.Name, &a.PoeUUID, &a.Active); err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, a)
+	}
+	return accounts, rows.Err()
+}
+
+// handlePoeAccountsList serves "poe.accounts.list" — every account this
+// service knows of, letting a client (e.g. l2p-poe) decide whether to show
+// an account switcher at all: only once this list has more than one entry.
+func (s *server) handlePoeAccountsList(c *hub.Client, msg proto.Message) {
+	if s.db == nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "no db configured"})
+		return
+	}
+	accounts, err := fetchPoeAccounts(s.db)
+	if err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
+	}
+	s.send(c, proto.Message{
+		Type:    proto.TypeResponse,
+		ID:      msg.ID,
+		Payload: mustMarshal(map[string]any{"accounts": accounts}),
 	})
 }

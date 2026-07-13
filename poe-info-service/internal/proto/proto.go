@@ -205,3 +205,18 @@ type PoeOAuthStatusPayload struct {
 // (poe.oauth.logout). Lets a client reflect connection status live instead
 // of polling poe.oauth.status.
 const TopicPoeOAuthStatus = "poeOAuthStatus"
+
+// PoeAccountSummary is one row of the "poe.accounts.list" response — every
+// account this service knows of, whether learned from Client.txt guild
+// events, a PoE OAuth login, or both merged onto the same row by name. Never
+// includes the credential itself (see PoeOAuthStatusPayload's doc comment).
+type PoeAccountSummary struct {
+	Name string `json:"name"`
+	// PoeUUID is the OAuth `sub` claim — empty if this account has never
+	// been OAuth-authenticated locally (e.g. a friend's account only ever
+	// seen in guild chat).
+	PoeUUID string `json:"poeUuid,omitempty"`
+	// Active is true for the account currently signed in via PoE OAuth on
+	// this service — at most one row has Active true at any time (ADR-005).
+	Active bool `json:"active"`
+}

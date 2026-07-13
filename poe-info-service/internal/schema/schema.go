@@ -8,7 +8,7 @@ import (
 // kVersion mirrors the C++ Database::kDbVersion. Bump it, and add a branch to
 // migrate(), whenever schema.sql changes in a way existing databases need to
 // catch up on.
-const kVersion = 9
+const kVersion = 10
 
 // EnsureSchema creates the schema on a fresh database (and seeds it with
 // reference data) or migrates an existing one up to kVersion. It is
@@ -136,6 +136,28 @@ func migrate(db *sql.DB, fromVersion int) error {
 			return err
 		}
 		fromVersion = 9
+	}
+
+	if fromVersion < 10 {
+		// accounts gains OAuth-derived identity/state: poe_uuid (the token's
+		// stable `sub` claim), oauth_credential_key (the internal/creds key
+		// holding this account's live token), and oauth_authenticated_at
+		// (non-NULL while this account is the one currently signed in via PoE
+		// OAuth — see poe_oauth.go's upsertOAuthAccount/clearOAuthAccountActive).
+		stmts := []string{
+			`ALTER TABLE accounts ADD COLUMN poe_uuid TEXT`,
+			`ALTER TABLE accounts ADD COLUMN oauth_credential_key TEXT`,
+			`ALTER TABLE accounts ADD COLUMN oauth_authenticated_at TEXT`,
+		}
+		for _, stmt := range stmts {
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("migrate to v10: %w", err)
+			}
+		}
+		if err := setUserVersion(db, 10); err != nil {
+			return err
+		}
+		fromVersion = 10
 	}
 
 	if fromVersion < kVersion {

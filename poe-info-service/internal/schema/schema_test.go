@@ -99,6 +99,14 @@ func TestEnsureSchema_migratesOldVersion(t *testing.T) {
 	if _, err := db.Exec("ALTER TABLE chat_channels ADD COLUMN name TEXT"); err != nil {
 		t.Fatalf("add chat_channels.name: %v", err)
 	}
+	// accounts.poe_uuid/oauth_credential_key/oauth_authenticated_at are added
+	// by the fromVersion<10 migration step — drop them so this reconstructed
+	// "old" database doesn't already have what that step is meant to add.
+	for _, col := range []string{"poe_uuid", "oauth_credential_key", "oauth_authenticated_at"} {
+		if _, err := db.Exec("ALTER TABLE accounts DROP COLUMN " + col); err != nil {
+			t.Fatalf("drop accounts.%s: %v", col, err)
+		}
+	}
 	if _, err := db.Exec("PRAGMA user_version = 4"); err != nil {
 		t.Fatalf("set user_version: %v", err)
 	}
@@ -129,6 +137,10 @@ func TestEnsureSchema_migratesOldVersion(t *testing.T) {
 	if _, err := db.Exec("SELECT span_id, kind FROM session_afk"); err != nil {
 		t.Errorf("span_id/kind columns not added by migration: %v", err)
 	}
+
+	if _, err := db.Exec("SELECT poe_uuid, oauth_credential_key, oauth_authenticated_at FROM accounts"); err != nil {
+		t.Errorf("accounts OAuth columns not restored by migration: %v", err)
+	}
 }
 
 // TestMigrateToV9_MergesAltTabIntoSessionAfk covers the actual data movement
@@ -155,6 +167,17 @@ func TestMigrateToV9_MergesAltTabIntoSessionAfk(t *testing.T) {
 		UNIQUE(session_id, out_at)
 	)`); err != nil {
 		t.Fatalf("create v8 session_alt_tabs: %v", err)
+	}
+	// migrate() also runs the fromVersion<10 step against this same db, which
+	// ALTERs accounts — give it the pre-v10 shape so that step has a table to
+	// work with (schemaSQL isn't applied in this test, unlike real EnsureSchema
+	// use, which always creates/upgrades accounts before migrate() runs).
+	if _, err := db.Exec(`CREATE TABLE accounts (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		name       TEXT    NOT NULL UNIQUE,
+		guild_name TEXT
+	)`); err != nil {
+		t.Fatalf("create v8 accounts: %v", err)
 	}
 	if _, err := db.Exec(`INSERT INTO session_afk(session_id, span_id, afk_on_at, afk_off_at) VALUES(1, 10, '2024-01-15 10:01:00', '2024-01-15 10:03:00')`); err != nil {
 		t.Fatalf("seed session_afk: %v", err)

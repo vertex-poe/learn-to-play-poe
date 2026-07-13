@@ -41,10 +41,20 @@ CREATE TABLE IF NOT EXISTS area_moves (
 CREATE INDEX IF NOT EXISTS idx_area_moves_install_time
 ON area_moves(install_id, entered_at);
 
+-- poe_uuid, oauth_credential_key, and oauth_authenticated_at are populated
+-- only for an account seen via PoE OAuth login (internal/server/poe_oauth.go);
+-- an account known solely from Client.txt guild events leaves them NULL.
+-- oauth_authenticated_at doubles as the "currently signed-in account" flag
+-- (non-NULL) and a record of when, matching the ended_at/exited_at
+-- convention used elsewhere in this schema; it and oauth_credential_key are
+-- cleared together on logout, leaving name/poe_uuid as a historical record.
 CREATE TABLE IF NOT EXISTS accounts (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT    NOT NULL UNIQUE,
-    guild_name TEXT
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                   TEXT    NOT NULL UNIQUE,
+    guild_name             TEXT,
+    poe_uuid               TEXT,
+    oauth_credential_key   TEXT,
+    oauth_authenticated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chat_channels (
