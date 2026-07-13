@@ -1,19 +1,20 @@
 # Database Schema
 
-The app uses a single SQLite database (`app.db`) stored alongside the application. It holds everything parsed from `Client.txt` — Path of Exile's log file — plus reference data derived from that parsing. The goal is to build a persistent record of play history that survives across app restarts and can power session stats, event history, and alerts.
+`poe-info-service` owns and exclusively accesses a single SQLite database, `poe-info-service.db` (see [ADR-006](decisions/006-user-config-storage.md) for why user-facing config lives elsewhere, in the TOML file, never here). It holds everything parsed from `Client.txt` — Path of Exile's log file — plus reference data derived from that parsing, plus data fetched from external APIs (PoE OAuth, Steam). The goal is to build a persistent record of play history that survives across app restarts and can power session stats, event history, and alerts.
 
-All timestamps are stored as ISO 8601 text strings (`TEXT NOT NULL`). The database runs in WAL mode with `synchronous=NORMAL` for write throughput during ingestion. Nearly every event table has a `UNIQUE` constraint on its meaningful columns so that re-ingesting the same log file is always safe and idempotent.
+All timestamps are stored as ISO 8601 text strings (`TEXT NOT NULL`). The database runs in WAL mode with `synchronous=NORMAL` for write throughput during ingestion (see `sqliteDSN` in `internal/server/server.go`). Nearly every event table has a `UNIQUE` constraint on its meaningful columns so that re-ingesting the same log file is always safe and idempotent.
+
+Schema and migrations are owned by [`internal/schema`](../internal/schema) (`schema.sql` plus `schema.go`'s `migrate()`) — see [`CONTRIBUTING.md`](../CONTRIBUTING.md)'s "Adding a schema migration" section for the process, and [ADR-003](decisions/003-client-api-versioning.md) for why the schema itself (unlike the WebSocket API) is *not* required to stay backward-compatible.
 
 ---
 
 ## Source of data
 
-Everything in this database originates from one of two places:
+Everything in this database originates from one of three places:
 
 - **`Client.txt`** — the game's own log file, parsed line by line by the log ingestion pipeline. This is the primary source and covers the vast majority of tables.
 - **In-game `/commands`** — a small number of tables are populated from the output of commands like `/passives` and `/played`, which the game echoes into `Client.txt`.
-
-There is no network access, no GGG API, and no other external source.
+- **External APIs** — the `leagues` table caches results of the PoE OAuth API's `GET /leagues`; `accounts.poe_uuid`/`oauth_credential_key`/`oauth_authenticated_at` are populated by a PoE OAuth login. See [`api.md`](api.md) and [`architecture.md`](architecture.md) for the fetch/caching rules around these.
 
 ---
 
@@ -23,7 +24,7 @@ There is no network access, no GGG API, and no other external source.
 
 **Normalized reference tables.** Repeating strings (area codes, character names, account names, skill codes, etc.) are deduplicated into small lookup tables and referenced by integer FK. This keeps event tables lean and makes renaming or enriching a concept (e.g., adding a display name to an area) a single-row update.
 
-**Migrations deferred until public release.** Schema migrations are intentionally a no-op until the first public build ships. Until then every user starts from a fresh database, so `initSchema()` uses `CREATE TABLE IF NOT EXISTS` everywhere and `migrate()` is a stub.
+**Additive-only migrations.** Per [ADR-003](decisions/003-client-api-versioning.md), the schema is free to change in backward-incompatible ways between versions — unlike the WebSocket API's response shapes — but every actual migration in `internal/schema/schema.go` has so far been additive (new tables/columns), never a destructive rename/repurpose, since there's no compatibility reason to do otherwise yet.
 
 ---
 
@@ -54,6 +55,10 @@ Game zones — maps, towns, the character select screen (NULL area_id elsewhere)
 ### `accounts`
 
 Player account names, keyed by name. Most rows come from `Client.txt` guild events and carry only `guild_name`. The local player's own account additionally gains `poe_uuid` (the PoE OAuth token's `sub` claim), `oauth_credential_key`, and `oauth_authenticated_at` once they sign in via PoE OAuth (see `poe-info-service/internal/server/poe_oauth.go`). `oauth_authenticated_at` is non-NULL exactly while that account is the one currently signed in — it and `oauth_credential_key` are cleared on logout, leaving `name`/`poe_uuid` behind as a historical record. Only one account can be OAuth-authenticated at a time today (ADR-005); see `ROADMAP_DETAILS.md`'s "Multi-account PoE OAuth support" entry for why `oauth_credential_key` exists as its own column already.
+
+### `leagues`
+
+Cached results of the PoE OAuth API's `GET /leagues` — the one OAuth data endpoint that needs no Bearer token (see `poe-info-service/internal/server/poe_leagues.go`). Unique on `(name, realm)` since a league name (e.g. "Standard") repeats identically across realms. `rules_json` is a JSON array of rule id strings (e.g. `["Hardcore"]`); `fetched_at` drives `poe.leagues.list`'s cache-freshness check and is refreshed on every successful fetch that returns a given row.
 
 ### `classes`
 

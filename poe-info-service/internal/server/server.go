@@ -1181,6 +1181,15 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 	case "poe.profile.twitch":
 		s.handlePoeProfileTwitch(c, msg)
 
+	case "poe.leagues.list":
+		s.handlePoeLeaguesList(c, msg)
+
+	case "poe.leagues.detail":
+		s.handlePoeLeaguesDetail(c, msg)
+
+	case "poe.ratelimit.status":
+		s.handlePoeRateLimitStatus(c, msg)
+
 	case "config.list":
 		s.handleConfigList(c, msg)
 

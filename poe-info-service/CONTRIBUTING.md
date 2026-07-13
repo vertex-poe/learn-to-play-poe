@@ -10,6 +10,22 @@ machine can depend on it; `l2p-poe` is simply its first consumer.
 
 ## Documentation
 
+### API reference
+
+[`docs/api.md`](docs/api.md) is the wire-level reference for the WebSocket
+API: every method's request/response shape and every push topic's payload.
+Update it in the same change whenever a method/topic is added or a shape
+gains a field (see "Adding a new WebSocket method" below).
+
+### Database schema
+
+[`docs/schema.md`](docs/schema.md) documents every table in the SQLite
+database this service owns — reference/lookup tables, sessions, movement,
+character progression, social/chat, game events, PoE OAuth-derived data, the
+app-state store, and the event history spine — along with the design
+patterns used throughout. Update it in the same change as any schema
+migration (see "Adding a schema migration" below).
+
 ### Architecture
 
 [`docs/architecture.md`](docs/architecture.md) is a reference for how the
@@ -97,6 +113,7 @@ service name so they never touch a real stored `POESESSID`.
 2. Add a handler in [`internal/server/server.go`](internal/server/server.go) and register it in `handleRequest`'s switch.
 3. If it's a read, back it with a method on [`internal/query.DB`](internal/query/query.go); if it's a write reacting to log events, add it to [`internal/ingest.Writer`](internal/ingest/writer.go).
 4. Once shipped, per ADR-003, that method's response shape is permanent — new fields only, never removed/renamed/repurposed ones.
+5. Document it in [`docs/api.md`](docs/api.md) — the request/response shape and, if relevant, the corresponding push topic.
 
 For the Steam presence and PoE OAuth features specifically (behavior,
 caching/polling rules, credential handling), see
@@ -109,8 +126,8 @@ The `l2p` database schema lives in [`internal/schema/sql/`](internal/schema/sql/
 and is migrated by [`internal/schema/schema.go`](internal/schema/schema.go).
 Bump `kVersion` and add a branch to `migrate()` for any change — additive
 only, per ADR-003 (new tables/columns only, never removed or repurposed
-ones). See the root project's [`docs/schema.md`](../docs/schema.md) for a
-full table-by-table reference.
+ones). See [`docs/schema.md`](docs/schema.md) for a full table-by-table
+reference, and update it in the same change.
 
 **Automated tests never exercise `internal/creds`-backed credential
 paths directly** (`loadPoeOAuthToken`/`savePoeOAuthToken`/`clearPoeOAuthToken`,

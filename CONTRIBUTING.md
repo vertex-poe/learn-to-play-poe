@@ -179,9 +179,16 @@ If you install via `cargo install just`, the binary lands in cargo's bin directo
 
 Run `just` with no arguments to list all available recipes.
 
-## Database schema
+## Database schema and API
 
-[`docs/schema.md`](docs/schema.md) documents every table in the SQLite database — reference/lookup tables, sessions, movement, character progression, social/chat, game events, the app-state store, and the event history spine — along with the design patterns used throughout (install-scoping, reference normalization, idempotent ingest).
+`poe-info-service` owns the database exclusively (see its own
+[ADR-006](poe-info-service/docs/decisions/006-user-config-storage.md) and
+root [ADR-006](docs/decisions/006-poe-info-service.md)) and is the sole
+place `l2p-poe` reads/writes game data, over its WebSocket API. See
+[`poe-info-service/docs/schema.md`](poe-info-service/docs/schema.md) for a
+full table-by-table reference, and
+[`poe-info-service/docs/api.md`](poe-info-service/docs/api.md) for the
+WebSocket API this app consumes it through.
 
 ## Measurements
 

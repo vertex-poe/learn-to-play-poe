@@ -322,6 +322,60 @@ func TestQueue_HintPolicyAlias_GatesRepeatedCallsUnderSameHint(t *testing.T) {
 	}
 }
 
+// TestQueue_Policies_ReportsLearnedStateSortedByKey proves Policies()
+// surfaces every policy this queue has actually dispatched a task under, in
+// sorted order, and that a hint never dispatched under is simply absent.
+func TestQueue_Policies_ReportsLearnedStateSortedByKey(t *testing.T) {
+	q, _ := newTestQueue(t)
+
+	if got := q.Policies(); len(got) != 0 {
+		t.Fatalf("Policies() on a fresh queue = %v, want empty", got)
+	}
+
+	done := make(chan struct{})
+	q.Submit(Task{
+		Key: "call-1", PolicyHint: "zebra-hint",
+		Exec: func(ctx context.Context) (any, http.Header, error) {
+			defer close(done)
+			return nil, rateHeaders("zebra-policy", 10, 1000, 3), nil
+		},
+	})
+	<-done
+	time.Sleep(20 * time.Millisecond) // let dispatch's policy update land
+
+	done2 := make(chan struct{})
+	q.Submit(Task{
+		Key: "call-2", PolicyHint: "apple-hint",
+		Exec: func(ctx context.Context) (any, http.Header, error) {
+			defer close(done2)
+			return nil, rateHeaders("apple-policy", 5, 500, 5), nil
+		},
+	})
+	<-done2
+	time.Sleep(20 * time.Millisecond)
+
+	got := q.Policies()
+	if len(got) != 2 {
+		t.Fatalf("Policies() = %+v, want 2 entries", got)
+	}
+	// Sorted by Policy key: "apple-policy" before "zebra-policy".
+	if got[0].Policy != "apple-policy" || got[1].Policy != "zebra-policy" {
+		t.Errorf("Policies() order = [%s %s], want [apple-policy zebra-policy]", got[0].Policy, got[1].Policy)
+	}
+	if len(got[0].Rules) != 1 || got[0].Rules[0].Hits != 5 || got[0].Rules[0].StateHits != 5 {
+		t.Errorf("apple-policy rules = %+v, want Hits=5 StateHits=5", got[0].Rules)
+	}
+	// apple-policy was saturated (StateHits==Hits==5), so it should be
+	// gated until some future NextAllowedAt.
+	if !got[0].NextAllowedAt.After(time.Now()) {
+		t.Errorf("apple-policy NextAllowedAt = %v, want it in the future (saturated)", got[0].NextAllowedAt)
+	}
+	// zebra-policy had headroom (StateHits 3 < Hits 10), so it's clear now.
+	if got[1].NextAllowedAt.After(time.Now()) {
+		t.Errorf("zebra-policy NextAllowedAt = %v, want it clear (not saturated)", got[1].NextAllowedAt)
+	}
+}
+
 // TestWaiter_Wait_ContextTimeout_TaskStillCompletesInBackground proves a
 // Wait call abandoned by a timed-out/cancelled ctx doesn't abort the
 // underlying task — it keeps running and a later Waiter on the same

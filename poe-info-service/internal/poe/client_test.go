@@ -232,3 +232,116 @@ func TestClient_FetchProfile_NonOKStatusIsError(t *testing.T) {
 		t.Errorf("error = %v, want it to mention the 401 status", err)
 	}
 }
+
+// TestClient_FetchLeagues_NoAuthHeaderSent proves /leagues is called without
+// any Authorization header — unlike every other OAuth data endpoint, this
+// one is public (poe-apis.md's documented rule 9).
+func TestClient_FetchLeagues_NoAuthHeaderSent(t *testing.T) {
+	var gotAuth string
+	var sawAuthHeader bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotAuth = req.Header.Get("Authorization")
+		_, sawAuthHeader = req.Header["Authorization"]
+		w.Write([]byte(`{"leagues":[]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeaguesURL(srv.URL))
+	if _, _, err := c.FetchLeagues(context.Background(), LeaguesParams{}); err != nil {
+		t.Fatalf("FetchLeagues: %v", err)
+	}
+	if sawAuthHeader {
+		t.Errorf("Authorization header = %q, want none sent at all", gotAuth)
+	}
+}
+
+// TestClient_FetchLeagues_ZeroParams_SendsNoQueryString proves a zero
+// LeaguesParams omits every query parameter rather than sending them empty,
+// letting the endpoint's own documented defaults (realm=pc, type=main,
+// limit=50) apply server-side.
+func TestClient_FetchLeagues_ZeroParams_SendsNoQueryString(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotQuery = req.URL.RawQuery
+		w.Write([]byte(`{"leagues":[]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeaguesURL(srv.URL))
+	if _, _, err := c.FetchLeagues(context.Background(), LeaguesParams{}); err != nil {
+		t.Fatalf("FetchLeagues: %v", err)
+	}
+	if gotQuery != "" {
+		t.Errorf("query string = %q, want empty for a zero LeaguesParams", gotQuery)
+	}
+}
+
+// TestClient_FetchLeagues_SendsGivenParamsAndParsesResponse proves every
+// LeaguesParams field is sent when set, and the response's league array
+// (including nested rules) decodes correctly.
+func TestClient_FetchLeagues_SendsGivenParamsAndParsesResponse(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotQuery = req.URL.Query()
+		w.Write([]byte(`{"leagues":[
+			{"id":"SSF Ancestors","realm":"pc","url":"https://example.com","startAt":"2024-01-01T00:00:00Z","endAt":null,"description":"desc","rules":[{"id":"Hardcore"},{"id":"NoParties"}],"event":false,"delveEvent":false},
+			{"id":"Standard","realm":"pc","event":false,"delveEvent":false}
+		]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeaguesURL(srv.URL))
+	leagues, _, err := c.FetchLeagues(context.Background(), LeaguesParams{Realm: "xbox", Type: "season", Season: "Ancestors", Limit: 10, Offset: 5})
+	if err != nil {
+		t.Fatalf("FetchLeagues: %v", err)
+	}
+
+	if got := gotQuery.Get("realm"); got != "xbox" {
+		t.Errorf("realm = %q, want xbox", got)
+	}
+	if got := gotQuery.Get("type"); got != "season" {
+		t.Errorf("type = %q, want season", got)
+	}
+	if got := gotQuery.Get("season"); got != "Ancestors" {
+		t.Errorf("season = %q, want Ancestors", got)
+	}
+	if got := gotQuery.Get("limit"); got != "10" {
+		t.Errorf("limit = %q, want 10", got)
+	}
+	if got := gotQuery.Get("offset"); got != "5" {
+		t.Errorf("offset = %q, want 5", got)
+	}
+
+	if len(leagues) != 2 {
+		t.Fatalf("got %d leagues, want 2", len(leagues))
+	}
+	first := leagues[0]
+	if first.ID != "SSF Ancestors" || first.Realm != "pc" || first.Description != "desc" {
+		t.Errorf("first league = %+v, missing expected fields", first)
+	}
+	if len(first.Rules) != 2 || first.Rules[0].ID != "Hardcore" || first.Rules[1].ID != "NoParties" {
+		t.Errorf("first league rules = %+v, want [Hardcore NoParties]", first.Rules)
+	}
+	if leagues[1].ID != "Standard" {
+		t.Errorf("second league ID = %q, want Standard", leagues[1].ID)
+	}
+}
+
+// TestClient_FetchLeagues_NonOKStatusIsError proves a non-200 response is
+// reported as an error rather than silently returning an empty list.
+func TestClient_FetchLeagues_NonOKStatusIsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"error":"unavailable"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeaguesURL(srv.URL))
+	_, _, err := c.FetchLeagues(context.Background(), LeaguesParams{})
+	if err == nil {
+		t.Fatal("FetchLeagues with a 503 response: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "503") {
+		t.Errorf("error = %v, want it to mention the 503 status", err)
+	}
+}

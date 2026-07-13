@@ -183,6 +183,7 @@ func (s *server) publishRichPresenceChanges(prev, next richPresenceState) {
 	if prev.League != next.League {
 		s.publish(proto.TopicLeague, proto.LeaguePayload{
 			League: next.League, Source: proto.RichPresenceSourceSteam, FetchedAt: next.FetchedAt,
+			Detail: s.leagueDetailFor(next.League),
 		})
 	}
 	if prev.Level != next.Level {
@@ -298,6 +299,7 @@ func (s *server) handleLeague(c *hub.Client, msg proto.Message) {
 		ID:   msg.ID,
 		Payload: mustMarshal(proto.LeaguePayload{
 			League: snap.League, Source: proto.RichPresenceSourceSteam, FetchedAt: snap.FetchedAt,
+			Detail: s.leagueDetailFor(snap.League),
 		}),
 	})
 }

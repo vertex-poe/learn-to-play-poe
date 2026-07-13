@@ -34,7 +34,7 @@ func TestEnsureSchema_freshDatabase(t *testing.T) {
 		t.Errorf("user_version = %d, want %d", version, kVersion)
 	}
 
-	for _, table := range []string{"installs", "sessions", "areas", "chats", "whispers", "session_afk", "passive_point_snapshots"} {
+	for _, table := range []string{"installs", "sessions", "areas", "chats", "whispers", "session_afk", "passive_point_snapshots", "leagues"} {
 		var name string
 		err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
@@ -107,6 +107,11 @@ func TestEnsureSchema_migratesOldVersion(t *testing.T) {
 			t.Fatalf("drop accounts.%s: %v", col, err)
 		}
 	}
+	// leagues is added by the fromVersion<11 migration step — drop it so this
+	// reconstructed "old" database doesn't already have what that step adds.
+	if _, err := db.Exec("DROP TABLE leagues"); err != nil {
+		t.Fatalf("drop leagues: %v", err)
+	}
 	if _, err := db.Exec("PRAGMA user_version = 4"); err != nil {
 		t.Fatalf("set user_version: %v", err)
 	}
@@ -140,6 +145,10 @@ func TestEnsureSchema_migratesOldVersion(t *testing.T) {
 
 	if _, err := db.Exec("SELECT poe_uuid, oauth_credential_key, oauth_authenticated_at FROM accounts"); err != nil {
 		t.Errorf("accounts OAuth columns not restored by migration: %v", err)
+	}
+
+	if _, err := db.Exec("SELECT name, realm, rules_json, is_event, is_delve_event, fetched_at FROM leagues"); err != nil {
+		t.Errorf("leagues table not restored by migration: %v", err)
 	}
 }
 

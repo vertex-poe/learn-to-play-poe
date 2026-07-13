@@ -57,4 +57,34 @@ const (
 	// poeProfileWaitTimeout bounds how long a wait:true poe.profile.*
 	// request blocks for before falling back to a pending response.
 	poeProfileWaitTimeout = 30 * time.Second
+
+	// poeLeaguesCacheTTL is the default max-age a poe.leagues.list request
+	// accepts before triggering a refetch, absent an explicit maxAgeSeconds
+	// override — leagues rarely change (a new challenge league launches only
+	// every few months, and existing leagues' end dates are set well in
+	// advance), so this is generous.
+	poeLeaguesCacheTTL = 6 * time.Hour
+
+	// poeLeaguesMinRefetchAge is the floor a caller's requested
+	// maxAgeSeconds is clamped to, regardless of how fresh they ask for —
+	// same rationale as poeProfileMinRefetchAge.
+	poeLeaguesMinRefetchAge = 5 * time.Minute
+
+	// poeLeaguesFetchPriority is poe.leagues.list's default reqqueue.Priority
+	// when a caller doesn't specify its own — Medium, since leagues data is
+	// commonly needed for UI (e.g. a league picker) but, being
+	// account-independent, is never as urgent as a user-interaction-driven
+	// profile fetch.
+	poeLeaguesFetchPriority = reqqueue.PriorityMedium
+
+	// poeOAuthLeaguesPolicyHint groups every /leagues fetch under one
+	// reqqueue policy hint before any response has revealed the OAuth API's
+	// real rate-limit policy name for this endpoint — see
+	// poeOAuthProfilePolicyHint's doc comment for why this is a stable label,
+	// not a prediction.
+	poeOAuthLeaguesPolicyHint = "poe-oauth:/leagues"
+
+	// poeLeaguesWaitTimeout bounds how long a wait:true poe.leagues.list
+	// request blocks for before falling back to a pending response.
+	poeLeaguesWaitTimeout = 30 * time.Second
 )

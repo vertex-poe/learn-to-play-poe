@@ -376,6 +376,29 @@ CREATE TABLE IF NOT EXISTS events (
     UNIQUE(event_type, source_id)
 );
 
+-- Cached results of the PoE OAuth API's GET /leagues (the one OAuth data
+-- endpoint that requires no Bearer token — see internal/server/poe_leagues.go
+-- and _reference/poe-apis/poe-apis.md §6.2). Unique on (name, realm) rather
+-- than name alone since a league name (e.g. "Standard") repeats identically
+-- across realms. rules_json is a JSON array of rule id strings (e.g.
+-- ["Hardcore"]) — no other per-rule metadata exists today. fetched_at drives
+-- poe.leagues.list's cache-freshness check and is refreshed on every
+-- successful fetch that returns this row.
+CREATE TABLE IF NOT EXISTS leagues (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    name           TEXT    NOT NULL,
+    realm          TEXT    NOT NULL,
+    url            TEXT,
+    start_at       TEXT,
+    end_at         TEXT,   -- NULL for a permanent league
+    description    TEXT,
+    rules_json     TEXT    NOT NULL DEFAULT '[]',
+    is_event       INTEGER NOT NULL DEFAULT 0,
+    is_delve_event INTEGER NOT NULL DEFAULT 0,
+    fetched_at     TEXT    NOT NULL,
+    UNIQUE(name, realm)
+);
+
 CREATE INDEX IF NOT EXISTS idx_events_by_time ON events (occurred_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions (started_at DESC);

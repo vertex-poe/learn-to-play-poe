@@ -265,6 +265,223 @@ func TestHandlePoeProfileField_BadParams_ReturnsError(t *testing.T) {
 	}
 }
 
+// TestHandlePoeProfileField_BadFetchValue_ReturnsError proves an unknown
+// "fetch" value is rejected up front rather than silently falling back to
+// the default.
+func TestHandlePoeProfileField_BadFetchValue_ReturnsError(t *testing.T) {
+	s := newPoeProfileTestServer(t, "")
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeProfileFieldRequest{Fetch: "sometimes"})
+	s.handlePoeProfileLocale(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	resp := recvResponse(t, c)
+	if resp.Error == "" {
+		t.Error("expected an error for an unknown fetch value, got none")
+	}
+}
+
+// --- fetchPolicy: never / always ---
+
+// TestEnsurePoeProfile_FetchPolicyNever_StaleCache_ReturnsStaleWithoutFetch
+// proves fetchPolicyNever is a pure peek: a stale cache entry is still
+// returned (haveCache/isFresh both reported accurately), but no Waiter is
+// ever handed back — nothing was submitted to the queue.
+func TestEnsurePoeProfile_FetchPolicyNever_StaleCache_ReturnsStaleWithoutFetch(t *testing.T) {
+	s := newPoeProfileTestServer(t, "")
+	s.setActiveToken("uuid-1", "SomeAccount", "token")
+	stale := poeProfileCacheEntry{UUID: "uuid-1", Name: "SomeAccount", Locale: "de_DE", FetchedAt: time.Now().Add(-48 * time.Hour).Unix()}
+	s.savePoeProfileCache(stale)
+
+	entry, haveCache, isFresh, waiter := s.ensurePoeProfile("uuid-1", "token", time.Hour, reqqueue.PriorityMedium, fetchPolicyNever)
+	if waiter != nil {
+		t.Error("fetchPolicyNever submitted a fetch, want none")
+	}
+	if !haveCache || isFresh {
+		t.Errorf("haveCache=%v isFresh=%v, want haveCache=true isFresh=false (stale)", haveCache, isFresh)
+	}
+	if entry.Locale != "de_DE" {
+		t.Errorf("entry.Locale = %q, want de_DE (the stale cached value)", entry.Locale)
+	}
+}
+
+// TestEnsurePoeProfile_FetchPolicyNever_NoCache_NoFetch proves a peek with
+// nothing cached at all still never fetches — a clean "nothing to report"
+// rather than an error or a fetch.
+func TestEnsurePoeProfile_FetchPolicyNever_NoCache_NoFetch(t *testing.T) {
+	s := newPoeProfileTestServer(t, "")
+	s.setActiveToken("uuid-1", "SomeAccount", "token")
+
+	_, haveCache, _, waiter := s.ensurePoeProfile("uuid-1", "token", time.Hour, reqqueue.PriorityMedium, fetchPolicyNever)
+	if waiter != nil {
+		t.Error("fetchPolicyNever submitted a fetch, want none")
+	}
+	if haveCache {
+		t.Error("haveCache = true with nothing ever cached, want false")
+	}
+}
+
+// TestEnsurePoeProfile_FetchPolicyAlways_FetchesEvenWhenFresh proves
+// fetchPolicyAlways forces a fetch even over an already-fresh cache entry.
+func TestEnsurePoeProfile_FetchPolicyAlways_FetchesEvenWhenFresh(t *testing.T) {
+	s := newPoeProfileTestServer(t, "")
+	s.setActiveToken("uuid-1", "SomeAccount", "token")
+	s.savePoeProfileCache(poeProfileCacheEntry{UUID: "uuid-1", Name: "SomeAccount", Locale: "en_US", FetchedAt: time.Now().Unix()})
+
+	_, haveCache, isFresh, waiter := s.ensurePoeProfile("uuid-1", "token", 24*time.Hour, reqqueue.PriorityMedium, fetchPolicyAlways)
+	if waiter == nil {
+		t.Fatal("fetchPolicyAlways did not submit a fetch over a fresh cache entry")
+	}
+	if !haveCache || !isFresh {
+		t.Errorf("haveCache=%v isFresh=%v, want both true (the cache genuinely was fresh)", haveCache, isFresh)
+	}
+}
+
+// TestHandlePoeProfileLocale_FetchNever_PeekNeverCallsRemote proves the
+// "never" fetch policy really does skip the HTTP call end-to-end through
+// the handler, not just at the ensurePoeProfile layer.
+func TestHandlePoeProfileLocale_FetchNever_PeekNeverCallsRemote(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		calls++
+		w.Write([]byte(`{"uuid":"uuid-1","name":"SomeAccount","locale":"en_US"}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeProfileTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "token")
+
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeProfileFieldRequest{Fetch: "never"})
+	s.handlePoeProfileLocale(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	payload := decodeFieldPayload(t, recvResponse(t, c))
+	if payload.Status != "miss" || payload.Freshness != "miss" || payload.Fetching {
+		t.Errorf("payload = %+v, want status=freshness=miss fetching=false", payload)
+	}
+	if calls != 0 {
+		t.Errorf("remote called %d times, want 0 (fetch:\"never\" must never fetch)", calls)
+	}
+}
+
+// TestHandlePoeProfileLocale_StaleCache_NotAuthenticated_ServesStaleInsteadOfError
+// proves the improved behavior over the old all-or-nothing check: a known
+// but not-currently-active account with a *stale* (not missing) cached
+// profile gets that stale value back with status="stale", rather than the
+// blanket error a totally uncached account gets (see
+// TestHandlePoeProfileField_NoCacheNotAuthenticated_ReturnsError) — there's
+// something real to serve here, even if it can't be freshened right now.
+func TestHandlePoeProfileLocale_StaleCache_NotAuthenticated_ServesStaleInsteadOfError(t *testing.T) {
+	s := newPoeProfileTestServer(t, "")
+	s.setActiveToken("uuid-active", "ActiveAccount", "active-token")
+	if _, err := s.db.Exec(`INSERT INTO accounts(name, poe_uuid) VALUES(?, ?)`, "OtherAccount", "uuid-other"); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	// poeProfileLocaleCacheTTL is 30 days — well past that to be unambiguously stale.
+	s.savePoeProfileCache(poeProfileCacheEntry{UUID: "uuid-other", Name: "OtherAccount", Locale: "ja_JP", FetchedAt: time.Now().Add(-40 * 24 * time.Hour).Unix()})
+
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeProfileFieldRequest{Account: "OtherAccount"})
+	s.handlePoeProfileLocale(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	resp := recvResponse(t, c)
+	if resp.Error != "" {
+		t.Fatalf("got error %q, want the stale cached value served instead", resp.Error)
+	}
+	payload := decodeFieldPayload(t, resp)
+	if payload.Status != "stale" || payload.Freshness != "stale" || payload.Value != "ja_JP" {
+		t.Errorf("payload = %+v, want status=freshness=stale value=ja_JP", payload)
+	}
+}
+
+// TestHandlePoeProfileTwitch_StaleCache_Pending_CarriesStaleCacheAlongside
+// proves a "pending" response now carries whatever was cached before the
+// fetch (possibly stale) instead of nothing, so a caller has something to
+// show immediately.
+func TestHandlePoeProfileTwitch_StaleCache_Pending_CarriesStaleCacheAlongside(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Write([]byte(`{"uuid":"uuid-1","name":"SomeAccount","locale":"en_US","twitch":{"name":"fresh_tv"}}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeProfileTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "token")
+	// poeProfileTwitchCacheTTL is 7 days — well past that to be unambiguously stale.
+	s.savePoeProfileCache(poeProfileCacheEntry{UUID: "uuid-1", Name: "SomeAccount", Twitch: "stale_tv", FetchedAt: time.Now().Add(-10 * 24 * time.Hour).Unix()})
+
+	c := hub.NewClient()
+	defer c.Close()
+	s.handlePoeProfileTwitch(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+
+	payload := decodeFieldPayload(t, recvResponse(t, c))
+	if payload.Status != "pending" || !payload.Fetching || payload.Freshness != "stale" {
+		t.Errorf("payload = %+v, want status=pending fetching=true freshness=stale", payload)
+	}
+	if payload.Value != "stale_tv" {
+		t.Errorf("Value = %q, want the stale cached value stale_tv served alongside pending", payload.Value)
+	}
+}
+
+// --- includeCost ---
+
+// TestHandlePoeProfileLocale_Wait_IncludeCost_ReturnsCost proves a wait:true
+// request with includeCost:true gets a populated FetchCost reflecting the
+// one HTTP call the fetch actually made.
+func TestHandlePoeProfileLocale_Wait_IncludeCost_ReturnsCost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("X-Rate-Limit-Policy", "profile-policy")
+		w.Header().Set("X-Rate-Limit-Rules", "R")
+		w.Header().Set("X-Rate-Limit-R", "30:10:60")
+		w.Header().Set("X-Rate-Limit-R-State", "5:10:0")
+		w.Write([]byte(`{"uuid":"uuid-1","name":"SomeAccount","locale":"fr_FR"}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeProfileTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "token")
+
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeProfileFieldRequest{Wait: true, IncludeCost: true})
+	s.handlePoeProfileLocale(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	payload := decodeFieldPayload(t, recvResponse(t, c))
+	if payload.Cost == nil {
+		t.Fatal("Cost = nil, want it populated when includeCost=true")
+	}
+	if payload.Cost.API != "poe-oauth" || payload.Cost.Policy != "profile-policy" || payload.Cost.Queries != 1 {
+		t.Errorf("Cost = %+v, want api=poe-oauth policy=profile-policy queries=1", payload.Cost)
+	}
+	if len(payload.Cost.Rules) != 1 || payload.Cost.Rules[0].Remaining != 25 {
+		t.Errorf("Cost.Rules = %+v, want one rule with Remaining=25 (30-5)", payload.Cost.Rules)
+	}
+}
+
+// TestHandlePoeProfileLocale_Wait_NoIncludeCost_CostOmitted proves Cost is
+// left nil when the caller didn't ask for it, even though a real fetch
+// happened.
+func TestHandlePoeProfileLocale_Wait_NoIncludeCost_CostOmitted(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Write([]byte(`{"uuid":"uuid-1","name":"SomeAccount","locale":"fr_FR"}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeProfileTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "token")
+
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeProfileFieldRequest{Wait: true})
+	s.handlePoeProfileLocale(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	payload := decodeFieldPayload(t, recvResponse(t, c))
+	if payload.Cost != nil {
+		t.Errorf("Cost = %+v, want nil without includeCost", payload.Cost)
+	}
+}
+
 // TestEnsurePoeProfile_PriorityAffectsDispatchOrderUnderContention is an
 // end-to-end proof (real reqqueue.Queue, real OAuth header parser, real
 // httptest server) that ensurePoeProfile's priority argument actually
@@ -291,7 +508,7 @@ func TestEnsurePoeProfile_PriorityAffectsDispatchOrderUnderContention(t *testing
 
 	// Seed the policy via a throwaway fetch so it's saturated before the
 	// two contended fetches below.
-	_, seedWaiter, seedFresh := s.ensurePoeProfile("seed-sub", "token", 0, reqqueue.PriorityMedium)
+	_, _, seedFresh, seedWaiter := s.ensurePoeProfile("seed-sub", "token", 0, reqqueue.PriorityMedium, fetchPolicyIfStale)
 	if seedFresh || seedWaiter == nil {
 		t.Fatal("expected the seed fetch to actually enqueue")
 	}
@@ -316,9 +533,9 @@ func TestEnsurePoeProfile_PriorityAffectsDispatchOrderUnderContention(t *testing
 	}
 
 	// Low-priority "twitch" fetch for a different sub, submitted first.
-	_, lowWaiter, _ := s.ensurePoeProfile("sub-low", "token", 0, poeProfileTwitchFetchPriority)
+	_, _, _, lowWaiter := s.ensurePoeProfile("sub-low", "token", 0, poeProfileTwitchFetchPriority, fetchPolicyIfStale)
 	// High-priority "locale" fetch for yet another sub, submitted second.
-	_, highWaiter, _ := s.ensurePoeProfile("sub-high", "token", 0, poeProfileLocaleFetchPriority)
+	_, _, _, highWaiter := s.ensurePoeProfile("sub-high", "token", 0, poeProfileLocaleFetchPriority, fetchPolicyIfStale)
 
 	go func() { lowWaiter.Wait(ctx); record("low") }()
 	go func() { highWaiter.Wait(ctx); record("high") }()

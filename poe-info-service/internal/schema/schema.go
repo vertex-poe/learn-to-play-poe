@@ -8,7 +8,7 @@ import (
 // kVersion mirrors the C++ Database::kDbVersion. Bump it, and add a branch to
 // migrate(), whenever schema.sql changes in a way existing databases need to
 // catch up on.
-const kVersion = 10
+const kVersion = 11
 
 // EnsureSchema creates the schema on a fresh database (and seeds it with
 // reference data) or migrates an existing one up to kVersion. It is
@@ -158,6 +158,35 @@ func migrate(db *sql.DB, fromVersion int) error {
 			return err
 		}
 		fromVersion = 10
+	}
+
+	if fromVersion < 11 {
+		// leagues caches the PoE OAuth API's GET /leagues results (see
+		// internal/server/poe_leagues.go) — a brand-new table, so (mirroring
+		// the fromVersion<5 session_alt_tabs step) this is just the same
+		// CREATE TABLE IF NOT EXISTS schema.sql already applies unconditionally
+		// at the top of EnsureSchema; this branch exists only to advance
+		// fromVersion/kVersion in lockstep for a pre-v11 database.
+		if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS leagues (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			name           TEXT    NOT NULL,
+			realm          TEXT    NOT NULL,
+			url            TEXT,
+			start_at       TEXT,
+			end_at         TEXT,
+			description    TEXT,
+			rules_json     TEXT    NOT NULL DEFAULT '[]',
+			is_event       INTEGER NOT NULL DEFAULT 0,
+			is_delve_event INTEGER NOT NULL DEFAULT 0,
+			fetched_at     TEXT    NOT NULL,
+			UNIQUE(name, realm)
+		)`); err != nil {
+			return err
+		}
+		if err := setUserVersion(db, 11); err != nil {
+			return err
+		}
+		fromVersion = 11
 	}
 
 	if fromVersion < kVersion {

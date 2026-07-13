@@ -26,6 +26,15 @@ type poeProfileCacheEntry struct {
 	FetchedAt int64  `json:"fetchedAt"`
 }
 
+// profileFetchResult is what a profile fetch Task hands back through
+// reqqueue.Waiter.Wait — the freshly fetched/cached entry plus this
+// specific call's FetchCost, so handlePoeProfileField's wait:true path
+// doesn't need to recompute either.
+type profileFetchResult struct {
+	entry poeProfileCacheEntry
+	cost  *proto.FetchCost
+}
+
 func poeProfileCacheKey(sub string) string { return "poe:profile:" + sub }
 
 func (s *server) loadPoeProfileCache(sub string) (poeProfileCacheEntry, bool) {
@@ -87,23 +96,34 @@ func (s *server) resolvePoeAccount(selector string) (name, sub, accessToken stri
 	return gotName, gotUUID, "", nil
 }
 
-// ensurePoeProfile returns sub's cached profile if it's within maxAge —
-// priority never affects this cache check, only how a fetch is scheduled
-// once one is actually needed — or enqueues (de-duplicated by sub, via
-// reqqueue's Key-based merge) a fresh /profile fetch at the given priority
-// through s.poeQueue and returns the resulting Waiter. If another request
-// for the same sub is already queued/in flight, Submit promotes it to the
-// higher of the two requested priorities rather than starting a second
-// fetch. accessToken must be the currently active account's (see
-// resolvePoeAccount) — if empty (a known but not-currently-authenticated
-// account) and the cache is stale or missing, there is no way to freshen
-// it, which the caller surfaces as an error.
-func (s *server) ensurePoeProfile(sub, accessToken string, maxAge time.Duration, priority int) (cached poeProfileCacheEntry, waiter *reqqueue.Waiter, fresh bool) {
-	if entry, ok := s.loadPoeProfileCache(sub); ok && time.Since(time.Unix(entry.FetchedAt, 0)) < maxAge {
-		return entry, nil, true
-	}
-	if accessToken == "" {
-		return poeProfileCacheEntry{}, nil, false
+// ensurePoeProfile reports sub's cached profile (haveCache/isFresh describe
+// it — see freshnessLabel) and, depending on fetchPolicy, may also enqueue
+// (de-duplicated by sub, via reqqueue's Key-based merge) a fresh /profile
+// fetch at the given priority through s.poeQueue, returning the resulting
+// Waiter:
+//
+//   - fetchPolicyNever never enqueues anything — cached is whatever's on
+//     hand, however stale, and the caller is on its own for freshening it.
+//   - fetchPolicyAlways always enqueues, even over an already-fresh entry.
+//   - fetchPolicyIfStale (the default) enqueues only when the cache is
+//     missing or older than maxAge.
+//
+// priority never affects any of the above, only how a fetch (once decided)
+// is scheduled relative to other queued PoE OAuth requests. accessToken
+// must be the currently active account's (see resolvePoeAccount) — if
+// empty (a known but not-currently-authenticated account) a fetch can never
+// be performed regardless of fetchPolicy, so waiter is nil either way; the
+// caller decides whether that's an error (nothing at all to serve) or
+// simply "serve the stale copy" (something to serve, just not freshenable
+// right now).
+func (s *server) ensurePoeProfile(sub, accessToken string, maxAge time.Duration, priority int, fetchPolicy string) (cached poeProfileCacheEntry, haveCache bool, isFresh bool, waiter *reqqueue.Waiter) {
+	entry, ok := s.loadPoeProfileCache(sub)
+	haveCache = ok
+	isFresh = ok && time.Since(time.Unix(entry.FetchedAt, 0)) < maxAge
+
+	needFetch := fetchPolicy == fetchPolicyAlways || (!isFresh && fetchPolicy != fetchPolicyNever)
+	if !needFetch || accessToken == "" {
+		return entry, haveCache, isFresh, nil
 	}
 
 	w := s.poeQueue.Submit(reqqueue.Task{
@@ -112,28 +132,30 @@ func (s *server) ensurePoeProfile(sub, accessToken string, maxAge time.Duration,
 		PolicyHint: poeOAuthProfilePolicyHint,
 		Exec: func(ctx context.Context) (any, http.Header, error) {
 			profile, headers, err := s.poeClient.FetchProfile(ctx, accessToken)
+			cost := buildFetchCost(headers)
 			if err != nil {
-				s.publishPoeProfileError(sub, err)
+				s.publishPoeProfileError(sub, err, cost)
 				return nil, headers, err
 			}
-			entry := poeProfileCacheEntry{
+			newEntry := poeProfileCacheEntry{
 				UUID:      profile.UUID,
 				Name:      profile.Name,
 				Locale:    profile.Locale,
 				FetchedAt: time.Now().Unix(),
 			}
 			if profile.Twitch != nil {
-				entry.Twitch = profile.Twitch.Name
+				newEntry.Twitch = profile.Twitch.Name
 			}
-			s.savePoeProfileCache(entry)
-			s.publishPoeProfile(entry)
-			return entry, headers, nil
+			s.savePoeProfileCache(newEntry)
+			s.publishPoeProfile(newEntry, cost)
+			return profileFetchResult{entry: newEntry, cost: cost}, headers, nil
 		},
 	})
-	return poeProfileCacheEntry{}, w, false
+	s.publishPoeRateLimitStatusAfter(w, poeProfileWaitTimeout)
+	return entry, haveCache, isFresh, w
 }
 
-func (s *server) publishPoeProfile(entry poeProfileCacheEntry) {
+func (s *server) publishPoeProfile(entry poeProfileCacheEntry, cost *proto.FetchCost) {
 	msg, _ := json.Marshal(proto.Message{
 		Type:  proto.TypeEvent,
 		Topic: proto.TopicPoeProfile,
@@ -143,18 +165,20 @@ func (s *server) publishPoeProfile(entry poeProfileCacheEntry) {
 			Locale:    entry.Locale,
 			Twitch:    entry.Twitch,
 			FetchedAt: entry.FetchedAt,
+			Cost:      cost,
 		}),
 	})
 	s.hub.Publish(proto.TopicPoeProfile, msg)
 }
 
-func (s *server) publishPoeProfileError(sub string, fetchErr error) {
+func (s *server) publishPoeProfileError(sub string, fetchErr error, cost *proto.FetchCost) {
 	msg, _ := json.Marshal(proto.Message{
 		Type:  proto.TypeEvent,
 		Topic: proto.TopicPoeProfile,
 		Payload: mustMarshal(proto.PoeProfilePayload{
 			PoeUUID: sub,
 			Error:   fetchErr.Error(),
+			Cost:    cost,
 		}),
 	})
 	s.hub.Publish(proto.TopicPoeProfile, msg)
@@ -170,27 +194,40 @@ func (s *server) publishPoeProfileError(sub string, fetchErr error) {
 // reqqueue.Priority (poeProfileLocaleFetchPriority/poeProfileTwitchFetchPriority)
 // for the fetch itself, if one is needed; it has no effect at all on a
 // cache hit. Wait chooses blocking (true) vs. non-blocking (false, the
-// default) delivery — see handlePoeProfileField.
+// default) delivery — see handlePoeProfileField. Fetch overrides whether a
+// stale/missing cache is even allowed to trigger a fetch at all — see
+// ensurePoeProfile's doc comment for "never"/"ifStale"/"always"; empty
+// defaults to "ifStale" (this field's original, only-ever behavior).
+// IncludeCost asks for FetchCost reporting on a response that actually
+// performed a fetch — see proto.FetchCost's doc comment for why this is
+// opt-in.
 type poeProfileFieldRequest struct {
 	Account       string `json:"account"`
 	MaxAgeSeconds int64  `json:"maxAgeSeconds"`
 	Priority      int    `json:"priority"`
 	Wait          bool   `json:"wait"`
+	Fetch         string `json:"fetch"`
+	IncludeCost   bool   `json:"includeCost"`
 }
 
 // handlePoeProfileField serves both poe.profile.locale and
 // poe.profile.twitch, differing only in defaultMaxAge/defaultPriority and
-// which field of a fetched/cached profile to return (extract). A fresh
-// cache hit responds immediately ("fresh") regardless of any requested
-// priority — priority only ever influences how a needed fetch is scheduled
-// relative to other queued PoE OAuth requests, never whether the cache is
-// considered fresh enough. A stale-or-missing entry enqueues a fetch: with
-// Wait=false (the default) the response is immediate ("pending") and the
-// real value arrives later on TopicPoeProfile; with Wait=true, a bounded
-// waiter goroutine blocks on the queued task instead of the WS connection's
-// read loop (see internal/reqqueue and this feature's ROADMAP entry for why
-// that distinction matters), responding "ok" once it completes or falling
-// back to "pending" on timeout so the caller still gets the topic delivery.
+// which field of a fetched/cached profile to return (extract). Response
+// Status/Freshness/Fetching follow proto.PoeProfileFieldPayload's
+// vocabulary: a cache hit (fresh or stale) with no fetch happening responds
+// immediately with Freshness="fresh"/"stale" and Fetching=false — Value is
+// populated either way, since a stale value is still worth returning
+// (see ensurePoeProfile's fetchPolicyNever/"peek" case in particular). A
+// genuine miss with nothing to serve and no way to fetch (not authenticated
+// for this account) is the one case that still surfaces as an error, exactly
+// as before this field existed. Otherwise a needed fetch enqueues: with
+// Wait=false (the default) the response is immediate ("pending",
+// Fetching=true, Value/FetchedAt still carrying whatever was cached before
+// this fetch) and the real value arrives later on TopicPoeProfile; with
+// Wait=true, a bounded waiter goroutine blocks on the queued task instead
+// of the WS connection's read loop, responding "ok" once it completes or
+// falling back to "pending" on timeout so the caller still gets the topic
+// delivery.
 func (s *server) handlePoeProfileField(c *hub.Client, msg proto.Message, defaultMaxAge time.Duration, defaultPriority int, extract func(poeProfileCacheEntry) string) {
 	var params poeProfileFieldRequest
 	if len(msg.Payload) > 0 {
@@ -198,6 +235,12 @@ func (s *server) handlePoeProfileField(c *hub.Client, msg proto.Message, default
 			s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: " + err.Error()})
 			return
 		}
+	}
+
+	fetchPolicy, err := normalizeFetchPolicy(params.Fetch)
+	if err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
 	}
 
 	_, sub, accessToken, err := s.resolvePoeAccount(params.Account)
@@ -219,24 +262,30 @@ func (s *server) handlePoeProfileField(c *hub.Client, msg proto.Message, default
 		priority = params.Priority
 	}
 
-	entry, waiter, fresh := s.ensurePoeProfile(sub, accessToken, maxAge, priority)
-	if fresh {
-		s.send(c, proto.Message{
-			Type: proto.TypeResponse, ID: msg.ID,
-			Payload: mustMarshal(proto.PoeProfileFieldPayload{Status: "fresh", Value: extract(entry), FetchedAt: entry.FetchedAt}),
-		})
-		return
-	}
+	entry, haveCache, isFresh, waiter := s.ensurePoeProfile(sub, accessToken, maxAge, priority, fetchPolicy)
+	freshness := freshnessLabel(haveCache, isFresh)
+
 	if waiter == nil {
-		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "no cached profile, and not authenticated for this account"})
+		if !haveCache && fetchPolicy != fetchPolicyNever && accessToken == "" {
+			s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "no cached profile, and not authenticated for this account"})
+			return
+		}
+		payload := proto.PoeProfileFieldPayload{Status: freshness, Freshness: freshness, Fetching: false}
+		if haveCache {
+			payload.Value = extract(entry)
+			payload.FetchedAt = entry.FetchedAt
+		}
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Payload: mustMarshal(payload)})
 		return
 	}
 
 	if !params.Wait {
-		s.send(c, proto.Message{
-			Type: proto.TypeResponse, ID: msg.ID,
-			Payload: mustMarshal(proto.PoeProfileFieldPayload{Status: "pending"}),
-		})
+		payload := proto.PoeProfileFieldPayload{Status: "pending", Freshness: freshness, Fetching: true}
+		if haveCache {
+			payload.Value = extract(entry)
+			payload.FetchedAt = entry.FetchedAt
+		}
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Payload: mustMarshal(payload)})
 		return
 	}
 
@@ -245,17 +294,23 @@ func (s *server) handlePoeProfileField(c *hub.Client, msg proto.Message, default
 		defer cancel()
 		result, err := waiter.Wait(ctx)
 		if err != nil {
-			s.send(c, proto.Message{
-				Type: proto.TypeResponse, ID: msg.ID,
-				Payload: mustMarshal(proto.PoeProfileFieldPayload{Status: "pending", Error: err.Error()}),
-			})
+			payload := proto.PoeProfileFieldPayload{Status: "pending", Freshness: freshness, Fetching: true, Error: err.Error()}
+			if haveCache {
+				payload.Value = extract(entry)
+				payload.FetchedAt = entry.FetchedAt
+			}
+			s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Payload: mustMarshal(payload)})
 			return
 		}
-		fetched := result.(poeProfileCacheEntry)
-		s.send(c, proto.Message{
-			Type: proto.TypeResponse, ID: msg.ID,
-			Payload: mustMarshal(proto.PoeProfileFieldPayload{Status: "ok", Value: extract(fetched), FetchedAt: fetched.FetchedAt}),
-		})
+		fetched := result.(profileFetchResult)
+		payload := proto.PoeProfileFieldPayload{
+			Status: "ok", Freshness: "fresh", Fetching: false,
+			Value: extract(fetched.entry), FetchedAt: fetched.entry.FetchedAt,
+		}
+		if params.IncludeCost {
+			payload.Cost = fetched.cost
+		}
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Payload: mustMarshal(payload)})
 	}()
 }
 

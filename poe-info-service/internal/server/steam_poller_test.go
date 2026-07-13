@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/MovingCairn/poe-info-service/internal/hub"
+	"github.com/MovingCairn/poe-info-service/internal/poe"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
 	"github.com/MovingCairn/poe-info-service/internal/steam"
 	"github.com/MovingCairn/poe-info-service/internal/store"
@@ -230,5 +231,84 @@ func TestPublishRichPresenceChanges_OnlyPublishesChangedFields(t *testing.T) {
 	}
 	if rawEvents != 1 {
 		t.Errorf("level-up publish: raw events = %d, want 1 (raw text changed)", rawEvents)
+	}
+}
+
+// --- leagueDetailFor / poe.league enrichment ---
+
+// TestHandleLeague_EnrichesWithCachedDetail proves poe.league's response
+// carries a zero-cost Detail field (see leagueDetailFor) when the leagues
+// table already has a cached row matching the Steam-parsed current league
+// name — no PoE OAuth API call involved, purely a DB read joined in.
+func TestHandleLeague_EnrichesWithCachedDetail(t *testing.T) {
+	miniprofile := &requestCounter{}
+	miniprofileSrv := httptest.NewServer(miniprofile.handler(testfixtures.SteamMiniprofileWithRichPresence))
+	defer miniprofileSrv.Close()
+
+	srv := newSteamTestServer(t, miniprofileSrv.URL, "76561197960287930")
+	srv.db = openLeaguesTestDB(t)
+	// SteamMiniprofileWithRichPresence's rich presence text ("SSF Ancestors:
+	// 92 Warden - ...") parses to League="SSF Ancestors" — seed a matching
+	// cached row under the default (pc) realm rich presence is assumed to
+	// describe.
+	if err := upsertLeagues(srv.db, []poe.League{{ID: "SSF Ancestors", Realm: defaultLeaguesRealm, Description: "cached detail"}}, time.Now()); err != nil {
+		t.Fatalf("seed leagues: %v", err)
+	}
+
+	c := hub.NewClient()
+	defer c.Close()
+	srv.handleLeague(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+
+	resp := recvResponse(t, c)
+	var payload proto.LeaguePayload
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.League != "SSF Ancestors" {
+		t.Fatalf("League = %q, want SSF Ancestors", payload.League)
+	}
+	if payload.Detail == nil || payload.Detail.Description != "cached detail" {
+		t.Errorf("Detail = %+v, want the cached SSF Ancestors row", payload.Detail)
+	}
+}
+
+// TestHandleLeague_NoCachedDetail_DetailNil proves poe.league still works
+// (and never fetches) when nothing is cached for the current league yet.
+func TestHandleLeague_NoCachedDetail_DetailNil(t *testing.T) {
+	miniprofile := &requestCounter{}
+	miniprofileSrv := httptest.NewServer(miniprofile.handler(testfixtures.SteamMiniprofileWithRichPresence))
+	defer miniprofileSrv.Close()
+
+	srv := newSteamTestServer(t, miniprofileSrv.URL, "76561197960287930")
+	srv.db = openLeaguesTestDB(t) // schema present, but no leagues rows at all
+
+	c := hub.NewClient()
+	defer c.Close()
+	srv.handleLeague(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+
+	resp := recvResponse(t, c)
+	var payload proto.LeaguePayload
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.Detail != nil {
+		t.Errorf("Detail = %+v, want nil with nothing cached", payload.Detail)
+	}
+}
+
+// TestLeagueDetailFor_NoDB_ReturnsNil proves the enrichment helper itself
+// degrades gracefully (no panic) when no db is configured at all — the
+// common case for every other existing steam.go test in this file.
+func TestLeagueDetailFor_NoDB_ReturnsNil(t *testing.T) {
+	srv := &server{}
+	if got := srv.leagueDetailFor("SSF Ancestors"); got != nil {
+		t.Errorf("leagueDetailFor with no db = %+v, want nil", got)
+	}
+}
+
+func TestLeagueDetailFor_EmptyName_ReturnsNil(t *testing.T) {
+	srv := &server{db: openLeaguesTestDB(t)}
+	if got := srv.leagueDetailFor(""); got != nil {
+		t.Errorf("leagueDetailFor(\"\") = %+v, want nil", got)
 	}
 }

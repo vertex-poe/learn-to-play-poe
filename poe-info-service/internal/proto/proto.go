@@ -178,6 +178,12 @@ type LeaguePayload struct {
 	League    string `json:"league,omitempty"`
 	Source    string `json:"source,omitempty"`
 	FetchedAt int64  `json:"fetchedAt"`
+	// Detail is a zero-cost enrichment: whatever the leagues table already
+	// has cached for League (from some earlier poe.leagues.list/.detail
+	// fetch), joined in for free — this never itself triggers a PoE OAuth
+	// API call. Nil if League is empty, or nothing is cached for it yet
+	// (see internal/server/poe_leagues.go's queryLeagueByName).
+	Detail *LeagueSummary `json:"detail,omitempty"`
 }
 
 const TopicLeague = "poe.league"
@@ -221,18 +227,70 @@ type PoeAccountSummary struct {
 	Active bool `json:"active"`
 }
 
+// RateLimitRule mirrors internal/reqqueue.Rule over the wire — one
+// rate-limit rule's last-known state. Remaining/ResetsAt are both
+// best-effort: reqqueue tracks state purely from the most recent response
+// that happened to report it, and (per its documented simplifications)
+// estimates a saturated rule's reset time as its full Period rather than
+// computing the exact remaining time in its rolling window.
+type RateLimitRule struct {
+	Name string `json:"name"`
+	// Limit/Remaining are this rule's hit budget and how much of it looks
+	// unused as of the last-known state — Remaining is floored at 0.
+	Limit         int `json:"limit"`
+	Remaining     int `json:"remaining"`
+	PeriodSeconds int `json:"periodSeconds"`
+	// ResetsAt is unix seconds this rule is expected to clear again, only
+	// set (non-zero) while the rule looks saturated (Remaining == 0) — a
+	// rule with headroom has no known reset time at all, see above.
+	ResetsAt int64 `json:"resetsAt,omitempty"`
+}
+
+// FetchCost reports what one request actually cost against an external
+// rate-limited API. Present only on a response that caused a real fetch —
+// a cache hit (or a fetch:"never" peek) costs nothing and never carries a
+// Cost, regardless of whether a caller asked for cost reporting (see
+// poe.profile.*/poe.leagues.list/poe.leagues.detail's includeCost param).
+type FetchCost struct {
+	API string `json:"api"` // "poe-oauth" today — a label, not a URL
+	// Policy is the rate-limit policy this call was billed against, ""
+	// if not yet learned (e.g. this endpoint's very first-ever call, before
+	// any response has revealed its real policy name — see
+	// internal/reqqueue.Task.PolicyHint's doc comment).
+	Policy string `json:"policy,omitempty"`
+	// Queries is how many external HTTP calls this request caused —
+	// always 1 when Cost is present at all (every fetch here is a single
+	// HTTP round-trip); the field exists so a future batched/paginated
+	// fetch can report more than one without a shape change.
+	Queries int             `json:"queries"`
+	Rules   []RateLimitRule `json:"rules,omitempty"`
+}
+
 // PoeProfileFieldPayload is the "poe.profile.locale"/"poe.profile.twitch"
 // response shape, and what's published to TopicPoeProfile. Status is
 // "fresh" (served straight from a cache entry still within the requested
-// max-age), "pending" (a fetch was enqueued but the caller didn't ask to
-// wait — the real value arrives later via TopicPoeProfile), or "ok" (a
-// wait:true request's fetch completed in time). Value/FetchedAt are only
-// populated for "fresh" and "ok".
+// max-age), "stale" (a cache entry exists but is outside max-age, and no
+// fetch was made — fetch:"never", or fetch:"ifStale" with no way to fetch),
+// "miss" (no cache at all, no fetch made), "pending" (a fetch was enqueued
+// but the caller didn't ask to wait — the real value arrives later via
+// TopicPoeProfile), or "ok" (a wait:true request's fetch completed in
+// time). Freshness/Fetching are the same information as Status, split into
+// two orthogonal fields for a caller that wants to branch on them directly
+// rather than parsing Status's combined vocabulary — Freshness is
+// "fresh"/"stale"/"miss" and never changes once set on a given response;
+// Fetching is true only for "pending"/"ok" (a fetch happened or is
+// happening). Value/FetchedAt are populated whenever Freshness isn't
+// "miss" — the caller asked for what's cached, and it existed, even if
+// stale. Cost is set only when this specific call actually performed a
+// fetch and the caller requested it (see poeProfileFieldRequest.IncludeCost).
 type PoeProfileFieldPayload struct {
-	Status    string `json:"status"`
-	Value     string `json:"value,omitempty"`
-	FetchedAt int64  `json:"fetchedAt,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Status    string     `json:"status"`
+	Freshness string     `json:"freshness"`
+	Fetching  bool       `json:"fetching"`
+	Value     string     `json:"value,omitempty"`
+	FetchedAt int64      `json:"fetchedAt,omitempty"`
+	Error     string     `json:"error,omitempty"`
+	Cost      *FetchCost `json:"cost,omitempty"`
 }
 
 // TopicPoeProfile carries the full profile (poeUuid/name/locale/twitch/
@@ -241,12 +299,109 @@ type PoeProfileFieldPayload struct {
 // block (wait:false) learn the result asynchronously instead of polling.
 const TopicPoeProfile = "poeProfile"
 
-// PoeProfilePayload is what's published to TopicPoeProfile.
+// PoeProfilePayload is what's published to TopicPoeProfile. Cost is always
+// populated when present (a topic push only ever happens after a real
+// fetch attempt) — unlike the request/response path, there's no per-caller
+// includeCost opt-in for a broadcast topic.
 type PoeProfilePayload struct {
-	PoeUUID   string `json:"poeUuid"`
-	Name      string `json:"name"`
-	Locale    string `json:"locale,omitempty"`
-	Twitch    string `json:"twitch,omitempty"`
-	FetchedAt int64  `json:"fetchedAt"`
-	Error     string `json:"error,omitempty"`
+	PoeUUID   string     `json:"poeUuid"`
+	Name      string     `json:"name"`
+	Locale    string     `json:"locale,omitempty"`
+	Twitch    string     `json:"twitch,omitempty"`
+	FetchedAt int64      `json:"fetchedAt"`
+	Error     string     `json:"error,omitempty"`
+	Cost      *FetchCost `json:"cost,omitempty"`
 }
+
+// LeagueSummary is one element of the "poe.leagues.list" response's leagues
+// array, and one row of the leagues table (see
+// internal/server/poe_leagues.go). Unlike LeaguePayload (the player's
+// *current* league, parsed from Steam rich-presence text), this is the full
+// catalogue of active leagues fetched from the PoE OAuth API's GET /leagues.
+// Rules is the flattened list of each poe.LeagueRule's ID (e.g. "Hardcore",
+// "NoParties") — no other per-rule metadata exists today.
+type LeagueSummary struct {
+	Name        string   `json:"name"`
+	Realm       string   `json:"realm"`
+	URL         string   `json:"url,omitempty"`
+	StartAt     string   `json:"startAt,omitempty"`
+	EndAt       string   `json:"endAt,omitempty"` // "" = permanent league
+	Description string   `json:"description,omitempty"`
+	Rules       []string `json:"rules,omitempty"`
+	Event       bool     `json:"event"`
+	DelveEvent  bool     `json:"delveEvent"`
+}
+
+// PoeLeaguesPayload is the "poe.leagues.list" response shape, and what's
+// published to TopicPoeLeagues. Status mirrors PoeProfileFieldPayload's
+// convention (see its doc comment for the full "fresh"/"stale"/"miss"/
+// "pending"/"ok"/"error" vocabulary and what Freshness/Fetching split out of
+// it). Leagues/FetchedAt are populated whenever Freshness isn't "miss" —
+// including on a "pending" response, where they carry whatever was cached
+// before this fetch (possibly stale, possibly empty) so a caller has
+// something to show immediately rather than nothing until the fetch
+// completes. Cost is set only when this specific call actually performed a
+// fetch and the caller requested it (see poeLeaguesRequest.IncludeCost).
+type PoeLeaguesPayload struct {
+	Status    string          `json:"status"`
+	Freshness string          `json:"freshness"`
+	Fetching  bool            `json:"fetching"`
+	Leagues   []LeagueSummary `json:"leagues,omitempty"`
+	FetchedAt int64           `json:"fetchedAt,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	Cost      *FetchCost      `json:"cost,omitempty"`
+}
+
+// TopicPoeLeagues carries PoeLeaguesPayload whenever a GET /leagues fetch
+// completes (successfully or not), letting a poe.leagues.list *or*
+// poe.leagues.detail caller that didn't ask to block (wait:false) learn the
+// result asynchronously instead of polling — poe.leagues.detail has no
+// topic of its own since, today, a "detail" fetch is the same underlying
+// bulk /leagues call poe.leagues.list makes (see
+// internal/server/poe_leagues.go); a detail caller filters this topic's
+// Leagues array for the one name it asked about. Cost is always populated
+// when present, the same as TopicPoeProfile.
+const TopicPoeLeagues = "poeLeagues"
+
+// PoeLeagueDetailPayload is the "poe.leagues.detail" response shape — one
+// specific league's cached row, by name, rather than poe.leagues.list's
+// whole catalogue. See its handler's doc comment
+// (internal/server/poe_leagues.go) for why this has no dedicated fetch
+// path of its own today. Status/Freshness/Fetching/Cost follow the same
+// vocabulary as PoeLeaguesPayload; League/FetchedAt are populated whenever
+// Freshness isn't "miss".
+type PoeLeagueDetailPayload struct {
+	Status    string         `json:"status"`
+	Freshness string         `json:"freshness"`
+	Fetching  bool           `json:"fetching"`
+	League    *LeagueSummary `json:"league,omitempty"`
+	FetchedAt int64          `json:"fetchedAt,omitempty"`
+	Error     string         `json:"error,omitempty"`
+	Cost      *FetchCost     `json:"cost,omitempty"`
+}
+
+// PoeRateLimitPolicyPayload is one policy's entry in
+// PoeRateLimitStatusPayload — mirrors internal/reqqueue.PolicyReport over
+// the wire.
+type PoeRateLimitPolicyPayload struct {
+	Policy string          `json:"policy"`
+	Rules  []RateLimitRule `json:"rules"`
+	// NextAllowedAt is unix seconds this policy will next be dispatchable,
+	// omitted if it's clear to dispatch right now.
+	NextAllowedAt int64 `json:"nextAllowedAt,omitempty"`
+}
+
+// PoeRateLimitStatusPayload is the "poe.ratelimit.status" response shape,
+// and what's published to TopicPoeRateLimit. Policies covers every
+// rate-limit policy this service's PoE OAuth request queue has learned
+// about so far — a policy never dispatched under yet (including one this
+// service has simply never called) is absent, not zero-valued.
+type PoeRateLimitStatusPayload struct {
+	Policies []PoeRateLimitPolicyPayload `json:"policies"`
+}
+
+// TopicPoeRateLimit carries PoeRateLimitStatusPayload, published whenever a
+// PoE OAuth fetch (poe.profile.*, poe.leagues.*) updates a policy's known
+// rate-limit state — lets a client watch live budget without polling
+// poe.ratelimit.status.
+const TopicPoeRateLimit = "poeRateLimit"

@@ -39,6 +39,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 )
@@ -226,6 +227,44 @@ func (q *Queue) SetPriority(key string, priority int) {
 		e.task.Priority = priority
 		q.signal()
 	}
+}
+
+// PolicyReport is a point-in-time snapshot of one rate-limit policy's
+// last-known state, learned from some prior dispatch's response headers —
+// see PolicyReport's use in Policies below.
+type PolicyReport struct {
+	// Policy is the real rate-limit policy key a HeaderParser reported —
+	// not necessarily any caller's PolicyHint (see Task.PolicyHint's doc
+	// comment on hint-vs-learned-key).
+	Policy string
+	// Rules is that policy's rules as of the most recent response that
+	// updated it.
+	Rules []Rule
+	// NextAllowedAt is when this queue will next dispatch a task under this
+	// policy, or the zero Time if it's clear to dispatch right now.
+	NextAllowedAt time.Time
+}
+
+// Policies returns every rate-limit policy this Queue currently knows
+// about, sorted by Policy for a deterministic order — e.g. for a
+// WebSocket API exposing live rate-limit budget to a client (see
+// poe-info-service's poe.ratelimit.status). A policy this queue has never
+// dispatched a task under (or one only ever referenced by an as-yet-unlearned
+// PolicyHint) is simply absent — there is nothing to report yet.
+func (q *Queue) Policies() []PolicyReport {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	out := make([]PolicyReport, 0, len(q.policies))
+	for key, ps := range q.policies {
+		out = append(out, PolicyReport{
+			Policy:        key,
+			Rules:         append([]Rule(nil), ps.rules...),
+			NextAllowedAt: ps.nextAllowedAt,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Policy < out[j].Policy })
+	return out
 }
 
 // Cancel removes key's not-yet-dispatched queue slot. A no-op if key is

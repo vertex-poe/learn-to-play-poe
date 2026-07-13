@@ -25,6 +25,11 @@ const (
 	// Account Profile section.
 	ProfileURL = "https://api.pathofexile.com/profile"
 
+	// LeaguesURL is the OAuth data API's list-leagues endpoint — the one
+	// endpoint in this API that requires no Bearer token at all (poe-apis.md
+	// §6.2: "except the public /leagues endpoint").
+	LeaguesURL = "https://api.pathofexile.com/leagues"
+
 	// ClientID is a public, hardcoded identifier for a public (secret-less)
 	// OAuth client — not a secret, never paired with a client_secret.
 	ClientID = "REPLACE_WITH_REGISTERED_CLIENT_ID"

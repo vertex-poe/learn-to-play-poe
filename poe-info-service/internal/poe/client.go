@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,16 +24,18 @@ type Client struct {
 	authURL    string
 	tokenURL   string
 	profileURL string
+	leaguesURL string
 }
 
-// Option configures a Client. WithAuthURL/WithTokenURL/WithProfileURL exist
-// so tests can point a Client at an httptest.Server instead of the real PoE
-// hosts.
+// Option configures a Client. WithAuthURL/WithTokenURL/WithProfileURL/
+// WithLeaguesURL exist so tests can point a Client at an httptest.Server
+// instead of the real PoE hosts.
 type Option func(*Client)
 
 func WithAuthURL(u string) Option    { return func(c *Client) { c.authURL = u } }
 func WithTokenURL(u string) Option   { return func(c *Client) { c.tokenURL = u } }
 func WithProfileURL(u string) Option { return func(c *Client) { c.profileURL = u } }
+func WithLeaguesURL(u string) Option { return func(c *Client) { c.leaguesURL = u } }
 
 // NewClient returns a Client ready to authenticate. httpClient may be nil,
 // in which case a Client with requestTimeout is used.
@@ -45,6 +48,7 @@ func NewClient(httpClient *http.Client, opts ...Option) *Client {
 		authURL:    AuthURL,
 		tokenURL:   TokenURL,
 		profileURL: ProfileURL,
+		leaguesURL: LeaguesURL,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -179,4 +183,98 @@ func (c *Client) FetchProfile(ctx context.Context, accessToken string) (Profile,
 		return Profile{}, resp.Header, fmt.Errorf("decode profile response: %w", err)
 	}
 	return p, resp.Header, nil
+}
+
+// LeagueRule is one modifier rule attached to a league (e.g. "Hardcore",
+// "NoParties" for SSF) — see _reference/poe-apis/poe-apis.md §6.1.1's
+// "Notable fields" (the OAuth API's /leagues response shares this shape).
+type LeagueRule struct {
+	ID string `json:"id"`
+}
+
+// League is one element of GET /leagues's response — see
+// _reference/poe-apis/poe-apis.md §6.2/§6.1.1 and
+// internal/server/poe_leagues.go, which caches these in the leagues table.
+type League struct {
+	// ID is the league name (e.g. "SSF Ancestors") — also used as the
+	// `league` parameter by every other OAuth data endpoint.
+	ID          string       `json:"id"`
+	Realm       string       `json:"realm"`
+	URL         string       `json:"url,omitempty"`
+	StartAt     string       `json:"startAt,omitempty"`
+	EndAt       string       `json:"endAt,omitempty"` // omitted/"" for a permanent league
+	Description string       `json:"description,omitempty"`
+	Rules       []LeagueRule `json:"rules,omitempty"`
+	Event       bool         `json:"event"`
+	DelveEvent  bool         `json:"delveEvent"`
+}
+
+type leaguesResponse struct {
+	Leagues []League `json:"leagues"`
+}
+
+// LeaguesParams are GET /leagues's optional query parameters, per the PoE
+// OAuth API's List Leagues endpoint doc. A zero LeaguesParams matches the
+// endpoint's own documented defaults (realm=pc, type=main, limit=50) —
+// every field here is only ever sent if non-empty/non-zero.
+type LeaguesParams struct {
+	Realm  string
+	Type   string
+	Season string // only meaningful when Type == "season" (PoE1 only)
+	Limit  int
+	Offset int
+}
+
+// FetchLeagues calls GET /leagues, returning the decoded league list plus
+// the response's raw headers — same convention as FetchProfile (a caller
+// tracking this endpoint's rate-limit state via internal/reqqueue needs
+// those regardless of success/failure). Unlike every other OAuth data
+// endpoint, /leagues is public and requires no Bearer token (poe-apis.md's
+// documented rule 9), so no access token is accepted here.
+func (c *Client) FetchLeagues(ctx context.Context, params LeaguesParams) ([]League, http.Header, error) {
+	v := url.Values{}
+	if params.Realm != "" {
+		v.Set("realm", params.Realm)
+	}
+	if params.Type != "" {
+		v.Set("type", params.Type)
+	}
+	if params.Season != "" {
+		v.Set("season", params.Season)
+	}
+	if params.Limit > 0 {
+		v.Set("limit", strconv.Itoa(params.Limit))
+	}
+	if params.Offset > 0 {
+		v.Set("offset", strconv.Itoa(params.Offset))
+	}
+
+	reqURL := c.leaguesURL
+	if enc := v.Encode(); enc != "" {
+		reqURL += "?" + enc
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build leagues request: %w", err)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("leagues request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.Header, fmt.Errorf("read leagues response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.Header, fmt.Errorf("leagues endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var lr leaguesResponse
+	if err := json.Unmarshal(body, &lr); err != nil {
+		return nil, resp.Header, fmt.Errorf("decode leagues response: %w", err)
+	}
+	return lr.Leagues, resp.Header, nil
 }
