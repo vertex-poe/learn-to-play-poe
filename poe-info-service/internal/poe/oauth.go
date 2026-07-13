@@ -30,6 +30,12 @@ const (
 	// §6.2: "except the public /leagues endpoint").
 	LeaguesURL = "https://api.pathofexile.com/leagues"
 
+	// LeagueURL is the OAuth data API's single-league endpoint (GET
+	// /league/{league}) — unlike LeaguesURL, this one requires a Bearer
+	// token like every other OAuth data endpoint (it's not named among
+	// §6.2's public exceptions).
+	LeagueURL = "https://api.pathofexile.com/league"
+
 	// ClientID is a public, hardcoded identifier for a public (secret-less)
 	// OAuth client — not a secret, never paired with a client_secret.
 	ClientID = "REPLACE_WITH_REGISTERED_CLIENT_ID"

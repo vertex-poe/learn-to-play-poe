@@ -303,10 +303,13 @@ time), or `"error"` (topic-only: a background fetch failed). The cached
 value (however stale) is included on every response where `freshness` isn't
 `"miss"` — including `"pending"`, so a caller has something to show
 immediately rather than nothing until the fetch completes. The one case
-that still surfaces as a top-level `error` instead of a `status` is
-`poe.profile.*` with nothing cached and no way to ever fetch (not
-authenticated for that account) — a peek (`fetch: "never"`) never hits this
-case, since it never expects to be able to fetch anything.
+that still surfaces as a top-level `error` instead of a `status` is nothing
+cached and no way to ever fetch because of an auth requirement:
+`poe.profile.*` always needs an authenticated account; `poe.leagues.detail`
+only needs one if a fetch actually turns out to be necessary (`GET
+/league/{name}` requires Bearer auth, unlike `poe.leagues.list`'s public
+bulk `GET /leagues`). A peek (`fetch: "never"`) never hits this case either
+way, since it never expects to be able to fetch anything.
 
 **Cost reporting.** Add `"includeCost": true` to get a `cost` object on a
 response that actually performed a fetch (never present on a cache hit or a
@@ -427,32 +430,37 @@ rule id strings — no other per-rule metadata exists today.
 #### `poe.leagues.detail`
 
 ```json
-{"name": "Hardcore", "realm": "pc", "type": "main", "maxAgeSeconds": 0, "priority": 0, "wait": false, "fetch": "ifStale", "includeCost": false}
+{"name": "Hardcore", "realm": "pc", "account": "", "maxAgeSeconds": 0, "priority": 0, "wait": false, "fetch": "ifStale", "includeCost": false}
 ```
 
 `name` is required — the exact league name (`LeagueSummary.name`), not a
-display label. The rest mirror `poe.leagues.list`'s fields of the same
-name; `type` matters here because a needed refresh still has to ask `GET
-/leagues` for the right `type=main`/`type=event` bucket to find `name` in.
-Returns `PoeLeagueDetailPayload` — the same vocabulary as
-`poe.leagues.list`, but for one league:
+display label. `realm`/`maxAgeSeconds`/`priority`/`wait`/`fetch`/
+`includeCost` mirror `poe.leagues.list`'s fields of the same name (there's
+no `type`/`season` here — `GET /league/{name}` looks a league up directly
+by name, with no `type=main`/`event` bucket to choose between). `account`
+is an optional selector (a `poe_uuid` or an `accounts.name`, exactly like
+`poe.profile.*`'s field of the same name) — used only to obtain a Bearer
+token if a fetch turns out to be needed: unlike `poe.leagues.list`'s bulk
+`GET /leagues`, this single-league endpoint isn't public. An empty
+`account` with nobody currently signed in is *not* itself an error — it
+just means no fetch can happen, exactly like `poe.leagues.list`'s
+account-independence, except here that only matters once a fetch is
+actually needed (see below). Returns `PoeLeagueDetailPayload` — the same
+vocabulary as `poe.leagues.list`, but for one league:
 
 ```json
 {"status": "fresh", "freshness": "fresh", "fetching": false, "league": LeagueSummary, "fetchedAt": 1700000000, "error": "", "cost": null}
 ```
 
-**There is no dedicated single-league endpoint in the PoE OAuth API today**
-— only the bulk `GET /leagues` that `poe.leagues.list` already uses. A
-refresh here (`fetch: "always"`, or `"ifStale"` against a stale/missing
-row) just re-runs that same bulk fetch and projects the one requested
-league back out of it — sharing `poe.leagues.list`'s dedup key, so calling
-both concurrently for the same `realm`/`type` never double-fetches. If the
-refresh completes but `name` isn't in the result (wrong `realm`/`type`, or
-the league doesn't exist), the response is a clean `status: "miss"`, not an
-error. A non-blocking (`wait: false`) caller learns a refresh's outcome the
-same way `poe.leagues.list`'s does: by subscribing to `TopicPoeLeagues` and
-filtering its `leagues` array for `name` — there's no dedicated topic for
-this method, since under the hood it's the same fetch.
+A response with nothing cached, a `fetch` policy that would need to fetch,
+and no resolvable account errors out exactly like `poe.profile.*` would
+("no cached league, and not authenticated") — the one case specific to this
+method. A `fetch: "never"` peek never hits that case, since it never
+expects to fetch in the first place; it just reports `status: "miss"`. If a
+refresh completes and PoE reports no such league exists (`GET
+/league/{name}` returns a `null` league — not an error), the response is
+also a clean `status: "miss"`. A non-blocking (`wait: false`) caller learns
+a refresh's outcome via `TopicPoeLeagueDetail`.
 
 #### `poe.ratelimit.status`
 
@@ -592,7 +600,8 @@ topic's `event` payload matches the shape below unless noted.
 | `poe.league` | `LeaguePayload` (including the zero-cost `detail` join, see above) | Parsed current-league name changes. |
 | `poeOAuthStatus` | `PoeOAuthStatusPayload` (same shape as `poe.oauth.status`) | A login attempt starts/succeeds/fails, a background token refresh succeeds/fails, or logout. |
 | `poeProfile` | `PoeProfilePayload` — full profile: `poeUuid`, `name`, `locale`, `twitch`, `fetchedAt`, `error`, `cost` (always populated when present, no `includeCost` opt-in on a broadcast) | A `/profile` fetch completes (or fails), letting a non-blocking `poe.profile.*` caller learn the result asynchronously. |
-| `poeLeagues` | `PoeLeaguesPayload` (same shape as `poe.leagues.list`'s response) | A `/leagues` fetch completes (`status: "ok"`) or fails (`status: "error"`) — also how a non-blocking `poe.leagues.detail` caller learns its result (filter `leagues` for the requested name; see that method's section). |
+| `poeLeagues` | `PoeLeaguesPayload` (same shape as `poe.leagues.list`'s response) | A bulk `GET /leagues` fetch completes (`status: "ok"`) or fails (`status: "error"`). |
+| `poeLeagueDetail` | `PoeLeagueDetailPayload` (same shape as `poe.leagues.detail`'s response) | A `GET /league/{name}` fetch completes — `status: "ok"` (found), `"miss"` (PoE reports no such league), or `"error"`. |
 | `poeRateLimit` | `PoeRateLimitStatusPayload` (same shape as `poe.ratelimit.status`) | Any `poe.profile.*`/`poe.leagues.*` fetch completes — always the full policy snapshot, not a diff. |
 | `clientlog` | `ParsedEvent`: `{"type": "...", "timestamp": "...", "data": {...}}` | Any live-relevant `Client.txt` event (area entry, level-up, death, chat, whisper, achievement, hideout discovery, PvP queue, passive allocation, quest event, general event, session start, login/char-select screen, alt-tab). See `internal/proto`'s `Event*` constants for the full `type` set — a subset of everything actually written to the database (e.g. `played`/`passives_snapshot`/`guild_*` are DB-only, never broadcast). |
 | `system` | `{"type": "shutdown", "reason": "version-upgrade"}` | This instance is stepping down for a newer one (singleton election, [ADR-001](decisions/001-single-shared-instance-lifecycle.md)). |

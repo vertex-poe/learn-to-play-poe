@@ -25,17 +25,19 @@ type Client struct {
 	tokenURL   string
 	profileURL string
 	leaguesURL string
+	leagueURL  string
 }
 
 // Option configures a Client. WithAuthURL/WithTokenURL/WithProfileURL/
-// WithLeaguesURL exist so tests can point a Client at an httptest.Server
-// instead of the real PoE hosts.
+// WithLeaguesURL/WithLeagueURL exist so tests can point a Client at an
+// httptest.Server instead of the real PoE hosts.
 type Option func(*Client)
 
 func WithAuthURL(u string) Option    { return func(c *Client) { c.authURL = u } }
 func WithTokenURL(u string) Option   { return func(c *Client) { c.tokenURL = u } }
 func WithProfileURL(u string) Option { return func(c *Client) { c.profileURL = u } }
 func WithLeaguesURL(u string) Option { return func(c *Client) { c.leaguesURL = u } }
+func WithLeagueURL(u string) Option  { return func(c *Client) { c.leagueURL = u } }
 
 // NewClient returns a Client ready to authenticate. httpClient may be nil,
 // in which case a Client with requestTimeout is used.
@@ -49,6 +51,7 @@ func NewClient(httpClient *http.Client, opts ...Option) *Client {
 		tokenURL:   TokenURL,
 		profileURL: ProfileURL,
 		leaguesURL: LeaguesURL,
+		leagueURL:  LeagueURL,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -277,4 +280,50 @@ func (c *Client) FetchLeagues(ctx context.Context, params LeaguesParams) ([]Leag
 		return nil, resp.Header, fmt.Errorf("decode leagues response: %w", err)
 	}
 	return lr.Leagues, resp.Header, nil
+}
+
+type leagueResponse struct {
+	League *League `json:"league"`
+}
+
+// FetchLeague calls GET /league/{name} with accessToken as a Bearer
+// credential, returning the decoded league (a nil pointer, not an error, if
+// PoE reports no league by that name exists — "the league object requested
+// or null if it cannot be found" is this endpoint's own documented
+// contract) plus the response's raw headers, same convention as
+// FetchProfile/FetchLeagues. Unlike FetchLeagues, this endpoint requires
+// Bearer auth like every other OAuth data endpoint — /leagues (plural) is
+// the one documented public exception, not this single-league lookup.
+func (c *Client) FetchLeague(ctx context.Context, accessToken, name, realm string) (*League, http.Header, error) {
+	reqURL := c.leagueURL + "/" + url.PathEscape(name)
+	if realm != "" {
+		v := url.Values{}
+		v.Set("realm", realm)
+		reqURL += "?" + v.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build league request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("league request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.Header, fmt.Errorf("read league response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.Header, fmt.Errorf("league endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var lr leagueResponse
+	if err := json.Unmarshal(body, &lr); err != nil {
+		return nil, resp.Header, fmt.Errorf("decode league response: %w", err)
+	}
+	return lr.League, resp.Header, nil
 }

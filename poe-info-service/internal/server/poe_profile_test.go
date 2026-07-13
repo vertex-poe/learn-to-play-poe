@@ -152,6 +152,44 @@ func TestResolvePoeAccount_UnknownSelector_Errors(t *testing.T) {
 	}
 }
 
+// --- resolvePoeAccountOptional ---
+
+// TestResolvePoeAccountOptional_EmptySelector_NotAuthenticated_NoError
+// proves the key difference from resolvePoeAccount: an empty selector with
+// nothing currently authenticated is not an error here.
+func TestResolvePoeAccountOptional_EmptySelector_NotAuthenticated_NoError(t *testing.T) {
+	s := newPoeProfileTestServer(t, "")
+	accessToken, err := s.resolvePoeAccountOptional("")
+	if err != nil {
+		t.Fatalf("resolvePoeAccountOptional: %v", err)
+	}
+	if accessToken != "" {
+		t.Errorf("accessToken = %q, want empty with nothing authenticated", accessToken)
+	}
+}
+
+func TestResolvePoeAccountOptional_EmptySelector_Authenticated_ReturnsActiveToken(t *testing.T) {
+	s := newPoeProfileTestServer(t, "")
+	s.setActiveToken("uuid-1", "SomeAccount", "the-token")
+	accessToken, err := s.resolvePoeAccountOptional("")
+	if err != nil {
+		t.Fatalf("resolvePoeAccountOptional: %v", err)
+	}
+	if accessToken != "the-token" {
+		t.Errorf("accessToken = %q, want the-token", accessToken)
+	}
+}
+
+// TestResolvePoeAccountOptional_UnknownSelector_StillErrors proves a named
+// selector that doesn't match any known account is still a real input
+// error, exactly as in resolvePoeAccount.
+func TestResolvePoeAccountOptional_UnknownSelector_StillErrors(t *testing.T) {
+	s := newPoeProfileTestServer(t, "")
+	if _, err := s.resolvePoeAccountOptional("nobody-by-this-name"); err == nil {
+		t.Error("expected an error for an unknown selector, got nil")
+	}
+}
+
 // --- handlePoeProfileLocale / handlePoeProfileTwitch ---
 
 func TestHandlePoeProfileLocale_CacheHit_ReturnsFresh(t *testing.T) {

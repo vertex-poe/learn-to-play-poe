@@ -191,18 +191,30 @@ presence only ever describes a `pc` client) as the response's `detail`
 field — a plain DB read, never a fetch of its own, and nil if nothing's
 cached yet.
 
-`poe.leagues.detail` (same file) serves one specific league's cached row by
-name. There is no dedicated single-league endpoint in the PoE OAuth API
-today (the Legacy API has `GET /api/leagues/{id}`, per
-`_reference/poe-apis/poe-apis.md` §"Leagues (expanded)," but the OAuth API
-doesn't mirror it) — a needed refresh here (`submitLeaguesFetch`) is
-literally the same bulk `GET /leagues` call `poe.leagues.list` makes,
-sharing its `reqqueue` dedup key so the two never double-fetch when called
-concurrently for the same `realm`/`type`, with the caller (`handlePoeLeaguesDetail`)
-projecting the one requested league back out of the bulk result. The
-request/response shape doesn't expose this — a future dedicated
-single-league OAuth endpoint could swap in behind `submitLeaguesFetch` with
-no wire-visible change.
+`poe.leagues.detail` (same file) serves one specific league by name, fetched
+from `GET /league/{name}` (`internal/poe.Client.FetchLeague`,
+`submitLeagueDetailFetch`) and cached in the same `leagues` table
+`poe.leagues.list` uses (an update to either upserts the same row shape).
+Unlike the bulk `GET /leagues`, this single-league endpoint is *not* public
+— it requires `Authorization: Bearer` like every other OAuth data endpoint
+(`_reference/poe-apis/poe-apis.md` §6.2), so `poe.leagues.detail` gained an
+optional `account` selector mirroring `poe.profile.*`'s
+(`resolvePoeAccountOptional` — a tolerant sibling of `resolvePoeAccount`
+that, unlike it, doesn't error on an empty selector with nobody
+authenticated, since a cache-only response here needs no account context at
+all; only an actual fetch does). PoE's own contract for this endpoint
+returns a `null` league rather than an error for "no such league" —
+`submitLeagueDetailFetch` treats that as a definitive miss (nothing is
+written to the table, and the published/returned result simply carries a
+nil league), never an error path.
+
+Earlier versions of `poe.leagues.detail` predated this endpoint's
+availability and stood in with a bulk-refetch-and-project approach reusing
+`poe.leagues.list`'s fetch; that's gone now that a real single-league
+endpoint exists, but the request/response shape was kept intentionally
+independent of the implementation so this swap needed no wire-visible
+change (dropping only the now-unnecessary `type` request field, a
+non-breaking removal since it was optional and unused by then).
 
 ### Fetch policy: avoiding overfetching
 

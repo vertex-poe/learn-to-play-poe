@@ -96,6 +96,28 @@ func (s *server) resolvePoeAccount(selector string) (name, sub, accessToken stri
 	return gotName, gotUUID, "", nil
 }
 
+// resolvePoeAccountOptional is resolvePoeAccount's tolerant sibling, for a
+// caller (poe.leagues.detail) whose cache lookup doesn't itself depend on
+// any account context — unlike /profile, GET /league/{name} data isn't
+// keyed by account at all, so an unauthenticated caller can still be served
+// a cached value; an access token is only ever needed if a fetch actually
+// turns out to be necessary. An empty selector with nothing currently
+// authenticated therefore returns ("", nil) here rather than
+// resolvePoeAccount's "not authenticated" error; a selector naming an
+// account that doesn't exist at all is still a genuine input error, exactly
+// as in resolvePoeAccount.
+func (s *server) resolvePoeAccountOptional(selector string) (accessToken string, err error) {
+	if selector == "" {
+		snap := s.poeOAuthSnapshot()
+		if snap.token == nil {
+			return "", nil
+		}
+		return snap.token.AccessToken, nil
+	}
+	_, _, accessToken, err = s.resolvePoeAccount(selector)
+	return accessToken, err
+}
+
 // ensurePoeProfile reports sub's cached profile (haveCache/isFresh describe
 // it — see freshnessLabel) and, depending on fetchPolicy, may also enqueue
 // (de-duplicated by sub, via reqqueue's Key-based merge) a fresh /profile

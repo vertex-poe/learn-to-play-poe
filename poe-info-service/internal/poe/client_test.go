@@ -345,3 +345,94 @@ func TestClient_FetchLeagues_NonOKStatusIsError(t *testing.T) {
 		t.Errorf("error = %v, want it to mention the 503 status", err)
 	}
 }
+
+// TestClient_FetchLeague_SendsBearerAndPathAndRealm proves FetchLeague
+// authenticates with the given access token (unlike FetchLeagues), puts the
+// league name in the path (not a query param), and only sends realm when
+// non-empty.
+func TestClient_FetchLeague_SendsBearerAndPathAndRealm(t *testing.T) {
+	var gotAuth, gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotAuth = req.Header.Get("Authorization")
+		gotPath = req.URL.Path
+		gotQuery = req.URL.RawQuery
+		w.Write([]byte(`{"league":{"id":"SSF Ancestors","realm":"pc"}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeagueURL(srv.URL+"/league"))
+	league, _, err := c.FetchLeague(context.Background(), "the-access-token", "SSF Ancestors", "xbox")
+	if err != nil {
+		t.Fatalf("FetchLeague: %v", err)
+	}
+
+	if gotAuth != "Bearer the-access-token" {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, "Bearer the-access-token")
+	}
+	if gotPath != "/league/SSF Ancestors" {
+		t.Errorf("path = %q, want /league/SSF Ancestors", gotPath)
+	}
+	if gotQuery != "realm=xbox" {
+		t.Errorf("query = %q, want realm=xbox", gotQuery)
+	}
+	if league == nil || league.ID != "SSF Ancestors" {
+		t.Errorf("league = %+v, want SSF Ancestors", league)
+	}
+}
+
+// TestClient_FetchLeague_EmptyRealm_NoQueryString proves an empty realm
+// omits the query string entirely rather than sending realm= empty.
+func TestClient_FetchLeague_EmptyRealm_NoQueryString(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotQuery = req.URL.RawQuery
+		w.Write([]byte(`{"league":{"id":"Standard","realm":"pc"}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeagueURL(srv.URL+"/league"))
+	if _, _, err := c.FetchLeague(context.Background(), "token", "Standard", ""); err != nil {
+		t.Fatalf("FetchLeague: %v", err)
+	}
+	if gotQuery != "" {
+		t.Errorf("query = %q, want empty with no realm given", gotQuery)
+	}
+}
+
+// TestClient_FetchLeague_NullLeague_ReturnsNilNotError proves a `{"league":
+// null}` response (the endpoint's documented "not found" shape) decodes to
+// a nil League with no error, distinct from an actual failure.
+func TestClient_FetchLeague_NullLeague_ReturnsNilNotError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Write([]byte(`{"league":null}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeagueURL(srv.URL+"/league"))
+	league, _, err := c.FetchLeague(context.Background(), "token", "Nonexistent League", "")
+	if err != nil {
+		t.Fatalf("FetchLeague: %v", err)
+	}
+	if league != nil {
+		t.Errorf("league = %+v, want nil for a null response", league)
+	}
+}
+
+// TestClient_FetchLeague_NonOKStatusIsError proves a non-200 response is
+// reported as an error rather than silently returning a nil League.
+func TestClient_FetchLeague_NonOKStatusIsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"invalid_token"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeagueURL(srv.URL+"/league"))
+	_, _, err := c.FetchLeague(context.Background(), "expired-token", "Standard", "")
+	if err == nil {
+		t.Fatal("FetchLeague with a 401 response: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("error = %v, want it to mention the 401 status", err)
+	}
+}

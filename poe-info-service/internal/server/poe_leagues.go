@@ -185,15 +185,26 @@ func (s *server) leagueDetailFor(name string) *proto.LeagueSummary {
 	return &ls
 }
 
+// leagueDetailFetchKey de-dupes GET /league/{name} fetches (via reqqueue's
+// Key-based merge), independent of leaguesFetchKey's bulk-list keying.
+func leagueDetailFetchKey(name, realm string) string {
+	return "poe:league:" + realm + ":" + name
+}
+
+// leagueDetailFetchResult is what a single-league fetch Task hands back
+// through reqqueue.Waiter.Wait. League is nil when PoE reports no league by
+// that name exists (see submitLeagueDetailFetch) — a definitive miss, not
+// an error.
+type leagueDetailFetchResult struct {
+	league    *proto.LeagueSummary
+	fetchedAt time.Time
+	cost      *proto.FetchCost
+}
+
 // submitLeaguesFetch enqueues (de-duplicated by realm/typ/season, via
 // reqqueue's Key-based merge) a /leagues fetch at the given priority
-// through s.poeQueue, returning the resulting Waiter — shared by
-// ensureLeagues (a bulk poe.leagues.list request) and ensureLeagueDetail (a
-// single-league poe.leagues.detail request, which has no dedicated
-// single-league endpoint of its own to call — see
-// handlePoeLeaguesDetail's doc comment — so it just shares this same bulk
-// fetch and its dedup key, meaning a concurrent list+detail request for the
-// same realm/typ collapses into one fetch rather than two).
+// through s.poeQueue, returning the resulting Waiter — used by ensureLeagues
+// for a bulk poe.leagues.list request.
 func (s *server) submitLeaguesFetch(realm, typ, season string, priority int) *reqqueue.Waiter {
 	w := s.poeQueue.Submit(reqqueue.Task{
 		Key:        leaguesFetchKey(realm, typ, season),
@@ -243,19 +254,72 @@ func (s *server) ensureLeagues(realm, typ, season string, maxAge time.Duration, 
 	return rows, haveCache, isFresh, oldest, s.submitLeaguesFetch(realm, typ, season, priority)
 }
 
+// submitLeagueDetailFetch enqueues (de-duplicated by name/realm, via
+// reqqueue's Key-based merge) a GET /league/{name} fetch at the given
+// priority through s.poeQueue, returning the resulting Waiter.
+// accessToken must be non-empty (checked by ensureLeagueDetail before
+// calling this) — unlike the bulk /leagues endpoint, this one requires
+// Bearer auth. A nil League in the response (PoE's documented "no such
+// league" shape) is cached as a miss — nothing is written to the leagues
+// table, and the published/returned result simply carries a nil league —
+// rather than treated as an error.
+func (s *server) submitLeagueDetailFetch(name, realm, accessToken string, priority int) *reqqueue.Waiter {
+	w := s.poeQueue.Submit(reqqueue.Task{
+		Key:        leagueDetailFetchKey(name, realm),
+		Priority:   priority,
+		PolicyHint: poeOAuthLeagueDetailPolicyHint,
+		Exec: func(ctx context.Context) (any, http.Header, error) {
+			fetched, headers, err := s.poeClient.FetchLeague(ctx, accessToken, name, realm)
+			cost := buildFetchCost(headers)
+			if err != nil {
+				s.publishPoeLeagueDetailError(err, cost)
+				return nil, headers, err
+			}
+			now := time.Now()
+			if fetched == nil {
+				s.publishPoeLeagueDetail(nil, now, cost)
+				return leagueDetailFetchResult{league: nil, fetchedAt: now, cost: cost}, headers, nil
+			}
+			if err := upsertLeagues(s.db, []poe.League{*fetched}, now); err != nil {
+				s.publishPoeLeagueDetailError(err, cost)
+				return nil, headers, err
+			}
+			row, _, ok, err := queryLeagueByName(s.db, name, realm)
+			if err != nil {
+				s.publishPoeLeagueDetailError(err, cost)
+				return nil, headers, err
+			}
+			var result *proto.LeagueSummary
+			if ok {
+				result = &row
+			}
+			s.publishPoeLeagueDetail(result, now, cost)
+			return leagueDetailFetchResult{league: result, fetchedAt: now, cost: cost}, headers, nil
+		},
+	})
+	s.publishPoeRateLimitStatusAfter(w, poeLeaguesWaitTimeout)
+	return w
+}
+
 // ensureLeagueDetail is ensureLeagues's single-league counterpart, for
-// poe.leagues.detail — see submitLeaguesFetch's doc comment for why a
-// needed fetch here still goes through the same bulk mechanism.
-func (s *server) ensureLeagueDetail(name, realm, typ string, maxAge time.Duration, priority int, fetchPolicy string) (cached proto.LeagueSummary, fetchedAt time.Time, haveCache bool, isFresh bool, waiter *reqqueue.Waiter) {
+// poe.leagues.detail. Unlike ensureLeagues, a needed fetch here requires an
+// access token (GET /league/{name} isn't public, unlike the bulk /leagues
+// endpoint — see internal/poe.Client.FetchLeague's doc comment): if
+// accessToken is empty, no fetch is ever submitted regardless of
+// fetchPolicy, and the caller (handlePoeLeaguesDetail) is responsible for
+// deciding whether that's an error (nothing cached at all) or just "serve
+// the stale copy" (something cached, just not freshenable right now) — the
+// same split ensurePoeProfile already makes for /profile.
+func (s *server) ensureLeagueDetail(name, realm string, maxAge time.Duration, priority int, fetchPolicy string, accessToken string) (cached proto.LeagueSummary, fetchedAt time.Time, haveCache bool, isFresh bool, waiter *reqqueue.Waiter) {
 	row, fa, ok, err := queryLeagueByName(s.db, name, realm)
 	haveCache = err == nil && ok
 	isFresh = haveCache && time.Since(fa) < maxAge
 
 	needFetch := fetchPolicy == fetchPolicyAlways || (!isFresh && fetchPolicy != fetchPolicyNever)
-	if !needFetch {
+	if !needFetch || accessToken == "" {
 		return row, fa, haveCache, isFresh, nil
 	}
-	return row, fa, haveCache, isFresh, s.submitLeaguesFetch(realm, typ, "", priority)
+	return row, fa, haveCache, isFresh, s.submitLeagueDetailFetch(name, realm, accessToken, priority)
 }
 
 func (s *server) publishPoeLeagues(leagues []proto.LeagueSummary, fetchedAt time.Time, cost *proto.FetchCost) {
@@ -284,6 +348,39 @@ func (s *server) publishPoeLeaguesError(fetchErr error, cost *proto.FetchCost) {
 		}),
 	})
 	s.hub.Publish(proto.TopicPoeLeagues, msg)
+}
+
+// publishPoeLeagueDetail publishes a completed GET /league/{name} fetch's
+// result — league nil means PoE reported no such league (a definitive
+// "miss", not an error).
+func (s *server) publishPoeLeagueDetail(league *proto.LeagueSummary, fetchedAt time.Time, cost *proto.FetchCost) {
+	status, freshness := "ok", "fresh"
+	if league == nil {
+		status, freshness = "miss", "miss"
+	}
+	payload := proto.PoeLeagueDetailPayload{Status: status, Freshness: freshness, League: league, Cost: cost}
+	if league != nil {
+		payload.FetchedAt = fetchedAt.Unix()
+	}
+	msg, _ := json.Marshal(proto.Message{
+		Type:    proto.TypeEvent,
+		Topic:   proto.TopicPoeLeagueDetail,
+		Payload: mustMarshal(payload),
+	})
+	s.hub.Publish(proto.TopicPoeLeagueDetail, msg)
+}
+
+func (s *server) publishPoeLeagueDetailError(fetchErr error, cost *proto.FetchCost) {
+	msg, _ := json.Marshal(proto.Message{
+		Type:  proto.TypeEvent,
+		Topic: proto.TopicPoeLeagueDetail,
+		Payload: mustMarshal(proto.PoeLeagueDetailPayload{
+			Status: "error",
+			Error:  fetchErr.Error(),
+			Cost:   cost,
+		}),
+	})
+	s.hub.Publish(proto.TopicPoeLeagueDetail, msg)
 }
 
 // poeLeaguesRequest is "poe.leagues.list"'s request shape. Realm/Type/Season
@@ -392,16 +489,20 @@ func (s *server) handlePoeLeaguesList(c *hub.Client, msg proto.Message) {
 
 // poeLeagueDetailRequest is "poe.leagues.detail"'s request shape. Name is
 // required — the exact league name (LeagueSummary.Name/the API's "id"
-// field), not a display label. Realm/Type/MaxAgeSeconds/Priority/Wait/
+// field), not a display label. Account is an optional selector (a
+// poe_uuid or an accounts.name, exactly like poeProfileFieldRequest.Account)
+// used only to obtain an access token if a fetch turns out to be needed —
+// GET /league/{name} requires Bearer auth, unlike the bulk /leagues
+// endpoint; an empty Account with nothing currently authenticated is not
+// itself an error here (see resolvePoeAccountOptional), since a cache-only
+// response never needed a token at all. Realm/MaxAgeSeconds/Priority/Wait/
 // Fetch/IncludeCost behave like poeLeaguesRequest's fields of the same
-// name; Type matters here because a needed fetch still has to ask GET
-// /leagues for the right type=main/event bucket to find Name in (see
-// ensureLeagueDetail) — there's no Season field, since a season-scoped
-// single-league lookup isn't a scenario this service has a client for yet.
+// name; there's no Type or Season field — GET /league/{name} looks a league
+// up directly by name, with no type=main/event bucket to choose between.
 type poeLeagueDetailRequest struct {
 	Name          string `json:"name"`
 	Realm         string `json:"realm"`
-	Type          string `json:"type"`
+	Account       string `json:"account"`
 	MaxAgeSeconds int64  `json:"maxAgeSeconds"`
 	Priority      int    `json:"priority"`
 	Wait          bool   `json:"wait"`
@@ -409,22 +510,17 @@ type poeLeagueDetailRequest struct {
 	IncludeCost   bool   `json:"includeCost"`
 }
 
-// handlePoeLeaguesDetail serves "poe.leagues.detail": one specific league's
-// cached row, by name. There is no dedicated single-league endpoint in the
-// PoE OAuth API today — only the bulk GET /leagues that poe.leagues.list
-// already uses (poe-apis.md §6.2 lists only that one; its Legacy API has a
-// single-league equivalent, `GET /api/leagues/{id}` — see §"Leagues
-// (expanded)" — but the OAuth API doesn't mirror it). A "refresh" here
-// therefore just re-runs that same bulk fetch (see submitLeaguesFetch) and
-// projects the one requested league back out of it — sharing
-// poe.leagues.list's reqqueue dedup key, so the two methods never
-// double-fetch when called concurrently for the same realm/type. The
-// request/response shape is deliberately independent of this
-// implementation detail, so a future dedicated single-league OAuth endpoint
-// could swap in behind submitLeaguesFetch with no wire-visible change. A
-// non-blocking (wait:false) caller learns a refresh's outcome the same way
-// poe.leagues.list's does: by subscribing to TopicPoeLeagues and filtering
-// its Leagues array for Name — there's no dedicated topic for this method.
+// handlePoeLeaguesDetail serves "poe.leagues.detail": one specific league,
+// by name, fetched from GET /league/{name} (submitLeagueDetailFetch) and
+// cached in the same leagues table poe.leagues.list uses. Follows
+// handlePoeProfileField's freshness/fetching/cost conventions (see its doc
+// comment) — including its "not authenticated" error case, since (unlike
+// poe.leagues.list) a needed fetch here does require an access token: a
+// request with nothing cached, fetchPolicy allowing a fetch, and no
+// resolvable account errors out exactly like poe.profile.* would, while a
+// fetch:"never" peek or an already-cached (even stale) value never hits
+// that case at all. A non-blocking (wait:false) caller learns a fetch's
+// outcome via TopicPoeLeagueDetail.
 func (s *server) handlePoeLeaguesDetail(c *hub.Client, msg proto.Message) {
 	var params poeLeagueDetailRequest
 	if len(msg.Payload) > 0 {
@@ -446,14 +542,15 @@ func (s *server) handlePoeLeaguesDetail(c *hub.Client, msg proto.Message) {
 		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
 		return
 	}
+	accessToken, err := s.resolvePoeAccountOptional(params.Account)
+	if err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
+	}
 
 	realm := params.Realm
 	if realm == "" {
 		realm = defaultLeaguesRealm
-	}
-	typ := params.Type
-	if typ == "" {
-		typ = defaultLeaguesType
 	}
 
 	maxAge := poeLeaguesCacheTTL
@@ -469,10 +566,14 @@ func (s *server) handlePoeLeaguesDetail(c *hub.Client, msg proto.Message) {
 		priority = params.Priority
 	}
 
-	league, fetchedAt, haveCache, isFresh, waiter := s.ensureLeagueDetail(params.Name, realm, typ, maxAge, priority, fetchPolicy)
+	league, fetchedAt, haveCache, isFresh, waiter := s.ensureLeagueDetail(params.Name, realm, maxAge, priority, fetchPolicy, accessToken)
 	freshness := freshnessLabel(haveCache, isFresh)
 
 	if waiter == nil {
+		if !haveCache && fetchPolicy != fetchPolicyNever && accessToken == "" {
+			s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "no cached league, and not authenticated"})
+			return
+		}
 		payload := proto.PoeLeagueDetailPayload{Status: freshness, Freshness: freshness}
 		if haveCache {
 			payload.League = &league
@@ -505,25 +606,17 @@ func (s *server) handlePoeLeaguesDetail(c *hub.Client, msg proto.Message) {
 			s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Payload: mustMarshal(payload)})
 			return
 		}
-		fetched := result.(leaguesFetchResult)
-		var found *proto.LeagueSummary
-		for i := range fetched.leagues {
-			if fetched.leagues[i].Name == params.Name {
-				found = &fetched.leagues[i]
-				break
-			}
-		}
+		fetched := result.(leagueDetailFetchResult)
 		payload := proto.PoeLeagueDetailPayload{Status: "ok", Freshness: "fresh"}
-		if found != nil {
-			payload.League = found
+		if fetched.league != nil {
+			payload.League = fetched.league
 			payload.FetchedAt = fetched.fetchedAt.Unix()
 			if params.IncludeCost {
 				payload.Cost = fetched.cost
 			}
 		} else {
-			// The refresh completed, but Name wasn't in the returned set
-			// (wrong realm/type, the league ended/renamed, or it was never
-			// real) — a clean miss, not an error.
+			// PoE's documented "no such league" response — a clean miss,
+			// not an error.
 			payload.Status = "miss"
 			payload.Freshness = "miss"
 		}

@@ -55,6 +55,25 @@ func newPoeLeaguesTestServer(t *testing.T, leaguesURL string) *server {
 	}
 }
 
+// newPoeLeagueDetailTestServer is newPoeLeaguesTestServer's counterpart for
+// poe.leagues.detail tests, pointing the client at leagueURL (GET
+// /league/{name}) instead of the bulk /leagues endpoint.
+func newPoeLeagueDetailTestServer(t *testing.T, leagueURL string) *server {
+	t.Helper()
+	db := openLeaguesTestDB(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	return &server{
+		db:        db,
+		hub:       hub.New(),
+		rootCtx:   ctx,
+		poeClient: poe.NewClient(nil, poe.WithLeagueURL(leagueURL)),
+		poeQueue:  reqqueue.New(ctx, poeOAuthRateLimitHeaders),
+	}
+}
+
 // --- upsertLeagues / queryLeaguesRows ---
 
 func TestUpsertLeagues_InsertsAndFlattensRules(t *testing.T) {
@@ -527,7 +546,7 @@ func TestQueryLeagueByName_NotFound(t *testing.T) {
 // --- poe.leagues.detail ---
 
 func TestHandlePoeLeaguesDetail_CacheHit_ReturnsFresh(t *testing.T) {
-	s := newPoeLeaguesTestServer(t, "")
+	s := newPoeLeagueDetailTestServer(t, "")
 	if err := upsertLeagues(s.db, []poe.League{{ID: "Standard", Realm: "pc"}, {ID: "Hardcore", Realm: "pc"}}, time.Now()); err != nil {
 		t.Fatalf("seed leagues: %v", err)
 	}
@@ -544,7 +563,7 @@ func TestHandlePoeLeaguesDetail_CacheHit_ReturnsFresh(t *testing.T) {
 }
 
 func TestHandlePoeLeaguesDetail_NameRequired_ReturnsError(t *testing.T) {
-	s := newPoeLeaguesTestServer(t, "")
+	s := newPoeLeagueDetailTestServer(t, "")
 	c := hub.NewClient()
 	defer c.Close()
 	s.handlePoeLeaguesDetail(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
@@ -555,22 +574,22 @@ func TestHandlePoeLeaguesDetail_NameRequired_ReturnsError(t *testing.T) {
 	}
 }
 
-// TestHandlePoeLeaguesDetail_Wait_SharesBulkFetchWithList proves a detail
-// refresh reuses the exact same underlying bulk fetch poe.leagues.list
-// uses (same reqqueue dedup key) — asserted indirectly by seeding the
-// remote server to return several leagues and confirming the requested one
-// is projected out correctly, plus that the fetch only hits the remote once
-// even though the response covers every league, not just the one asked
-// about.
-func TestHandlePoeLeaguesDetail_Wait_ReturnsRequestedLeagueFromBulkFetch(t *testing.T) {
+// TestHandlePoeLeaguesDetail_Wait_FetchesFromSingleLeagueEndpoint proves a
+// detail refresh calls GET /league/{name} (Bearer-authenticated, name in
+// the path) rather than the bulk /leagues endpoint.
+func TestHandlePoeLeaguesDetail_Wait_FetchesFromSingleLeagueEndpoint(t *testing.T) {
 	var calls int
+	var gotPath, gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		calls++
-		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"},{"id":"Hardcore","realm":"pc","description":"hc desc"}]}`))
+		gotPath = req.URL.Path
+		gotAuth = req.Header.Get("Authorization")
+		w.Write([]byte(`{"league":{"id":"Hardcore","realm":"pc","description":"hc desc"}}`))
 	}))
 	defer srv.Close()
 
-	s := newPoeLeaguesTestServer(t, srv.URL)
+	s := newPoeLeagueDetailTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "the-token")
 	c := hub.NewClient()
 	defer c.Close()
 	payloadBytes, _ := json.Marshal(poeLeagueDetailRequest{Name: "Hardcore", Wait: true})
@@ -578,31 +597,30 @@ func TestHandlePoeLeaguesDetail_Wait_ReturnsRequestedLeagueFromBulkFetch(t *test
 
 	payload := decodeLeagueDetailPayload(t, recvResponse(t, c))
 	if payload.Status != "ok" || payload.League == nil || payload.League.Name != "Hardcore" || payload.League.Description != "hc desc" {
-		t.Errorf("payload = %+v, want Hardcore projected out of the bulk fetch", payload)
+		t.Errorf("payload = %+v, want Hardcore", payload)
 	}
 	if calls != 1 {
-		t.Errorf("remote called %d times, want 1 (one bulk fetch, not a per-league call)", calls)
+		t.Errorf("remote called %d times, want 1", calls)
 	}
-
-	// The bulk fetch's other league (Standard) should also now be cached,
-	// proving this really was the shared bulk fetch and not some
-	// single-league-only call.
-	if _, _, haveCache, err := queryLeagueByName(s.db, "Standard", "pc"); err != nil || !haveCache {
-		t.Errorf("Standard cached=%v err=%v, want it cached too (from the same bulk fetch)", haveCache, err)
+	if gotPath != "/Hardcore" {
+		t.Errorf("path = %q, want /Hardcore (the league name in the path)", gotPath)
+	}
+	if gotAuth != "Bearer the-token" {
+		t.Errorf("Authorization = %q, want Bearer the-token", gotAuth)
 	}
 }
 
-// TestHandlePoeLeaguesDetail_Wait_NameNotInBulkResult_ReturnsMiss proves a
-// refresh that completes without ever finding the requested name (wrong
-// type/realm, or the league doesn't exist) reports a clean "miss" rather
-// than an error.
-func TestHandlePoeLeaguesDetail_Wait_NameNotInBulkResult_ReturnsMiss(t *testing.T) {
+// TestHandlePoeLeaguesDetail_Wait_NullResponse_ReturnsMiss proves PoE's
+// documented "no such league" response ({"league": null}) reports a clean
+// "miss" rather than an error.
+func TestHandlePoeLeaguesDetail_Wait_NullResponse_ReturnsMiss(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"}]}`))
+		w.Write([]byte(`{"league":null}`))
 	}))
 	defer srv.Close()
 
-	s := newPoeLeaguesTestServer(t, srv.URL)
+	s := newPoeLeagueDetailTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "the-token")
 	c := hub.NewClient()
 	defer c.Close()
 	payloadBytes, _ := json.Marshal(poeLeagueDetailRequest{Name: "Totally Made Up League", Wait: true})
@@ -616,11 +634,12 @@ func TestHandlePoeLeaguesDetail_Wait_NameNotInBulkResult_ReturnsMiss(t *testing.
 
 func TestHandlePoeLeaguesDetail_NoCache_NoWait_ReturnsPending(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"}]}`))
+		w.Write([]byte(`{"league":{"id":"Standard","realm":"pc"}}`))
 	}))
 	defer srv.Close()
 
-	s := newPoeLeaguesTestServer(t, srv.URL)
+	s := newPoeLeagueDetailTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "the-token")
 	c := hub.NewClient()
 	defer c.Close()
 	payloadBytes, _ := json.Marshal(poeLeagueDetailRequest{Name: "Standard"})
@@ -629,5 +648,138 @@ func TestHandlePoeLeaguesDetail_NoCache_NoWait_ReturnsPending(t *testing.T) {
 	payload := decodeLeagueDetailPayload(t, recvResponse(t, c))
 	if payload.Status != "pending" || !payload.Fetching {
 		t.Errorf("payload = %+v, want status=pending fetching=true", payload)
+	}
+}
+
+// TestHandlePoeLeaguesDetail_NoCache_NotAuthenticated_ReturnsError mirrors
+// TestHandlePoeProfileField_NoCacheNotAuthenticated_ReturnsError: GET
+// /league/{name} requires Bearer auth, so a request with nothing cached and
+// nobody signed in has no way to ever fetch — an explicit error, not a
+// silent pending/miss.
+func TestHandlePoeLeaguesDetail_NoCache_NotAuthenticated_ReturnsError(t *testing.T) {
+	s := newPoeLeagueDetailTestServer(t, "")
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeLeagueDetailRequest{Name: "Standard"})
+	s.handlePoeLeaguesDetail(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	resp := recvResponse(t, c)
+	if resp.Error == "" {
+		t.Error("expected an error with no cache and no authenticated account, got none")
+	}
+}
+
+// TestHandlePoeLeaguesDetail_FetchNever_NotAuthenticated_ReturnsMissNotError
+// proves a peek (fetch:"never") never hits the "not authenticated" error —
+// it never expects to fetch in the first place, so a clean miss is the
+// right answer even with nobody signed in.
+func TestHandlePoeLeaguesDetail_FetchNever_NotAuthenticated_ReturnsMissNotError(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		calls++
+		w.Write([]byte(`{"league":{"id":"Standard","realm":"pc"}}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeLeagueDetailTestServer(t, srv.URL)
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeLeagueDetailRequest{Name: "Standard", Fetch: "never"})
+	s.handlePoeLeaguesDetail(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	resp := recvResponse(t, c)
+	if resp.Error != "" {
+		t.Fatalf("got error %q, want a clean miss", resp.Error)
+	}
+	payload := decodeLeagueDetailPayload(t, resp)
+	if payload.Status != "miss" || payload.Freshness != "miss" {
+		t.Errorf("payload = %+v, want status=freshness=miss", payload)
+	}
+	if calls != 0 {
+		t.Errorf("remote called %d times, want 0 (fetch:\"never\" must never fetch)", calls)
+	}
+}
+
+// TestHandlePoeLeaguesDetail_StaleCache_NotAuthenticated_ServesStale
+// mirrors TestHandlePoeProfileLocale_StaleCache_NotAuthenticated_ServesStaleInsteadOfError:
+// a stale (not missing) cached league is still served, with status="stale",
+// even with nobody signed in to refresh it.
+func TestHandlePoeLeaguesDetail_StaleCache_NotAuthenticated_ServesStale(t *testing.T) {
+	s := newPoeLeagueDetailTestServer(t, "")
+	if err := upsertLeagues(s.db, []poe.League{{ID: "Standard", Realm: "pc", Description: "old"}}, time.Now().Add(-30*24*time.Hour)); err != nil {
+		t.Fatalf("seed leagues: %v", err)
+	}
+
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeLeagueDetailRequest{Name: "Standard"})
+	s.handlePoeLeaguesDetail(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	resp := recvResponse(t, c)
+	if resp.Error != "" {
+		t.Fatalf("got error %q, want the stale cached value served instead", resp.Error)
+	}
+	payload := decodeLeagueDetailPayload(t, resp)
+	if payload.Status != "stale" || payload.League == nil || payload.League.Description != "old" {
+		t.Errorf("payload = %+v, want status=stale with the stale cached Description", payload)
+	}
+}
+
+// TestHandlePoeLeaguesDetail_Account_ResolvesTokenForKnownAccount proves an
+// explicit "account" selector (not just the currently-active account) is
+// used to resolve the Bearer token for a fetch.
+func TestHandlePoeLeaguesDetail_Account_ResolvesTokenForKnownAccount(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotAuth = req.Header.Get("Authorization")
+		w.Write([]byte(`{"league":{"id":"Standard","realm":"pc"}}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeLeagueDetailTestServer(t, srv.URL)
+	s.setActiveToken("uuid-active", "ActiveAccount", "active-token")
+	if _, err := s.db.Exec(`INSERT INTO accounts(name, poe_uuid) VALUES(?, ?)`, "ActiveAccount", "uuid-active"); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeLeagueDetailRequest{Name: "Standard", Account: "ActiveAccount", Wait: true})
+	s.handlePoeLeaguesDetail(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	payload := decodeLeagueDetailPayload(t, recvResponse(t, c))
+	if payload.Status != "ok" {
+		t.Fatalf("payload = %+v, want status=ok", payload)
+	}
+	if gotAuth != "Bearer active-token" {
+		t.Errorf("Authorization = %q, want Bearer active-token", gotAuth)
+	}
+}
+
+// --- includeCost ---
+
+func TestHandlePoeLeaguesDetail_Wait_IncludeCost_ReturnsCost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("X-Rate-Limit-Policy", "league-policy")
+		w.Header().Set("X-Rate-Limit-Rules", "R")
+		w.Header().Set("X-Rate-Limit-R", "10:5:30")
+		w.Header().Set("X-Rate-Limit-R-State", "2:5:0")
+		w.Write([]byte(`{"league":{"id":"Standard","realm":"pc"}}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeLeagueDetailTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "token")
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeLeagueDetailRequest{Name: "Standard", Wait: true, IncludeCost: true})
+	s.handlePoeLeaguesDetail(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	payload := decodeLeagueDetailPayload(t, recvResponse(t, c))
+	if payload.Cost == nil {
+		t.Fatal("Cost = nil, want it populated when includeCost=true")
+	}
+	if payload.Cost.API != "poe-oauth" || payload.Cost.Policy != "league-policy" || payload.Cost.Queries != 1 {
+		t.Errorf("Cost = %+v, want api=poe-oauth policy=league-policy queries=1", payload.Cost)
 	}
 }

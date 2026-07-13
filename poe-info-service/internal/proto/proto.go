@@ -353,23 +353,19 @@ type PoeLeaguesPayload struct {
 }
 
 // TopicPoeLeagues carries PoeLeaguesPayload whenever a GET /leagues fetch
-// completes (successfully or not), letting a poe.leagues.list *or*
-// poe.leagues.detail caller that didn't ask to block (wait:false) learn the
-// result asynchronously instead of polling — poe.leagues.detail has no
-// topic of its own since, today, a "detail" fetch is the same underlying
-// bulk /leagues call poe.leagues.list makes (see
-// internal/server/poe_leagues.go); a detail caller filters this topic's
-// Leagues array for the one name it asked about. Cost is always populated
-// when present, the same as TopicPoeProfile.
+// completes (successfully or not), letting a non-blocking (wait:false)
+// poe.leagues.list caller learn the result asynchronously instead of
+// polling. Cost is always populated when present, the same as
+// TopicPoeProfile.
 const TopicPoeLeagues = "poeLeagues"
 
 // PoeLeagueDetailPayload is the "poe.leagues.detail" response shape — one
-// specific league's cached row, by name, rather than poe.leagues.list's
-// whole catalogue. See its handler's doc comment
-// (internal/server/poe_leagues.go) for why this has no dedicated fetch
-// path of its own today. Status/Freshness/Fetching/Cost follow the same
-// vocabulary as PoeLeaguesPayload; League/FetchedAt are populated whenever
-// Freshness isn't "miss".
+// specific league, by name, fetched from GET /league/{name} rather than
+// poe.leagues.list's bulk GET /leagues. Status/Freshness/Fetching/Cost
+// follow the same vocabulary as PoeLeaguesPayload; League/FetchedAt are
+// populated whenever Freshness isn't "miss" — including Freshness="miss"
+// after a completed fetch that found no such league (PoE's /league/{name}
+// returns a null league, not an error, for "no such league").
 type PoeLeagueDetailPayload struct {
 	Status    string         `json:"status"`
 	Freshness string         `json:"freshness"`
@@ -379,6 +375,15 @@ type PoeLeagueDetailPayload struct {
 	Error     string         `json:"error,omitempty"`
 	Cost      *FetchCost     `json:"cost,omitempty"`
 }
+
+// TopicPoeLeagueDetail carries PoeLeagueDetailPayload whenever a GET
+// /league/{name} fetch completes (successfully, as a definitive "not
+// found," or with an error), letting a non-blocking (wait:false)
+// poe.leagues.detail caller learn the result asynchronously instead of
+// polling — a separate topic from TopicPoeLeagues since, unlike an earlier
+// version of this method, a detail fetch is now its own real API call
+// rather than a projection out of the bulk one.
+const TopicPoeLeagueDetail = "poeLeagueDetail"
 
 // PoeRateLimitPolicyPayload is one policy's entry in
 // PoeRateLimitStatusPayload — mirrors internal/reqqueue.PolicyReport over

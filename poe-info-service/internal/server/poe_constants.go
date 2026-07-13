@@ -85,6 +85,17 @@ const (
 	poeOAuthLeaguesPolicyHint = "poe-oauth:/leagues"
 
 	// poeLeaguesWaitTimeout bounds how long a wait:true poe.leagues.list
-	// request blocks for before falling back to a pending response.
+	// (or poe.leagues.detail) request blocks for before falling back to a
+	// pending response.
 	poeLeaguesWaitTimeout = 30 * time.Second
+
+	// poeOAuthLeagueDetailPolicyHint groups every GET /league/{name} fetch
+	// under its own reqqueue policy hint, distinct from
+	// poeOAuthLeaguesPolicyHint — it's a different endpoint/URL from the
+	// bulk /leagues this service also calls, so it may or may not turn out
+	// to share PoE's actual rate-limit policy; if it does, reqqueue's
+	// hint-to-real-policy learning (see Task.PolicyHint's doc comment)
+	// naturally converges the two once a response reveals that, without
+	// either hint needing to guess correctly up front.
+	poeOAuthLeagueDetailPolicyHint = "poe-oauth:/league/{name}"
 )
