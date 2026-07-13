@@ -155,3 +155,80 @@ func TestClient_PostToken_MissingAccessTokenIsError(t *testing.T) {
 		t.Fatal("Refresh with a response missing access_token: want error, got nil")
 	}
 }
+
+// TestClient_FetchProfile_SendsBearerAndParsesResponse proves FetchProfile
+// authenticates with the given access token and decodes locale/twitch, and
+// that the caller gets back the response headers regardless (needed for
+// rate-limit tracking — see internal/reqqueue).
+func TestClient_FetchProfile_SendsBearerAndParsesResponse(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotAuth = req.Header.Get("Authorization")
+		w.Header().Set("X-Rate-Limit-Policy", "profile-policy")
+		w.Write([]byte(`{
+			"uuid": "uuid-1",
+			"name": "SomeAccount",
+			"locale": "en_US",
+			"twitch": {"name": "someaccount_tv"}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithProfileURL(srv.URL))
+	profile, headers, err := c.FetchProfile(context.Background(), "the-access-token")
+	if err != nil {
+		t.Fatalf("FetchProfile: %v", err)
+	}
+
+	if gotAuth != "Bearer the-access-token" {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, "Bearer the-access-token")
+	}
+	if profile.UUID != "uuid-1" || profile.Name != "SomeAccount" || profile.Locale != "en_US" {
+		t.Errorf("profile = %+v, missing expected fields", profile)
+	}
+	if profile.Twitch == nil || profile.Twitch.Name != "someaccount_tv" {
+		t.Errorf("profile.Twitch = %+v, want {someaccount_tv}", profile.Twitch)
+	}
+	if headers.Get("X-Rate-Limit-Policy") != "profile-policy" {
+		t.Errorf("response headers not returned to caller (got %q)", headers.Get("X-Rate-Limit-Policy"))
+	}
+}
+
+// TestClient_FetchProfile_NoTwitchLink_NilTwitch proves an account with no
+// Twitch link decodes to a nil Twitch rather than a zero-value struct, so
+// callers can tell "not linked" apart from "linked with an empty name".
+func TestClient_FetchProfile_NoTwitchLink_NilTwitch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Write([]byte(`{"uuid": "uuid-1", "name": "SomeAccount", "locale": "en_US"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithProfileURL(srv.URL))
+	profile, _, err := c.FetchProfile(context.Background(), "token")
+	if err != nil {
+		t.Fatalf("FetchProfile: %v", err)
+	}
+	if profile.Twitch != nil {
+		t.Errorf("Twitch = %+v, want nil for an unlinked account", profile.Twitch)
+	}
+}
+
+// TestClient_FetchProfile_NonOKStatusIsError proves a non-200 response
+// (e.g. an expired access token) is reported as an error rather than
+// silently returning a zero-value Profile.
+func TestClient_FetchProfile_NonOKStatusIsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"invalid_token"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithProfileURL(srv.URL))
+	_, _, err := c.FetchProfile(context.Background(), "expired-token")
+	if err == nil {
+		t.Fatal("FetchProfile with a 401 response: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("error = %v, want it to mention the 401 status", err)
+	}
+}

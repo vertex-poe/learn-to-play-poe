@@ -19,17 +19,20 @@ const requestTimeout = 15 * time.Second
 // actively rejected by the token server, so the parameter is simply never
 // included rather than sent empty.
 type Client struct {
-	http     *http.Client
-	authURL  string
-	tokenURL string
+	http       *http.Client
+	authURL    string
+	tokenURL   string
+	profileURL string
 }
 
-// Option configures a Client. WithAuthURL/WithTokenURL exist so tests can
-// point a Client at an httptest.Server instead of the real PoE hosts.
+// Option configures a Client. WithAuthURL/WithTokenURL/WithProfileURL exist
+// so tests can point a Client at an httptest.Server instead of the real PoE
+// hosts.
 type Option func(*Client)
 
-func WithAuthURL(u string) Option  { return func(c *Client) { c.authURL = u } }
-func WithTokenURL(u string) Option { return func(c *Client) { c.tokenURL = u } }
+func WithAuthURL(u string) Option    { return func(c *Client) { c.authURL = u } }
+func WithTokenURL(u string) Option   { return func(c *Client) { c.tokenURL = u } }
+func WithProfileURL(u string) Option { return func(c *Client) { c.profileURL = u } }
 
 // NewClient returns a Client ready to authenticate. httpClient may be nil,
 // in which case a Client with requestTimeout is used.
@@ -38,9 +41,10 @@ func NewClient(httpClient *http.Client, opts ...Option) *Client {
 		httpClient = &http.Client{Timeout: requestTimeout}
 	}
 	c := &Client{
-		http:     httpClient,
-		authURL:  AuthURL,
-		tokenURL: TokenURL,
+		http:       httpClient,
+		authURL:    AuthURL,
+		tokenURL:   TokenURL,
+		profileURL: ProfileURL,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -126,4 +130,53 @@ func (c *Client) postToken(ctx context.Context, form url.Values) (tokenResponse,
 		return tokenResponse{}, fmt.Errorf("token response missing access_token")
 	}
 	return tr, nil
+}
+
+// ProfileTwitch is the "twitch" object on a Profile — present only when the
+// account is Twitch-linked.
+type ProfileTwitch struct {
+	Name string `json:"name"`
+}
+
+// Profile is the OAuth data API's GET /profile response (requires the
+// account:profile scope) — see _reference/poe-apis/poe-apis.md's Account
+// Profile section.
+type Profile struct {
+	UUID   string         `json:"uuid"`
+	Name   string         `json:"name"`
+	Locale string         `json:"locale,omitempty"`
+	Twitch *ProfileTwitch `json:"twitch,omitempty"`
+}
+
+// FetchProfile calls GET /profile with accessToken as a Bearer credential,
+// returning the decoded profile plus the response's raw headers — a caller
+// tracking this endpoint's rate-limit state (see internal/reqqueue) needs
+// those regardless of whether the call itself succeeded or failed with a
+// rate-limit-related status.
+func (c *Client) FetchProfile(ctx context.Context, accessToken string) (Profile, http.Header, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.profileURL, nil)
+	if err != nil {
+		return Profile{}, nil, fmt.Errorf("build profile request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return Profile{}, nil, fmt.Errorf("profile request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Profile{}, resp.Header, fmt.Errorf("read profile response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return Profile{}, resp.Header, fmt.Errorf("profile endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var p Profile
+	if err := json.Unmarshal(body, &p); err != nil {
+		return Profile{}, resp.Header, fmt.Errorf("decode profile response: %w", err)
+	}
+	return p, resp.Header, nil
 }

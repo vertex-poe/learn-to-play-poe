@@ -106,9 +106,9 @@ const TopicConfig = "config"
 // presence" section for the full contract.
 type RichPresencePayload struct {
 	RichPresence string `json:"richPresence,omitempty"` // "" if never fetched, or Steam reported no rich-presence text
-	FetchedAt    int64  `json:"fetchedAt"`               // unix seconds of the last fetch attempt; 0 if never fetched
-	Status       string `json:"status"`                  // RichPresenceStatus*; an open string so new values are addable later per ADR-003
-	Error        string `json:"error,omitempty"`         // human-readable detail, populated only when status=="error"
+	FetchedAt    int64  `json:"fetchedAt"`              // unix seconds of the last fetch attempt; 0 if never fetched
+	Status       string `json:"status"`                 // RichPresenceStatus*; an open string so new values are addable later per ADR-003
+	Error        string `json:"error,omitempty"`        // human-readable detail, populated only when status=="error"
 }
 
 const (
@@ -219,4 +219,34 @@ type PoeAccountSummary struct {
 	// Active is true for the account currently signed in via PoE OAuth on
 	// this service — at most one row has Active true at any time (ADR-005).
 	Active bool `json:"active"`
+}
+
+// PoeProfileFieldPayload is the "poe.profile.locale"/"poe.profile.twitch"
+// response shape, and what's published to TopicPoeProfile. Status is
+// "fresh" (served straight from a cache entry still within the requested
+// max-age), "pending" (a fetch was enqueued but the caller didn't ask to
+// wait — the real value arrives later via TopicPoeProfile), or "ok" (a
+// wait:true request's fetch completed in time). Value/FetchedAt are only
+// populated for "fresh" and "ok".
+type PoeProfileFieldPayload struct {
+	Status    string `json:"status"`
+	Value     string `json:"value,omitempty"`
+	FetchedAt int64  `json:"fetchedAt,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// TopicPoeProfile carries the full profile (poeUuid/name/locale/twitch/
+// fetchedAt — see server.poeProfileCacheEntry) whenever a /profile fetch
+// completes, letting a poe.profile.locale/.twitch caller that didn't ask to
+// block (wait:false) learn the result asynchronously instead of polling.
+const TopicPoeProfile = "poeProfile"
+
+// PoeProfilePayload is what's published to TopicPoeProfile.
+type PoeProfilePayload struct {
+	PoeUUID   string `json:"poeUuid"`
+	Name      string `json:"name"`
+	Locale    string `json:"locale,omitempty"`
+	Twitch    string `json:"twitch,omitempty"`
+	FetchedAt int64  `json:"fetchedAt"`
+	Error     string `json:"error,omitempty"`
 }

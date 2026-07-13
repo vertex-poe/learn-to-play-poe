@@ -20,6 +20,11 @@ const (
 	AuthURL  = "https://www.pathofexile.com/oauth/authorize"
 	TokenURL = "https://www.pathofexile.com/oauth/token"
 
+	// ProfileURL is the OAuth data API's account-profile endpoint (requires
+	// the account:profile scope) — see _reference/poe-apis/poe-apis.md's
+	// Account Profile section.
+	ProfileURL = "https://api.pathofexile.com/profile"
+
 	// ClientID is a public, hardcoded identifier for a public (secret-less)
 	// OAuth client — not a secret, never paired with a client_secret.
 	ClientID = "REPLACE_WITH_REGISTERED_CLIENT_ID"

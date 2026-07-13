@@ -25,6 +25,7 @@ import (
 	"github.com/MovingCairn/poe-info-service/internal/poe"
 	"github.com/MovingCairn/poe-info-service/internal/proto"
 	"github.com/MovingCairn/poe-info-service/internal/query"
+	"github.com/MovingCairn/poe-info-service/internal/reqqueue"
 	"github.com/MovingCairn/poe-info-service/internal/steam"
 	"github.com/MovingCairn/poe-info-service/internal/store"
 	"github.com/MovingCairn/poe-info-service/internal/tailer"
@@ -119,7 +120,8 @@ type server struct {
 	richPresenceFetchMu sync.Mutex        // serializes fetch attempts and gates richPresenceRequestTTL across every trigger (request, zone transfer, poller)
 
 	poeClient *poe.Client
-	poeOAuth  poeOAuthState // PoE OAuth token + login/refresh state; see poe_oauth.go
+	poeOAuth  poeOAuthState   // PoE OAuth token + login/refresh state; see poe_oauth.go
+	poeQueue  *reqqueue.Queue // rate-limited priority queue for api.pathofexile.com requests (see poe_ratelimit.go, poe_profile.go); a separate instance from any future PoE Legacy API queue, per ROADMAP's "Reusable rate-limited priority request queue"
 
 	started      time.Time
 	shutdown     context.CancelFunc
@@ -349,6 +351,7 @@ func serve(cfg Config, listener net.Listener) error {
 	srv.hydrateRichPresenceCache()
 
 	srv.poeClient = poe.NewClient(nil)
+	srv.poeQueue = reqqueue.New(ctx, poeOAuthRateLimitHeaders)
 	srv.hydratePoeOAuthToken()
 
 	// One tailer per configured install, ingesting concurrently — each gets
@@ -1171,6 +1174,12 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 
 	case "poe.accounts.list":
 		s.handlePoeAccountsList(c, msg)
+
+	case "poe.profile.locale":
+		s.handlePoeProfileLocale(c, msg)
+
+	case "poe.profile.twitch":
+		s.handlePoeProfileTwitch(c, msg)
 
 	case "config.list":
 		s.handleConfigList(c, msg)
