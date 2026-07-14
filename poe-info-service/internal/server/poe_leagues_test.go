@@ -247,7 +247,7 @@ func TestHandlePoeLeaguesList_CacheHit_ReturnsFresh(t *testing.T) {
 // completes — mirroring TestHandlePoeProfileTwitch_NoCache_NoWait_....
 func TestHandlePoeLeaguesList_NoCache_NoWait_ReturnsPendingThenPublishes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc","event":false}]}`))
+		w.Write([]byte(`[{"id":"Standard","realm":"pc","event":false}]`))
 	}))
 	defer srv.Close()
 
@@ -286,7 +286,7 @@ func TestHandlePoeLeaguesList_NoCache_NoWait_ReturnsPendingThenPublishes(t *test
 // "ok" rather than "pending".
 func TestHandlePoeLeaguesList_Wait_ReturnsOkInline(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Write([]byte(`{"leagues":[{"id":"SSF Standard","realm":"pc","event":false}]}`))
+		w.Write([]byte(`[{"id":"SSF Standard","realm":"pc","event":false}]`))
 	}))
 	defer srv.Close()
 
@@ -438,7 +438,7 @@ func TestHandlePoeLeaguesList_FetchNever_PeekNeverCallsRemote(t *testing.T) {
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		calls++
-		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"}]}`))
+		w.Write([]byte(`[{"id":"Standard","realm":"pc"}]`))
 	}))
 	defer srv.Close()
 
@@ -478,7 +478,7 @@ func TestHandlePoeLeaguesList_Wait_IncludeCost_ReturnsCost(t *testing.T) {
 		w.Header().Set("X-Rate-Limit-Rules", "R")
 		w.Header().Set("X-Rate-Limit-R", "10:5:30")
 		w.Header().Set("X-Rate-Limit-R-State", "3:5:0")
-		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"}]}`))
+		w.Write([]byte(`[{"id":"Standard","realm":"pc"}]`))
 	}))
 	defer srv.Close()
 
@@ -499,7 +499,7 @@ func TestHandlePoeLeaguesList_Wait_IncludeCost_ReturnsCost(t *testing.T) {
 
 func TestHandlePoeLeaguesList_Wait_NoIncludeCost_CostOmitted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"}]}`))
+		w.Write([]byte(`[{"id":"Standard","realm":"pc"}]`))
 	}))
 	defer srv.Close()
 

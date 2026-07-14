@@ -350,7 +350,7 @@ func serve(cfg Config, listener net.Listener) error {
 	srv.steamClient = steam.NewClient(nil)
 	srv.hydrateRichPresenceCache()
 
-	srv.poeClient = poe.NewClient(nil)
+	srv.poeClient = poe.NewClient(nil, poe.WithVersion(cfg.Version))
 	srv.poeQueue = reqqueue.New(ctx, poeOAuthRateLimitHeaders)
 	srv.hydratePoeOAuthToken()
 

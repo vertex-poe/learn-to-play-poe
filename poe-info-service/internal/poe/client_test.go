@@ -40,6 +40,93 @@ func TestClient_AuthorizeURL_NeverIncludesClientSecret(t *testing.T) {
 	}
 }
 
+// TestClient_UserAgent_DefaultIsCompliantWithoutWithVersion proves a Client
+// built with no WithVersion option still sends a PoE-API-compliant
+// User-Agent (see UserAgentApp's doc comment: PoE's Cloudflare edge 403s any
+// request without one, so this can't be allowed to silently fall back to
+// Go's default "Go-http-client/1.1").
+func TestClient_UserAgent_DefaultIsCompliantWithoutWithVersion(t *testing.T) {
+	var gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotUA = req.Header.Get("User-Agent")
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeaguesURL(srv.URL))
+	if _, _, err := c.FetchLeagues(context.Background(), LeaguesParams{}); err != nil {
+		t.Fatalf("FetchLeagues: %v", err)
+	}
+	wantPrefix := "OAuth " + UserAgentApp + "/"
+	if !strings.HasPrefix(gotUA, wantPrefix) || !strings.Contains(gotUA, UserAgentContact) {
+		t.Errorf("User-Agent = %q, want prefix %q and contact %q", gotUA, wantPrefix, UserAgentContact)
+	}
+}
+
+// TestClient_UserAgent_WithVersion_UsesGivenVersion proves WithVersion's
+// value ends up in the header, per the exact format GGG's developer docs
+// require (see docs/architecture.md's "User-Agent requirement" section):
+// "OAuth {clientId}/{version} (contact: {contact})".
+func TestClient_UserAgent_WithVersion_UsesGivenVersion(t *testing.T) {
+	var gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotUA = req.Header.Get("User-Agent")
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeaguesURL(srv.URL), WithVersion("1.2.3"))
+	if _, _, err := c.FetchLeagues(context.Background(), LeaguesParams{}); err != nil {
+		t.Fatalf("FetchLeagues: %v", err)
+	}
+	want := "OAuth " + UserAgentApp + "/1.2.3 (contact: " + UserAgentContact + ")"
+	if gotUA != want {
+		t.Errorf("User-Agent = %q, want %q", gotUA, want)
+	}
+}
+
+// TestClient_UserAgent_SentOnTokenAndProfileAndLeagueRequests proves every
+// outbound request type carries the header, not just FetchLeagues — a
+// regression guard for the bug that motivated this (PoE's Cloudflare edge
+// silently 403ing every OAuth API call, including the token endpoint and
+// Bearer-authenticated ones, until this was added everywhere).
+func TestClient_UserAgent_SentOnTokenAndProfileAndLeagueRequests(t *testing.T) {
+	var gotTokenUA, gotProfileUA, gotLeagueUA string
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotTokenUA = req.Header.Get("User-Agent")
+		w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":3600,"scope":"","username":"u","sub":"s"}`))
+	}))
+	defer tokenSrv.Close()
+	profileSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotProfileUA = req.Header.Get("User-Agent")
+		w.Write([]byte(`{"uuid":"u","name":"n"}`))
+	}))
+	defer profileSrv.Close()
+	leagueSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotLeagueUA = req.Header.Get("User-Agent")
+		w.Write([]byte(`{"league":{"id":"Standard","realm":"pc"}}`))
+	}))
+	defer leagueSrv.Close()
+
+	c := NewClient(nil, WithTokenURL(tokenSrv.URL), WithProfileURL(profileSrv.URL), WithLeagueURL(leagueSrv.URL))
+	if _, err := c.ExchangeCode(context.Background(), "http://127.0.0.1/cb", "code", "verifier"); err != nil {
+		t.Fatalf("ExchangeCode: %v", err)
+	}
+	if _, _, err := c.FetchProfile(context.Background(), "access-token"); err != nil {
+		t.Fatalf("FetchProfile: %v", err)
+	}
+	if _, _, err := c.FetchLeague(context.Background(), "access-token", "Standard", ""); err != nil {
+		t.Fatalf("FetchLeague: %v", err)
+	}
+
+	wantPrefix := "OAuth " + UserAgentApp + "/"
+	for name, got := range map[string]string{"token": gotTokenUA, "profile": gotProfileUA, "league": gotLeagueUA} {
+		if !strings.HasPrefix(got, wantPrefix) {
+			t.Errorf("%s request User-Agent = %q, want prefix %q", name, got, wantPrefix)
+		}
+	}
+}
+
 // tokenEndpointRecorder is a fake token endpoint that records the form
 // params of the last request and replies with a canned tokenResponse (or a
 // canned error status), letting tests assert on exactly what ExchangeCode
@@ -242,7 +329,7 @@ func TestClient_FetchLeagues_NoAuthHeaderSent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		gotAuth = req.Header.Get("Authorization")
 		_, sawAuthHeader = req.Header["Authorization"]
-		w.Write([]byte(`{"leagues":[]}`))
+		w.Write([]byte(`[]`))
 	}))
 	defer srv.Close()
 
@@ -255,6 +342,31 @@ func TestClient_FetchLeagues_NoAuthHeaderSent(t *testing.T) {
 	}
 }
 
+// TestClient_FetchLeagues_ResponseIsBareArray_NotWrappedObject is a
+// dedicated regression test for the actual bug that broke poe.leagues.list
+// end to end: the live /leagues endpoint's response body is a bare JSON
+// array (`[{...}, {...}]`), not `{"leagues": [...]}` — confirmed directly
+// against api.pathofexile.com on 2026-07-14. FetchLeagues used to decode
+// into a `{"leagues": [...]}`-shaped wrapper struct, which silently failed
+// with "cannot unmarshal array into Go value of type poe.leaguesResponse"
+// against every real response, even though every test's httptest fake used
+// the same (wrong) wrapped shape and so never caught it.
+func TestClient_FetchLeagues_ResponseIsBareArray_NotWrappedObject(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Write([]byte(`[{"id":"Standard","realm":"pc"},{"id":"Hardcore","realm":"pc"}]`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithLeaguesURL(srv.URL))
+	leagues, _, err := c.FetchLeagues(context.Background(), LeaguesParams{})
+	if err != nil {
+		t.Fatalf("FetchLeagues: %v", err)
+	}
+	if len(leagues) != 2 || leagues[0].ID != "Standard" || leagues[1].ID != "Hardcore" {
+		t.Errorf("leagues = %+v, want [Standard Hardcore] decoded from the bare array", leagues)
+	}
+}
+
 // TestClient_FetchLeagues_ZeroParams_SendsNoQueryString proves a zero
 // LeaguesParams omits every query parameter rather than sending them empty,
 // letting the endpoint's own documented defaults (realm=pc, type=main,
@@ -263,7 +375,7 @@ func TestClient_FetchLeagues_ZeroParams_SendsNoQueryString(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		gotQuery = req.URL.RawQuery
-		w.Write([]byte(`{"leagues":[]}`))
+		w.Write([]byte(`[]`))
 	}))
 	defer srv.Close()
 
@@ -283,10 +395,10 @@ func TestClient_FetchLeagues_SendsGivenParamsAndParsesResponse(t *testing.T) {
 	var gotQuery url.Values
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		gotQuery = req.URL.Query()
-		w.Write([]byte(`{"leagues":[
+		w.Write([]byte(`[
 			{"id":"SSF Ancestors","realm":"pc","url":"https://example.com","startAt":"2024-01-01T00:00:00Z","endAt":null,"description":"desc","rules":[{"id":"Hardcore"},{"id":"NoParties"}],"event":false,"delveEvent":false},
 			{"id":"Standard","realm":"pc","event":false,"delveEvent":false}
-		]}`))
+		]`))
 	}))
 	defer srv.Close()
 

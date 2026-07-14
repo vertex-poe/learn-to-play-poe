@@ -201,7 +201,7 @@ func TestHandlePoeRateLimitStatus_ReflectsQueueState(t *testing.T) {
 		w.Header().Set("X-Rate-Limit-Rules", "R")
 		w.Header().Set("X-Rate-Limit-R", "10:5:30")
 		w.Header().Set("X-Rate-Limit-R-State", "4:5:0")
-		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"}]}`))
+		w.Write([]byte(`[{"id":"Standard","realm":"pc"}]`))
 	}))
 	defer srv.Close()
 

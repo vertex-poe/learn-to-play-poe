@@ -148,6 +148,24 @@ loopback redirect rationale, token lifecycle state machine, the
 below) — the rest of the OAuth data endpoints (`/character`, `/stash`, etc.,
 §6.2 of that doc) are not yet wired up.
 
+### User-Agent requirement (every `api.pathofexile.com` call)
+
+Every request `internal/poe.Client` sends — token exchange/refresh,
+`/profile`, `/leagues`, `/league/{name}` — carries a `User-Agent` header
+formatted `OAuth {app}/{version} (contact: {contact})`
+(`UserAgentApp`/`UserAgentContact`/`WithVersion` in `internal/poe/client.go`,
+wired with this service's own build version via `poe.WithVersion(cfg.Version)`
+in `internal/server/server.go`). This is required, not optional: GGG's
+[developer docs](https://www.pathofexile.com/developer/docs#guidelines)
+("Developer Guidelines" → "User Agent") document this exact format, and
+PoE's Cloudflare edge returns a bare HTTP 403 for any request that doesn't
+match it — including the *public*, unauthenticated `/leagues` endpoint.
+Confirmed directly: the same `/leagues` request gets a 200 with `curl`'s
+default UA and a 403 Cloudflare challenge page with Go's `net/http` default
+(`Go-http-client/1.1`, what an `http.Client` sends when nothing else sets a
+`User-Agent`) — which is exactly what silently broke `poe.leagues.list`
+before this header was added.
+
 poe_oauth.go's sole points of contact with `internal/creds`
 (`loadPoeOAuthToken`/`savePoeOAuthToken`/`clearPoeOAuthToken`) are never
 exercised by automated tests — see `../CONTRIBUTING.md`'s note on credential

@@ -14,6 +14,22 @@ import (
 
 const requestTimeout = 15 * time.Second
 
+const (
+	// UserAgentApp/UserAgentContact identify this service to PoE's API, per
+	// the format GGG's own developer docs require:
+	// https://www.pathofexile.com/developer/docs#guidelines ("Developer
+	// Guidelines" > "User Agent" — see docs/architecture.md's "User-Agent
+	// requirement" section): "Any application that interacts with our API
+	// must set an identifiable User Agent header", formatted `OAuth
+	// {clientId}/{version} (contact: {contact}) ...`. This is not optional
+	// politeness — PoE's edge (Cloudflare) returns a 403 for Go's default
+	// User-Agent ("Go-http-client/1.1") on every endpoint, including the
+	// public /leagues one, so a request without this header never succeeds
+	// at all.
+	UserAgentApp     = "poe-info-service"
+	UserAgentContact = "MovingCairn+poe-info-service@gmail.com"
+)
+
 // Client talks to PoE's OAuth authorization server. It is a public client:
 // no client_secret is ever configured or sent, on the authorization-code
 // exchange or the refresh — per poe-apis.md §3.3, an empty client_secret is
@@ -26,6 +42,7 @@ type Client struct {
 	profileURL string
 	leaguesURL string
 	leagueURL  string
+	userAgent  string
 }
 
 // Option configures a Client. WithAuthURL/WithTokenURL/WithProfileURL/
@@ -39,8 +56,21 @@ func WithProfileURL(u string) Option { return func(c *Client) { c.profileURL = u
 func WithLeaguesURL(u string) Option { return func(c *Client) { c.leaguesURL = u } }
 func WithLeagueURL(u string) Option  { return func(c *Client) { c.leagueURL = u } }
 
+// WithVersion sets the version reported in the User-Agent header (see
+// UserAgentApp's doc comment) — callers pass this service's own build
+// version (proto.Version) so it doesn't need duplicating inside this
+// package, which otherwise depends on nothing but the standard library.
+func WithVersion(v string) Option {
+	return func(c *Client) {
+		c.userAgent = fmt.Sprintf("OAuth %s/%s (contact: %s)", UserAgentApp, v, UserAgentContact)
+	}
+}
+
 // NewClient returns a Client ready to authenticate. httpClient may be nil,
-// in which case a Client with requestTimeout is used.
+// in which case a Client with requestTimeout is used. userAgent defaults to
+// an unversioned string so every request is still PoE-API-compliant even if
+// a caller forgets WithVersion — see UserAgentApp's doc comment for why that
+// matters.
 func NewClient(httpClient *http.Client, opts ...Option) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: requestTimeout}
@@ -52,6 +82,7 @@ func NewClient(httpClient *http.Client, opts ...Option) *Client {
 		profileURL: ProfileURL,
 		leaguesURL: LeaguesURL,
 		leagueURL:  LeagueURL,
+		userAgent:  fmt.Sprintf("OAuth %s/dev (contact: %s)", UserAgentApp, UserAgentContact),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -113,6 +144,7 @@ func (c *Client) postToken(ctx context.Context, form url.Values) (tokenResponse,
 		return tokenResponse{}, fmt.Errorf("build token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", c.userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -166,6 +198,7 @@ func (c *Client) FetchProfile(ctx context.Context, accessToken string) (Profile,
 		return Profile{}, nil, fmt.Errorf("build profile request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("User-Agent", c.userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -212,10 +245,6 @@ type League struct {
 	DelveEvent  bool         `json:"delveEvent"`
 }
 
-type leaguesResponse struct {
-	Leagues []League `json:"leagues"`
-}
-
 // LeaguesParams are GET /leagues's optional query parameters, per the PoE
 // OAuth API's List Leagues endpoint doc. A zero LeaguesParams matches the
 // endpoint's own documented defaults (realm=pc, type=main, limit=50) —
@@ -234,6 +263,15 @@ type LeaguesParams struct {
 // those regardless of success/failure). Unlike every other OAuth data
 // endpoint, /leagues is public and requires no Bearer token (poe-apis.md's
 // documented rule 9), so no access token is accepted here.
+//
+// The response body is a bare JSON array of League, not `{"leagues": [...]}`
+// — confirmed directly against the live endpoint (2026-07-14). GGG's current
+// developer docs (https://www.pathofexile.com/developer/docs/reference
+// #leagues) only describe a *different*, newer `GET /league` (singular,
+// `service:leagues`-scoped) endpoint that does wrap its array under a
+// "leagues" key; this service still talks to the older `/leagues` (plural)
+// endpoint referenced by poe-apis.md §6.2, which is undocumented there now
+// but still live, and returns the array directly.
 func (c *Client) FetchLeagues(ctx context.Context, params LeaguesParams) ([]League, http.Header, error) {
 	v := url.Values{}
 	if params.Realm != "" {
@@ -260,6 +298,7 @@ func (c *Client) FetchLeagues(ctx context.Context, params LeaguesParams) ([]Leag
 	if err != nil {
 		return nil, nil, fmt.Errorf("build leagues request: %w", err)
 	}
+	req.Header.Set("User-Agent", c.userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -275,11 +314,11 @@ func (c *Client) FetchLeagues(ctx context.Context, params LeaguesParams) ([]Leag
 		return nil, resp.Header, fmt.Errorf("leagues endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	var lr leaguesResponse
-	if err := json.Unmarshal(body, &lr); err != nil {
+	var leagues []League
+	if err := json.Unmarshal(body, &leagues); err != nil {
 		return nil, resp.Header, fmt.Errorf("decode leagues response: %w", err)
 	}
-	return lr.Leagues, resp.Header, nil
+	return leagues, resp.Header, nil
 }
 
 type leagueResponse struct {
@@ -306,6 +345,7 @@ func (c *Client) FetchLeague(ctx context.Context, accessToken, name, realm strin
 		return nil, nil, fmt.Errorf("build league request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("User-Agent", c.userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
