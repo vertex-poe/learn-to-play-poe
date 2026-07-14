@@ -22,9 +22,17 @@
 - When functionality is added, changed, or removed, the associated tests must be added, changed, or removed to match, in the same change
 - Applies to both `l2p-poe` and `poe-info-service`
 
+## The `_reference/` directory
+
+`_reference/` holds external reference material (e.g. third-party API docs), not this project's own documentation — it's gitignored entirely, confirming it's local-only and not part of the tracked codebase. Never edit files under `_reference/`. If something learned while working (e.g. a clarified API requirement) needs to be written down, put it in this project's own tracked docs instead (e.g. `poe-info-service/docs/`, `CONTRIBUTING.md`) — link to `_reference/` files rather than editing them.
+
 ## The `bin/` directory
 
 `bin/` is staged only by `just build` / `just run` and is reserved for the user's own manual acceptance testing — it may hold their real config (`l2p-poe.toml`) and a live-running instance at any time. Never launch, edit config in, or write log/debug output to anything under `bin/`. For manual repro, debugging, or log-tracing, run the binary straight from the build tree instead (e.g. `build/<preset>/src/l2p-poe.exe`), which uses its own isolated config.
+
+## Bash commands
+
+- Avoid prepending `cd <dir> &&` to a command — the shell's working directory already persists across commands, and a `cd`-prefixed compound command won't match an allowlisted prefix rule (e.g. `Bash(go build *)`), causing an unnecessary permission prompt. Prefer a tool's own directory flag instead (e.g. `go build -C poe-info-service ./...`, `git -C poe-info-service log`) or just rely on the persisted working directory.
 
 ## Task Runner
 
