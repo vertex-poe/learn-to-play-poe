@@ -65,6 +65,8 @@ qt_add_executable(l2p-poe
     ui/settings/SteamKeyLoginWindow.h
     ui/settings/SettingsPage.cpp
     ui/settings/SettingsPage.h
+    ui/stash/StashPage.cpp
+    ui/stash/StashPage.h
     ui/widgets/ListEditor.cpp
     ui/widgets/ListEditor.h
     services/ServiceManager.cpp

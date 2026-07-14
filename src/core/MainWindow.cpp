@@ -9,6 +9,7 @@
 #include "ui/log/SessionViewPage.h"
 #include "ui/chat/DmPage.h"
 #include "ui/log/LogPage.h"
+#include "ui/stash/StashPage.h"
 #include "ui/overlay/GameOverlay.h"
 #include "events/LiveEventBus.h"
 #include "events/LiveEventRuleEngine.h"
@@ -104,9 +105,11 @@ MainWindow::MainWindow(QWidget *parent)
     m_dmPage = new DmPage(this);
     PerfProbe::instance().markDebug("mainwindow_after_dmpage");
 
+    m_stashPage = new StashPage(this);
+
     m_stack->addWidget(makePlaceholder("Guide coming soon", this));   // TabGuide
     m_stack->addWidget(m_chatPage);                                   // TabChats
-    m_stack->addWidget(makePlaceholder("Stash coming soon", this));   // TabStash
+    m_stack->addWidget(m_stashPage);                                  // TabStash
     m_stack->addWidget(makePlaceholder("Profile coming soon", this)); // TabProfile
     m_stack->addWidget(m_logPage);                                    // TabLog
 
@@ -523,6 +526,9 @@ void MainWindow::schedulePreloads(int stackIndex)
     case TabDms:
         m_lastPreloadRequestor = m_dmPage;
         break;
+    case TabStash:
+        m_lastPreloadRequestor = m_stashPage;
+        break;
     default:
         m_lastPreloadRequestor = nullptr;
         break;
@@ -534,6 +540,8 @@ void MainWindow::schedulePreloads(int stackIndex)
         QTimer::singleShot(500, m_chatPage, &ChatPage::preload);
     if (stackIndex != TabLog && stackIndex != TabCurrent)
         QTimer::singleShot(500, m_logPage, &LogPage::preload);
+    if (stackIndex != TabStash)
+        QTimer::singleShot(500, m_stashPage, &StashPage::preload);
 
     switch (stackIndex)
     {
@@ -614,6 +622,7 @@ void MainWindow::onServiceReady()
     m_dmPage->setPoeInfoClient(m_poeInfoClient);
     m_logPage->setPoeInfoClient(m_poeInfoClient);
     m_sessionViewPage->setPoeInfoClient(m_poeInfoClient);
+    m_stashPage->setPoeInfoClient(m_poeInfoClient);
 
     requestIngestStatus();
     refreshInstallDirsFromService();

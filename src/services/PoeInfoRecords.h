@@ -84,4 +84,19 @@ struct ClientScreenEventRecord
     QString occurredAt; // "YYYY-MM-DD HH:MM:SS"
 };
 
+// Mirrors proto.LeagueSummary — one entry of poe.leagues.list's response, or
+// poe.leagues.detail's/poe.league's single result.
+struct LeagueSummary
+{
+    QString name;
+    QString realm;
+    QString url;
+    QString startAt;
+    QString endAt;         // empty = permanent league
+    QString description;
+    QStringList rules;     // flattened rule id strings, e.g. "Hardcore"
+    bool event{false};
+    bool delveEvent{false};
+};
+
 } // namespace Records

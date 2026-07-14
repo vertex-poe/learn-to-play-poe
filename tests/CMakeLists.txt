@@ -115,6 +115,19 @@ target_link_libraries(test_logpage_retry PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::WebSockets Qt6::Test)
 add_test(NAME test_logpage_retry COMMAND test_logpage_retry)
 
+# StashPage's league dropdown: population from poe.leagues.list and
+# default-selection from poe.league, via the same FakePoeInfoServer double.
+qt_add_executable(test_stashpage
+    test_stashpage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/stash/StashPage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/stash/StashPage.h
+    ${_poe_info_retry_test_support}
+)
+target_include_directories(test_stashpage PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_stashpage PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::WebSockets Qt6::Test)
+add_test(NAME test_stashpage COMMAND test_stashpage)
+
 # SteamAccountStore's credentials.* round trip, driven through the same
 # FakePoeInfoServer double (no Widgets/Gui needed — SteamAccountStore, like
 # PoeInfoClient, is plain QObject/QtCore).

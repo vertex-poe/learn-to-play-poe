@@ -20,6 +20,7 @@ class SessionViewPage;
 class DmPage;
 class NavBar;
 class LogPage;
+class StashPage;
 class QTimer;
 class GameOverlay;
 class LiveEventRuleEngine;
@@ -100,6 +101,7 @@ private:
     ChatPage           *m_chatPage{};
     DmPage             *m_dmPage{};
     LogPage           *m_logPage{};
+    StashPage          *m_stashPage{};
     NavBar             *m_navBar{};
     QStackedWidget     *m_stack{};
     QSystemTrayIcon    *m_tray{};
