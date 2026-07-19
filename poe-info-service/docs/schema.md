@@ -58,7 +58,16 @@ Player account names, keyed by name. Most rows come from `Client.txt` guild even
 
 ### `leagues`
 
-Cached results of the PoE OAuth API's `GET /leagues` — the one OAuth data endpoint that needs no Bearer token (see `poe-info-service/internal/server/poe_leagues.go`). Unique on `(name, realm)` since a league name (e.g. "Standard") repeats identically across realms. `rules_json` is a JSON array of rule id strings (e.g. `["Hardcore"]`); `fetched_at` drives `poe.leagues.list`'s cache-freshness check and is refreshed on every successful fetch that returns a given row.
+Cached results shared by three PoE OAuth API methods (see
+`poe-info-service/internal/server/poe_leagues.go`): `poe.leagues.list`
+(Bearer-authenticated `GET /account/leagues`, private leagues included),
+`poe.leagues.public` (the public, no-Bearer-required `GET /leagues`), and
+`poe.leagues.detail` (`GET /league/{name}`) — an update from any of them
+upserts the same row shape. Unique on `(name, realm)` since a league name
+(e.g. "Standard") repeats identically across realms. `rules_json` is a JSON
+array of rule id strings (e.g. `["Hardcore"]`); `fetched_at` drives each
+method's own cache-freshness check and is refreshed on every successful
+fetch that returns a given row.
 
 ### `classes`
 

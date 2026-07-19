@@ -106,6 +106,10 @@ MainWindow::MainWindow(QWidget *parent)
     PerfProbe::instance().markDebug("mainwindow_after_dmpage");
 
     m_stashPage = new StashPage(this);
+    connect(m_stashPage, &StashPage::loginRequested, this, [this]()
+            {
+        showSettings();
+        m_settingsPage->showAccountsPage(); });
 
     m_stack->addWidget(makePlaceholder("Guide coming soon", this));   // TabGuide
     m_stack->addWidget(m_chatPage);                                   // TabChats

@@ -25,6 +25,7 @@ This file tracks unimplemented work only — once an item is done, remove it fro
 - [ ] Binary signing + checksum verification
 - [ ] Credential storage package — macOS/Linux backends
 - [ ] Credential expiry/staleness policy
+- [ ] Register poe-info-service's own PoE OAuth client_id with GGG
 - [ ] PoE OAuth data endpoints (characters, stash)
 - [ ] Reusable rate-limited priority request queue (PoE OAuth API now, PoE Legacy API later)
 - [ ] poe-info-service tunable-constants file (cache TTLs, queue/rate-limit settings)

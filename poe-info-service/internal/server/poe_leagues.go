@@ -25,15 +25,36 @@ const (
 // see scanLeagueRow, which both feed through.
 const leagueSelectColumns = `name, realm, COALESCE(url,''), COALESCE(start_at,''), COALESCE(end_at,''), COALESCE(description,''), rules_json, is_event, is_delve_event, fetched_at`
 
-func leaguesFetchKey(realm, typ, season string) string {
+func publicLeaguesFetchKey(realm, typ, season string) string {
 	return "poe:leagues:" + realm + ":" + typ + ":" + season
 }
 
-// leaguesFetchResult is what a leagues fetch Task hands back through
-// reqqueue.Waiter.Wait — the freshly upserted rows, the fetch's timestamp,
-// and this specific call's FetchCost, so a wait:true caller (both
-// poe.leagues.list and poe.leagues.detail, which projects one league back
-// out of Leagues) doesn't need a second DB round-trip or to recompute cost.
+// publicLeaguesFetchResult is what a poe.leagues.public fetch Task hands
+// back through reqqueue.Waiter.Wait — the freshly upserted rows, the
+// fetch's timestamp, and this specific call's FetchCost, so a wait:true
+// caller doesn't need a second DB round-trip or to recompute cost.
+type publicLeaguesFetchResult struct {
+	leagues   []proto.LeagueSummary
+	fetchedAt time.Time
+	cost      *proto.FetchCost
+}
+
+// leaguesFetchKey keys a poe.leagues.list (account-scoped) fetch. Unlike
+// publicLeaguesFetchKey, there's no season component — GET /account/leagues
+// has no season-archive concept. type is kept as part of the key even
+// though the upstream endpoint itself doesn't accept it as a filter (it
+// always returns everything for the account+realm) — this trades a
+// possible redundant upstream call for two concurrent different-type
+// requests against a rare-to-never real scenario, in exchange for never
+// having to worry about a de-duplicated fetch's single result being reused
+// across two callers that asked for different type-filtered slices of it.
+func leaguesFetchKey(realm, typ string) string {
+	return "poe:leagues:" + realm + ":" + typ
+}
+
+// leaguesFetchResult is what a poe.leagues.list (account-scoped) fetch Task
+// hands back through reqqueue.Waiter.Wait — same shape as
+// publicLeaguesFetchResult.
 type leaguesFetchResult struct {
 	leagues   []proto.LeagueSummary
 	fetchedAt time.Time
@@ -201,17 +222,72 @@ type leagueDetailFetchResult struct {
 	cost      *proto.FetchCost
 }
 
-// submitLeaguesFetch enqueues (de-duplicated by realm/typ/season, via
+// submitPublicLeaguesFetch enqueues (de-duplicated by realm/typ/season, via
 // reqqueue's Key-based merge) a /leagues fetch at the given priority
-// through s.poeQueue, returning the resulting Waiter — used by ensureLeagues
-// for a bulk poe.leagues.list request.
-func (s *server) submitLeaguesFetch(realm, typ, season string, priority int) *reqqueue.Waiter {
+// through s.poeQueue, returning the resulting Waiter — used by
+// ensurePublicLeagues for a bulk poe.leagues.public request.
+func (s *server) submitPublicLeaguesFetch(realm, typ, season string, priority int) *reqqueue.Waiter {
 	w := s.poeQueue.Submit(reqqueue.Task{
-		Key:        leaguesFetchKey(realm, typ, season),
+		Key:        publicLeaguesFetchKey(realm, typ, season),
+		Priority:   priority,
+		PolicyHint: poeOAuthPublicLeaguesPolicyHint,
+		Exec: func(ctx context.Context) (any, http.Header, error) {
+			fetched, headers, err := s.poeClient.FetchLeagues(ctx, poe.LeaguesParams{Realm: realm, Type: typ, Season: season})
+			cost := buildFetchCost(headers)
+			if err != nil {
+				s.publishPoeLeaguesPublicError(err, cost)
+				return nil, headers, err
+			}
+			now := time.Now()
+			if err := upsertLeagues(s.db, fetched, now); err != nil {
+				s.publishPoeLeaguesPublicError(err, cost)
+				return nil, headers, err
+			}
+			result, _, err := queryLeaguesRows(s.db, realm, typ)
+			if err != nil {
+				s.publishPoeLeaguesPublicError(err, cost)
+				return nil, headers, err
+			}
+			s.publishPoeLeaguesPublic(result, now, cost)
+			return publicLeaguesFetchResult{leagues: result, fetchedAt: now, cost: cost}, headers, nil
+		},
+	})
+	s.publishPoeRateLimitStatusAfter(w, poeLeaguesWaitTimeout)
+	return w
+}
+
+// ensurePublicLeagues returns the cached leagues table rows for realm/typ
+// (haveCache/isFresh/fetchedAt describe them — see freshnessLabel) and,
+// depending on fetchPolicy, may also enqueue a fetch through
+// submitPublicLeaguesFetch — see ensurePoeProfile's doc comment for the
+// shared "never"/"ifStale"/"always" vocabulary; unlike ensurePoeProfile,
+// this never needs an access token — GET /leagues is public — so a needed
+// fetch is always schedulable regardless of PoE OAuth sign-in state.
+func (s *server) ensurePublicLeagues(realm, typ, season string, maxAge time.Duration, priority int, fetchPolicy string) (cached []proto.LeagueSummary, haveCache bool, isFresh bool, fetchedAt time.Time, waiter *reqqueue.Waiter) {
+	rows, oldest, err := queryLeaguesRows(s.db, realm, typ)
+	haveCache = err == nil && len(rows) > 0
+	isFresh = haveCache && time.Since(oldest) < maxAge
+
+	needFetch := fetchPolicy == fetchPolicyAlways || (!isFresh && fetchPolicy != fetchPolicyNever)
+	if !needFetch {
+		return rows, haveCache, isFresh, oldest, nil
+	}
+	return rows, haveCache, isFresh, oldest, s.submitPublicLeaguesFetch(realm, typ, season, priority)
+}
+
+// submitLeaguesFetch enqueues (de-duplicated by realm/typ, via reqqueue's
+// Key-based merge) a GET /account/leagues fetch at the given priority
+// through s.poeQueue, returning the resulting Waiter — used by ensureLeagues
+// for a poe.leagues.list request. accessToken must be non-empty (checked by
+// ensureLeagues before calling this) — unlike the public /leagues endpoint,
+// this one requires Bearer auth.
+func (s *server) submitLeaguesFetch(realm, typ, accessToken string, priority int) *reqqueue.Waiter {
+	w := s.poeQueue.Submit(reqqueue.Task{
+		Key:        leaguesFetchKey(realm, typ),
 		Priority:   priority,
 		PolicyHint: poeOAuthLeaguesPolicyHint,
 		Exec: func(ctx context.Context) (any, http.Header, error) {
-			fetched, headers, err := s.poeClient.FetchLeagues(ctx, poe.LeaguesParams{Realm: realm, Type: typ, Season: season})
+			fetched, headers, err := s.poeClient.FetchAccountLeagues(ctx, accessToken, realm)
 			cost := buildFetchCost(headers)
 			if err != nil {
 				s.publishPoeLeaguesError(err, cost)
@@ -239,19 +315,20 @@ func (s *server) submitLeaguesFetch(realm, typ, season string, priority int) *re
 // (haveCache/isFresh/fetchedAt describe them — see freshnessLabel) and,
 // depending on fetchPolicy, may also enqueue a fetch through
 // submitLeaguesFetch — see ensurePoeProfile's doc comment for the shared
-// "never"/"ifStale"/"always" vocabulary; unlike ensurePoeProfile, this never
-// needs an access token — GET /leagues is public — so a needed fetch is
-// always schedulable regardless of PoE OAuth sign-in state.
-func (s *server) ensureLeagues(realm, typ, season string, maxAge time.Duration, priority int, fetchPolicy string) (cached []proto.LeagueSummary, haveCache bool, isFresh bool, fetchedAt time.Time, waiter *reqqueue.Waiter) {
+// "never"/"ifStale"/"always" vocabulary. Unlike ensurePublicLeagues, a
+// needed fetch here does require an access token (GET /account/leagues
+// isn't public): if accessToken is empty, no fetch is ever submitted
+// regardless of fetchPolicy, mirroring ensureLeagueDetail.
+func (s *server) ensureLeagues(realm, typ string, maxAge time.Duration, priority int, fetchPolicy string, accessToken string) (cached []proto.LeagueSummary, haveCache bool, isFresh bool, fetchedAt time.Time, waiter *reqqueue.Waiter) {
 	rows, oldest, err := queryLeaguesRows(s.db, realm, typ)
 	haveCache = err == nil && len(rows) > 0
 	isFresh = haveCache && time.Since(oldest) < maxAge
 
 	needFetch := fetchPolicy == fetchPolicyAlways || (!isFresh && fetchPolicy != fetchPolicyNever)
-	if !needFetch {
+	if !needFetch || accessToken == "" {
 		return rows, haveCache, isFresh, oldest, nil
 	}
-	return rows, haveCache, isFresh, oldest, s.submitLeaguesFetch(realm, typ, season, priority)
+	return rows, haveCache, isFresh, oldest, s.submitLeaguesFetch(realm, typ, accessToken, priority)
 }
 
 // submitLeagueDetailFetch enqueues (de-duplicated by name/realm, via
@@ -322,6 +399,34 @@ func (s *server) ensureLeagueDetail(name, realm string, maxAge time.Duration, pr
 	return row, fa, haveCache, isFresh, s.submitLeagueDetailFetch(name, realm, accessToken, priority)
 }
 
+func (s *server) publishPoeLeaguesPublic(leagues []proto.LeagueSummary, fetchedAt time.Time, cost *proto.FetchCost) {
+	msg, _ := json.Marshal(proto.Message{
+		Type:  proto.TypeEvent,
+		Topic: proto.TopicPoeLeaguesPublic,
+		Payload: mustMarshal(proto.PoeLeaguesPayload{
+			Status:    "ok",
+			Freshness: "fresh",
+			Leagues:   leagues,
+			FetchedAt: fetchedAt.Unix(),
+			Cost:      cost,
+		}),
+	})
+	s.hub.Publish(proto.TopicPoeLeaguesPublic, msg)
+}
+
+func (s *server) publishPoeLeaguesPublicError(fetchErr error, cost *proto.FetchCost) {
+	msg, _ := json.Marshal(proto.Message{
+		Type:  proto.TypeEvent,
+		Topic: proto.TopicPoeLeaguesPublic,
+		Payload: mustMarshal(proto.PoeLeaguesPayload{
+			Status: "error",
+			Error:  fetchErr.Error(),
+			Cost:   cost,
+		}),
+	})
+	s.hub.Publish(proto.TopicPoeLeaguesPublic, msg)
+}
+
 func (s *server) publishPoeLeagues(leagues []proto.LeagueSummary, fetchedAt time.Time, cost *proto.FetchCost) {
 	msg, _ := json.Marshal(proto.Message{
 		Type:  proto.TypeEvent,
@@ -383,12 +488,12 @@ func (s *server) publishPoeLeagueDetailError(fetchErr error, cost *proto.FetchCo
 	s.hub.Publish(proto.TopicPoeLeagueDetail, msg)
 }
 
-// poeLeaguesRequest is "poe.leagues.list"'s request shape. Realm/Type/Season
-// mirror GET /leagues's own optional query parameters (poe-apis.md §6.2),
-// defaulting to defaultLeaguesRealm/defaultLeaguesType when omitted.
-// MaxAgeSeconds/Priority/Wait/Fetch/IncludeCost behave exactly like
-// poeProfileFieldRequest's fields of the same name.
-type poeLeaguesRequest struct {
+// poePublicLeaguesRequest is "poe.leagues.public"'s request shape.
+// Realm/Type/Season mirror GET /leagues's own optional query parameters
+// (poe-apis.md §6.2), defaulting to defaultLeaguesRealm/defaultLeaguesType
+// when omitted. MaxAgeSeconds/Priority/Wait/Fetch/IncludeCost behave exactly
+// like poeProfileFieldRequest's fields of the same name.
+type poePublicLeaguesRequest struct {
 	Realm         string `json:"realm"`
 	Type          string `json:"type"`
 	Season        string `json:"season"`
@@ -399,14 +504,18 @@ type poeLeaguesRequest struct {
 	IncludeCost   bool   `json:"includeCost"`
 }
 
-// handlePoeLeaguesList serves "poe.leagues.list" — the leagues table's
-// current contents for the requested realm/type, refetched from GET
-// /leagues through s.poeQueue whenever fetchPolicy allows and the cache is
-// stale or empty. Follows handlePoeProfileField's freshness/fetching/cost
+// handlePoeLeaguesPublic serves "poe.leagues.public" — the leagues table's
+// current contents for the requested realm/type, refetched from the public
+// GET /leagues through s.poeQueue whenever fetchPolicy allows and the cache
+// is stale or empty. Follows handlePoeProfileField's freshness/fetching/cost
 // conventions (see its doc comment) — minus the "not authenticated" error
-// case, since /leagues is public and a fetch is always schedulable.
-func (s *server) handlePoeLeaguesList(c *hub.Client, msg proto.Message) {
-	var params poeLeaguesRequest
+// case, since /leagues is public and a fetch is always schedulable. See
+// poe.leagues.list (handlePoeLeaguesList) for the account-scoped,
+// private-leagues-included sibling of this endpoint — most callers want
+// that one instead; this one exists for a caller that specifically wants
+// the public, account-independent catalogue.
+func (s *server) handlePoeLeaguesPublic(c *hub.Client, msg proto.Message) {
+	var params poePublicLeaguesRequest
 	if len(msg.Payload) > 0 {
 		if err := json.Unmarshal(msg.Payload, &params); err != nil {
 			s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: " + err.Error()})
@@ -445,10 +554,137 @@ func (s *server) handlePoeLeaguesList(c *hub.Client, msg proto.Message) {
 		priority = params.Priority
 	}
 
-	leagues, haveCache, isFresh, fetchedAt, waiter := s.ensureLeagues(realm, typ, params.Season, maxAge, priority, fetchPolicy)
+	leagues, haveCache, isFresh, fetchedAt, waiter := s.ensurePublicLeagues(realm, typ, params.Season, maxAge, priority, fetchPolicy)
 	freshness := freshnessLabel(haveCache, isFresh)
 
 	if waiter == nil {
+		payload := proto.PoeLeaguesPayload{Status: freshness, Freshness: freshness, Leagues: leagues}
+		if haveCache {
+			payload.FetchedAt = fetchedAt.Unix()
+		}
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Payload: mustMarshal(payload)})
+		return
+	}
+
+	if !params.Wait {
+		payload := proto.PoeLeaguesPayload{Status: "pending", Freshness: freshness, Fetching: true, Leagues: leagues}
+		if haveCache {
+			payload.FetchedAt = fetchedAt.Unix()
+		}
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Payload: mustMarshal(payload)})
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(s.rootCtx, poeLeaguesWaitTimeout)
+		defer cancel()
+		result, err := waiter.Wait(ctx)
+		if err != nil {
+			payload := proto.PoeLeaguesPayload{Status: "pending", Freshness: freshness, Fetching: true, Leagues: leagues, Error: err.Error()}
+			if haveCache {
+				payload.FetchedAt = fetchedAt.Unix()
+			}
+			s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Payload: mustMarshal(payload)})
+			return
+		}
+		fetched := result.(publicLeaguesFetchResult)
+		payload := proto.PoeLeaguesPayload{Status: "ok", Freshness: "fresh", Leagues: fetched.leagues, FetchedAt: fetched.fetchedAt.Unix()}
+		if params.IncludeCost {
+			payload.Cost = fetched.cost
+		}
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Payload: mustMarshal(payload)})
+	}()
+}
+
+// poeLeaguesRequest is "poe.leagues.list"'s request shape. Realm/Type mirror
+// poePublicLeaguesRequest's fields of the same name (Realm defaulting to
+// defaultLeaguesRealm, Type to defaultLeaguesType — used only to filter the
+// shared leagues table locally, since GET /account/leagues accepts no such
+// filter itself). There's no Season field — that's specific to the public
+// bulk endpoint's historical season-archive facet, which /account/leagues
+// has no equivalent of. Account is an optional selector (a poe_uuid or an
+// accounts.name, exactly like poeLeagueDetailRequest.Account) used only to
+// obtain an access token if a fetch turns out to be needed; an empty
+// Account with nothing currently authenticated is not itself an error (see
+// resolvePoeAccountOptional), since a cache-only response never needed a
+// token at all. MaxAgeSeconds/Priority/Wait/Fetch/IncludeCost behave exactly
+// like poeProfileFieldRequest's fields of the same name.
+type poeLeaguesRequest struct {
+	Realm         string `json:"realm"`
+	Type          string `json:"type"`
+	Account       string `json:"account"`
+	MaxAgeSeconds int64  `json:"maxAgeSeconds"`
+	Priority      int    `json:"priority"`
+	Wait          bool   `json:"wait"`
+	Fetch         string `json:"fetch"`
+	IncludeCost   bool   `json:"includeCost"`
+}
+
+// handlePoeLeaguesList serves "poe.leagues.list" — the leagues table's
+// current contents for the requested realm/type, refetched from the
+// account-scoped GET /account/leagues through s.poeQueue whenever
+// fetchPolicy allows and the cache is stale or empty; unlike
+// poe.leagues.public, this includes private leagues visible only to the
+// signed-in account. Follows handlePoeLeaguesDetail's freshness/fetching/
+// cost/auth conventions (see its doc comment) — including its "not
+// authenticated" error case, since (unlike poe.leagues.public) a needed
+// fetch here does require an access token: a request with nothing cached,
+// fetchPolicy allowing a fetch, and no resolvable account errors out exactly
+// like poe.profile.*/poe.leagues.detail would, while a fetch:"never" peek or
+// an already-cached (even stale) value never hits that case at all.
+func (s *server) handlePoeLeaguesList(c *hub.Client, msg proto.Message) {
+	var params poeLeaguesRequest
+	if len(msg.Payload) > 0 {
+		if err := json.Unmarshal(msg.Payload, &params); err != nil {
+			s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "bad params: " + err.Error()})
+			return
+		}
+	}
+	if s.db == nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "no db configured"})
+		return
+	}
+	fetchPolicy, err := normalizeFetchPolicy(params.Fetch)
+	if err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
+	}
+	accessToken, err := s.resolvePoeAccountOptional(params.Account)
+	if err != nil {
+		s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: err.Error()})
+		return
+	}
+
+	realm := params.Realm
+	if realm == "" {
+		realm = defaultLeaguesRealm
+	}
+	typ := params.Type
+	if typ == "" {
+		typ = defaultLeaguesType
+	}
+
+	maxAge := poeLeaguesCacheTTL
+	if params.MaxAgeSeconds > 0 {
+		maxAge = time.Duration(params.MaxAgeSeconds) * time.Second
+	}
+	if maxAge < poeLeaguesMinRefetchAge {
+		maxAge = poeLeaguesMinRefetchAge
+	}
+
+	priority := poeLeaguesFetchPriority
+	if params.Priority != 0 {
+		priority = params.Priority
+	}
+
+	leagues, haveCache, isFresh, fetchedAt, waiter := s.ensureLeagues(realm, typ, maxAge, priority, fetchPolicy, accessToken)
+	freshness := freshnessLabel(haveCache, isFresh)
+
+	if waiter == nil {
+		if !haveCache && fetchPolicy != fetchPolicyNever && accessToken == "" {
+			s.send(c, proto.Message{Type: proto.TypeResponse, ID: msg.ID, Error: "no cached leagues, and not authenticated"})
+			return
+		}
 		payload := proto.PoeLeaguesPayload{Status: freshness, Freshness: freshness, Leagues: leagues}
 		if haveCache {
 			payload.FetchedAt = fetchedAt.Unix()
@@ -492,13 +728,15 @@ func (s *server) handlePoeLeaguesList(c *hub.Client, msg proto.Message) {
 // field), not a display label. Account is an optional selector (a
 // poe_uuid or an accounts.name, exactly like poeProfileFieldRequest.Account)
 // used only to obtain an access token if a fetch turns out to be needed —
-// GET /league/{name} requires Bearer auth, unlike the bulk /leagues
-// endpoint; an empty Account with nothing currently authenticated is not
-// itself an error here (see resolvePoeAccountOptional), since a cache-only
-// response never needed a token at all. Realm/MaxAgeSeconds/Priority/Wait/
-// Fetch/IncludeCost behave like poeLeaguesRequest's fields of the same
-// name; there's no Type or Season field — GET /league/{name} looks a league
-// up directly by name, with no type=main/event bucket to choose between.
+// GET /league/{name} requires Bearer auth, unlike poe.leagues.public's bulk
+// /leagues endpoint (poe.leagues.list also requires it, for
+// /account/leagues); an empty Account with nothing currently authenticated
+// is not itself an error here (see resolvePoeAccountOptional), since a
+// cache-only response never needed a token at all. Realm/MaxAgeSeconds/
+// Priority/Wait/Fetch/IncludeCost behave like poeLeaguesRequest's fields of
+// the same name; there's no Type or Season field — GET /league/{name} looks
+// a league up directly by name, with no type=main/event bucket to choose
+// between.
 type poeLeagueDetailRequest struct {
 	Name          string `json:"name"`
 	Realm         string `json:"realm"`
@@ -512,15 +750,15 @@ type poeLeagueDetailRequest struct {
 
 // handlePoeLeaguesDetail serves "poe.leagues.detail": one specific league,
 // by name, fetched from GET /league/{name} (submitLeagueDetailFetch) and
-// cached in the same leagues table poe.leagues.list uses. Follows
+// cached in the same leagues table poe.leagues.list/.public use. Follows
 // handlePoeProfileField's freshness/fetching/cost conventions (see its doc
 // comment) — including its "not authenticated" error case, since (unlike
-// poe.leagues.list) a needed fetch here does require an access token: a
+// poe.leagues.public) a needed fetch here does require an access token: a
 // request with nothing cached, fetchPolicy allowing a fetch, and no
-// resolvable account errors out exactly like poe.profile.* would, while a
-// fetch:"never" peek or an already-cached (even stale) value never hits
-// that case at all. A non-blocking (wait:false) caller learns a fetch's
-// outcome via TopicPoeLeagueDetail.
+// resolvable account errors out exactly like poe.profile.*/poe.leagues.list
+// would, while a fetch:"never" peek or an already-cached (even stale) value
+// never hits that case at all. A non-blocking (wait:false) caller learns a
+// fetch's outcome via TopicPoeLeagueDetail.
 func (s *server) handlePoeLeaguesDetail(c *hub.Client, msg proto.Message) {
 	var params poeLeagueDetailRequest
 	if len(msg.Payload) > 0 {

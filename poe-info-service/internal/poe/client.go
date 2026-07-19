@@ -36,25 +36,27 @@ const (
 // actively rejected by the token server, so the parameter is simply never
 // included rather than sent empty.
 type Client struct {
-	http       *http.Client
-	authURL    string
-	tokenURL   string
-	profileURL string
-	leaguesURL string
-	leagueURL  string
-	userAgent  string
+	http              *http.Client
+	authURL           string
+	tokenURL          string
+	profileURL        string
+	leaguesURL        string
+	leagueURL         string
+	accountLeaguesURL string
+	userAgent         string
 }
 
 // Option configures a Client. WithAuthURL/WithTokenURL/WithProfileURL/
-// WithLeaguesURL/WithLeagueURL exist so tests can point a Client at an
-// httptest.Server instead of the real PoE hosts.
+// WithLeaguesURL/WithLeagueURL/WithAccountLeaguesURL exist so tests can point
+// a Client at an httptest.Server instead of the real PoE hosts.
 type Option func(*Client)
 
-func WithAuthURL(u string) Option    { return func(c *Client) { c.authURL = u } }
-func WithTokenURL(u string) Option   { return func(c *Client) { c.tokenURL = u } }
-func WithProfileURL(u string) Option { return func(c *Client) { c.profileURL = u } }
-func WithLeaguesURL(u string) Option { return func(c *Client) { c.leaguesURL = u } }
-func WithLeagueURL(u string) Option  { return func(c *Client) { c.leagueURL = u } }
+func WithAuthURL(u string) Option           { return func(c *Client) { c.authURL = u } }
+func WithTokenURL(u string) Option          { return func(c *Client) { c.tokenURL = u } }
+func WithProfileURL(u string) Option        { return func(c *Client) { c.profileURL = u } }
+func WithLeaguesURL(u string) Option        { return func(c *Client) { c.leaguesURL = u } }
+func WithLeagueURL(u string) Option         { return func(c *Client) { c.leagueURL = u } }
+func WithAccountLeaguesURL(u string) Option { return func(c *Client) { c.accountLeaguesURL = u } }
 
 // WithVersion sets the version reported in the User-Agent header (see
 // UserAgentApp's doc comment) — callers pass this service's own build
@@ -76,13 +78,14 @@ func NewClient(httpClient *http.Client, opts ...Option) *Client {
 		httpClient = &http.Client{Timeout: requestTimeout}
 	}
 	c := &Client{
-		http:       httpClient,
-		authURL:    AuthURL,
-		tokenURL:   TokenURL,
-		profileURL: ProfileURL,
-		leaguesURL: LeaguesURL,
-		leagueURL:  LeagueURL,
-		userAgent:  fmt.Sprintf("OAuth %s/dev (contact: %s)", UserAgentApp, UserAgentContact),
+		http:              httpClient,
+		authURL:           AuthURL,
+		tokenURL:          TokenURL,
+		profileURL:        ProfileURL,
+		leaguesURL:        LeaguesURL,
+		leagueURL:         LeagueURL,
+		accountLeaguesURL: AccountLeaguesURL,
+		userAgent:         fmt.Sprintf("OAuth %s/dev (contact: %s)", UserAgentApp, UserAgentContact),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -366,4 +369,50 @@ func (c *Client) FetchLeague(ctx context.Context, accessToken, name, realm strin
 		return nil, resp.Header, fmt.Errorf("decode league response: %w", err)
 	}
 	return lr.League, resp.Header, nil
+}
+
+type accountLeaguesResponse struct {
+	Leagues []League `json:"leagues"`
+}
+
+// FetchAccountLeagues calls GET /account/leagues[/<realm>] with accessToken
+// as a Bearer credential, returning the leagues visible to that account
+// (including private ones) plus the response's raw headers, same convention
+// as FetchProfile/FetchLeagues/FetchLeague. Unlike FetchLeagues, this
+// endpoint requires Bearer auth, and unlike FetchLeague its response is
+// wrapped as {"leagues": [...]} rather than a bare array. realm is only ever
+// appended as a path segment when it's a non-PC platform (the endpoint's own
+// documented realm segment is xbox/sony only — PC is assumed when the
+// segment is omitted), so both "" and "pc" send no segment at all.
+func (c *Client) FetchAccountLeagues(ctx context.Context, accessToken, realm string) ([]League, http.Header, error) {
+	reqURL := c.accountLeaguesURL
+	if realm != "" && realm != "pc" {
+		reqURL += "/" + url.PathEscape(realm)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build account leagues request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("User-Agent", c.userAgent)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("account leagues request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.Header, fmt.Errorf("read account leagues response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.Header, fmt.Errorf("account leagues endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var ar accountLeaguesResponse
+	if err := json.Unmarshal(body, &ar); err != nil {
+		return nil, resp.Header, fmt.Errorf("decode account leagues response: %w", err)
+	}
+	return ar.Leagues, resp.Header, nil
 }

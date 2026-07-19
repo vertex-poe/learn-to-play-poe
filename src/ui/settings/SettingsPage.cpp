@@ -1418,6 +1418,11 @@ void SettingsPage::showGamePage()
     loadPageAsync(1, "Game");
 }
 
+void SettingsPage::showAccountsPage()
+{
+    loadPageAsync(8, "Accounts");
+}
+
 void SettingsPage::navigateTo(int pageIndex, const QString &title)
 {
     if (pageIndex == 6)

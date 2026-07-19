@@ -144,15 +144,15 @@ See [`_reference/poe-apis/poe-apis.md`](../../_reference/poe-apis/poe-apis.md)
 §3.3 for the full protocol reference this implements (PKCE mechanics,
 loopback redirect rationale, token lifecycle state machine, the
 `client_secret` refresh quirk). This service only implements
-*authentication* plus the `/profile` and `/leagues` data endpoints (see
-below) — the rest of the OAuth data endpoints (`/character`, `/stash`, etc.,
-§6.2 of that doc) are not yet wired up.
+*authentication* plus the `/profile`, `/leagues`, and `/account/leagues`
+data endpoints (see below) — the rest of the OAuth data endpoints
+(`/character`, `/stash`, etc., §6.2 of that doc) are not yet wired up.
 
 ### User-Agent requirement (every `api.pathofexile.com` call)
 
 Every request `internal/poe.Client` sends — token exchange/refresh,
-`/profile`, `/leagues`, `/league/{name}` — carries a `User-Agent` header
-formatted `OAuth {app}/{version} (contact: {contact})`
+`/profile`, `/leagues`, `/league/{name}`, `/account/leagues` — carries a
+`User-Agent` header formatted `OAuth {app}/{version} (contact: {contact})`
 (`UserAgentApp`/`UserAgentContact`/`WithVersion` in `internal/poe/client.go`,
 wired with this service's own build version via `poe.WithVersion(cfg.Version)`
 in `internal/server/server.go`). This is required, not optional: GGG's
@@ -164,7 +164,7 @@ Confirmed directly: the same `/leagues` request gets a 200 with `curl`'s
 default UA and a 403 Cloudflare challenge page with Go's `net/http` default
 (`Go-http-client/1.1`, what an `http.Client` sends when nothing else sets a
 `User-Agent`) — which is exactly what silently broke `poe.leagues.list`
-before this header was added.
+(now `poe.leagues.public`) before this header was added.
 
 poe_oauth.go's sole points of contact with `internal/creds`
 (`loadPoeOAuthToken`/`savePoeOAuthToken`/`clearPoeOAuthToken`) are never
@@ -176,47 +176,74 @@ migration" section.
 
 ## PoE Leagues
 
-`poe.leagues.list` (`internal/server/poe_leagues.go`) serves the OAuth data
-API's `GET /leagues` — the one endpoint in that API that requires no Bearer
-token at all (`internal/poe.Client.FetchLeagues` sends no `Authorization`
-header, unlike `FetchProfile`). Because it's account-independent, this
-method needs no `account` selector, unlike `poe.profile.*`.
+### Design philosophy: why there are two "leagues list" methods
 
-Results are cached in the `leagues` table (see `schema.md`),
-keyed by `(name, realm)` since a league name like "Standard" repeats
-identically across realms. A request accepts optional `realm`
-(`pc`/`xbox`/`sony`/`poe2`, default `pc`), `type` (`main`/`event`/`season`,
-default `main`), and `season` (only meaningful for `type: "season"`) filters
-mirroring the endpoint's own query parameters, plus the same
-`maxAgeSeconds`/`priority`/`wait` triple `poe.profile.locale`/
-`poe.profile.twitch` accept, and follows the identical fresh/pending/ok
-response convention (see the PoE OAuth section above) — a fresh cache hit
-responds immediately; otherwise a fetch is submitted to the same
-`s.poeQueue` used by `/profile`, under a stable `poeOAuthLeaguesPolicyHint`
-tag, and the result (or a background failure) is published to
-`TopicPoeLeagues` for any `wait:false` caller. Default cache TTL is 6 hours
-(`poeLeaguesCacheTTL`, `poe_constants.go`) — leagues rarely change — clamped
-to a 5-minute floor (`poeLeaguesMinRefetchAge`) regardless of what a caller
-requests.
+This service exists to serve any number of present and future client tools
+(see [`../README.md`](../README.md)), not just whatever `l2p-poe`'s current
+UI needs today, so it generally aims for parity with the upstream APIs it
+wraps — exposing both an unauthenticated and an authenticated variant of an
+endpoint when the upstream API offers both, rather than collapsing down to
+only one. The naming convention: **the plain, unqualified method name is
+always the complete-for-a-signed-in-user variant**; an explicitly-suffixed
+sibling (`.public`) covers the deliberately narrower one. `poe.leagues.list`
+and `poe.leagues.public` below are the concrete example of this.
+
+`poe.leagues.list` (`internal/server/poe_leagues.go`) serves the OAuth data
+API's account-scoped `GET /account/leagues[/<realm>]` (scope
+`account:leagues`) — Bearer-authenticated, and returns every league visible
+to the signed-in account, private leagues included
+(`internal/poe.Client.FetchAccountLeagues`). This is what most callers
+reaching for "the leagues list" actually want, so it owns the plain,
+unqualified name.
+
+`poe.leagues.public` serves the OAuth data API's `GET /leagues` — the one
+endpoint in that API that requires no Bearer token at all
+(`internal/poe.Client.FetchLeagues` sends no `Authorization` header, unlike
+`FetchProfile`). Because it's account-independent, this method needs no
+`account` selector, unlike `poe.profile.*`/`poe.leagues.list`. It exists for
+a caller that specifically wants the public, account-independent catalogue
+(or has no signed-in account at all) — most callers should reach for
+`poe.leagues.list` instead.
+
+Both share the same `leagues` table (see `schema.md`), keyed by `(name,
+realm)` since a league name like "Standard" repeats identically across
+realms — an update from either method upserts the same row shape. A request
+accepts optional `realm` (`pc`/`xbox`/`sony`/`poe2`, default `pc`) and `type`
+(`main`/`event`/`season`, default `main`, used only to filter the shared
+table locally — `GET /account/leagues` accepts no such filter itself)
+filters, plus the same `maxAgeSeconds`/`priority`/`wait` triple
+`poe.profile.locale`/`poe.profile.twitch` accept, and follows the identical
+fresh/pending/ok response convention (see the PoE OAuth section above) — a
+fresh cache hit responds immediately; otherwise a fetch is submitted to the
+same `s.poeQueue` used by `/profile`, under a stable
+`poeOAuthLeaguesPolicyHint`/`poeOAuthPublicLeaguesPolicyHint` tag
+respectively, and the result (or a background failure) is published to
+`TopicPoeLeagues`/`TopicPoeLeaguesPublic` for any `wait:false` caller.
+`poe.leagues.public` alone additionally accepts `season` (only meaningful
+for `type: "season"`, mirroring `GET /leagues`'s own query parameter — `GET
+/account/leagues` has no such concept). Default cache TTL is 6 hours
+(`poeLeaguesCacheTTL`, `poe_constants.go`) for both — leagues rarely change —
+clamped to a 5-minute floor (`poeLeaguesMinRefetchAge`) regardless of what a
+caller requests.
 
 This is unrelated to `poe.league` (singular, `internal/server/steam.go`) —
 that's the player's *current* league, parsed from Steam rich-presence text;
-`poe.leagues.list` is the full catalogue of currently active leagues fetched
-from the PoE OAuth API. `poe.league`'s response does get a zero-cost bonus
-from this table though: `leagueDetailFor` joins in whatever's already
-cached for the parsed league name (assuming the `pc` realm, since Steam rich
-presence only ever describes a `pc` client) as the response's `detail`
-field — a plain DB read, never a fetch of its own, and nil if nothing's
-cached yet.
+`poe.leagues.list`/`.public` are the full catalogue of currently active
+leagues fetched from the PoE OAuth API. `poe.league`'s response does get a
+zero-cost bonus from this table though: `leagueDetailFor` joins in whatever's
+already cached for the parsed league name (assuming the `pc` realm, since
+Steam rich presence only ever describes a `pc` client) as the response's
+`detail` field — a plain DB read, never a fetch of its own, and nil if
+nothing's cached yet.
 
 `poe.leagues.detail` (same file) serves one specific league by name, fetched
 from `GET /league/{name}` (`internal/poe.Client.FetchLeague`,
 `submitLeagueDetailFetch`) and cached in the same `leagues` table
-`poe.leagues.list` uses (an update to either upserts the same row shape).
-Unlike the bulk `GET /leagues`, this single-league endpoint is *not* public
-— it requires `Authorization: Bearer` like every other OAuth data endpoint
-(`_reference/poe-apis/poe-apis.md` §6.2), so `poe.leagues.detail` gained an
-optional `account` selector mirroring `poe.profile.*`'s
+`poe.leagues.list`/`.public` use. Like `poe.leagues.list` (and unlike
+`poe.leagues.public`), this single-league endpoint is *not* public — it
+requires `Authorization: Bearer` like every other OAuth data endpoint
+(`_reference/poe-apis/poe-apis.md` §6.2), so `poe.leagues.detail` has an
+optional `account` selector mirroring `poe.profile.*`'s/`poe.leagues.list`'s
 (`resolvePoeAccountOptional` — a tolerant sibling of `resolvePoeAccount`
 that, unlike it, doesn't error on an empty selector with nobody
 authenticated, since a cache-only response here needs no account context at

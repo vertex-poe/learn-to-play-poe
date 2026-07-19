@@ -91,7 +91,7 @@ func TestClient_UserAgent_WithVersion_UsesGivenVersion(t *testing.T) {
 // silently 403ing every OAuth API call, including the token endpoint and
 // Bearer-authenticated ones, until this was added everywhere).
 func TestClient_UserAgent_SentOnTokenAndProfileAndLeagueRequests(t *testing.T) {
-	var gotTokenUA, gotProfileUA, gotLeagueUA string
+	var gotTokenUA, gotProfileUA, gotLeagueUA, gotAccountLeaguesUA string
 	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		gotTokenUA = req.Header.Get("User-Agent")
 		w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":3600,"scope":"","username":"u","sub":"s"}`))
@@ -107,8 +107,13 @@ func TestClient_UserAgent_SentOnTokenAndProfileAndLeagueRequests(t *testing.T) {
 		w.Write([]byte(`{"league":{"id":"Standard","realm":"pc"}}`))
 	}))
 	defer leagueSrv.Close()
+	accountLeaguesSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotAccountLeaguesUA = req.Header.Get("User-Agent")
+		w.Write([]byte(`{"leagues":[]}`))
+	}))
+	defer accountLeaguesSrv.Close()
 
-	c := NewClient(nil, WithTokenURL(tokenSrv.URL), WithProfileURL(profileSrv.URL), WithLeagueURL(leagueSrv.URL))
+	c := NewClient(nil, WithTokenURL(tokenSrv.URL), WithProfileURL(profileSrv.URL), WithLeagueURL(leagueSrv.URL), WithAccountLeaguesURL(accountLeaguesSrv.URL))
 	if _, err := c.ExchangeCode(context.Background(), "http://127.0.0.1/cb", "code", "verifier"); err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}
@@ -118,9 +123,12 @@ func TestClient_UserAgent_SentOnTokenAndProfileAndLeagueRequests(t *testing.T) {
 	if _, _, err := c.FetchLeague(context.Background(), "access-token", "Standard", ""); err != nil {
 		t.Fatalf("FetchLeague: %v", err)
 	}
+	if _, _, err := c.FetchAccountLeagues(context.Background(), "access-token", ""); err != nil {
+		t.Fatalf("FetchAccountLeagues: %v", err)
+	}
 
 	wantPrefix := "OAuth " + UserAgentApp + "/"
-	for name, got := range map[string]string{"token": gotTokenUA, "profile": gotProfileUA, "league": gotLeagueUA} {
+	for name, got := range map[string]string{"token": gotTokenUA, "profile": gotProfileUA, "league": gotLeagueUA, "accountLeagues": gotAccountLeaguesUA} {
 		if !strings.HasPrefix(got, wantPrefix) {
 			t.Errorf("%s request User-Agent = %q, want prefix %q", name, got, wantPrefix)
 		}
@@ -543,6 +551,92 @@ func TestClient_FetchLeague_NonOKStatusIsError(t *testing.T) {
 	_, _, err := c.FetchLeague(context.Background(), "expired-token", "Standard", "")
 	if err == nil {
 		t.Fatal("FetchLeague with a 401 response: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("error = %v, want it to mention the 401 status", err)
+	}
+}
+
+// TestClient_FetchAccountLeagues_SendsBearerAndParsesWrappedResponse proves
+// FetchAccountLeagues authenticates with the given access token — unlike
+// FetchLeagues, GET /account/leagues requires Bearer auth — and decodes the
+// {"leagues": [...]} wrapper, unlike FetchLeagues's bare array.
+func TestClient_FetchAccountLeagues_SendsBearerAndParsesWrappedResponse(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotAuth = req.Header.Get("Authorization")
+		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"},{"id":"My Private League","realm":"pc"}]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithAccountLeaguesURL(srv.URL))
+	leagues, _, err := c.FetchAccountLeagues(context.Background(), "the-access-token", "")
+	if err != nil {
+		t.Fatalf("FetchAccountLeagues: %v", err)
+	}
+	if gotAuth != "Bearer the-access-token" {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, "Bearer the-access-token")
+	}
+	if len(leagues) != 2 || leagues[0].ID != "Standard" || leagues[1].ID != "My Private League" {
+		t.Errorf("leagues = %+v, want [Standard, My Private League] decoded from the wrapped response", leagues)
+	}
+}
+
+// TestClient_FetchAccountLeagues_PCOrEmptyRealm_NoPathSegment proves both ""
+// and "pc" omit the realm path segment entirely — the endpoint's own
+// documented realm segment is xbox/sony only, with PC assumed when omitted.
+func TestClient_FetchAccountLeagues_PCOrEmptyRealm_NoPathSegment(t *testing.T) {
+	for _, realm := range []string{"", "pc"} {
+		var gotPath string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			gotPath = req.URL.Path
+			w.Write([]byte(`{"leagues":[]}`))
+		}))
+
+		c := NewClient(nil, WithAccountLeaguesURL(srv.URL))
+		if _, _, err := c.FetchAccountLeagues(context.Background(), "token", realm); err != nil {
+			t.Fatalf("FetchAccountLeagues(realm=%q): %v", realm, err)
+		}
+		if gotPath != "" && gotPath != "/" {
+			t.Errorf("realm=%q: path = %q, want no realm segment appended", realm, gotPath)
+		}
+		srv.Close()
+	}
+}
+
+// TestClient_FetchAccountLeagues_NonPCRealm_AppendsPathSegment proves a
+// non-PC realm (xbox/sony) is appended as a path segment.
+func TestClient_FetchAccountLeagues_NonPCRealm_AppendsPathSegment(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotPath = req.URL.Path
+		w.Write([]byte(`{"leagues":[]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithAccountLeaguesURL(srv.URL+"/account/leagues"))
+	if _, _, err := c.FetchAccountLeagues(context.Background(), "token", "xbox"); err != nil {
+		t.Fatalf("FetchAccountLeagues: %v", err)
+	}
+	if gotPath != "/account/leagues/xbox" {
+		t.Errorf("path = %q, want /account/leagues/xbox", gotPath)
+	}
+}
+
+// TestClient_FetchAccountLeagues_NonOKStatusIsError proves a non-200
+// response is reported as an error rather than silently returning an empty
+// list.
+func TestClient_FetchAccountLeagues_NonOKStatusIsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"invalid_token"}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(nil, WithAccountLeaguesURL(srv.URL))
+	_, _, err := c.FetchAccountLeagues(context.Background(), "expired-token", "")
+	if err == nil {
+		t.Fatal("FetchAccountLeagues with a 401 response: want error, got nil")
 	}
 	if !strings.Contains(err.Error(), "401") {
 		t.Errorf("error = %v, want it to mention the 401 status", err)

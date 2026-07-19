@@ -135,7 +135,9 @@
       "Bash(gofmt -l .)",
       "Bash(sqlite3 --version)",
       "Bash(sqlite3 -header -column *)",
-      "Bash(gofmt -l -w *)"
+      "Bash(gofmt -l -w *)",
+      "Bash(go test -C *)",
+      "Bash(go vet -C *)"
     ],
     "additionalDirectories": [
       "\\tmp"

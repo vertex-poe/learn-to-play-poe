@@ -1184,6 +1184,9 @@ func (s *server) handleRequest(c *hub.Client, msg proto.Message) {
 	case "poe.leagues.list":
 		s.handlePoeLeaguesList(c, msg)
 
+	case "poe.leagues.public":
+		s.handlePoeLeaguesPublic(c, msg)
+
 	case "poe.leagues.detail":
 		s.handlePoeLeaguesDetail(c, msg)
 

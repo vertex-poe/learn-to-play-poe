@@ -36,6 +36,13 @@ const (
 	// §6.2's public exceptions).
 	LeagueURL = "https://api.pathofexile.com/league"
 
+	// AccountLeaguesURL is the OAuth data API's account-scoped leagues
+	// endpoint (GET /account/leagues[/<realm>], scope account:leagues) —
+	// like LeagueURL, this requires a Bearer token, and unlike LeaguesURL it
+	// returns only leagues visible to the signed-in account, including
+	// private ones.
+	AccountLeaguesURL = "https://api.pathofexile.com/account/leagues"
+
 	// ClientID is a public, hardcoded identifier for a public (secret-less)
 	// OAuth client — not a secret, never paired with a client_secret.
 	ClientID = "REPLACE_WITH_REGISTERED_CLIENT_ID"

@@ -2,20 +2,44 @@
 #include "services/PoeInfoClient.h"
 #include "services/PoeInfoRecords.h"
 #include "ui/Theme.h"
+#include "util/PoeOAuthStore.h"
 
 #include <QComboBox>
 #include <QDebug>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLabel>
 #include <QPointer>
+#include <QPushButton>
 #include <QTimer>
 #include <QVBoxLayout>
 
 StashPage::StashPage(QWidget *parent)
     : QWidget(parent)
 {
+    m_authNotice = new QFrame(this);
+    m_authNotice->setObjectName(QStringLiteral("stashAuthNotice"));
+    m_authNotice->setFrameShape(QFrame::StyledPanel);
+    m_authNotice->setVisible(false);
+    {
+        auto *box = new QHBoxLayout(m_authNotice);
+        box->setContentsMargins(Theme::spacingBase, Theme::spacingSm, Theme::spacingBase, Theme::spacingSm);
+        box->setSpacing(Theme::spacingSm);
+
+        auto *label = new QLabel("Sign in to Path of Exile to view your leagues.", m_authNotice);
+        QPalette pal = label->palette();
+        pal.setColor(QPalette::WindowText, Theme::textPlaceholder);
+        label->setPalette(pal);
+        box->addWidget(label, 1);
+
+        auto *loginBtn = new QPushButton("Sign in…", m_authNotice);
+        loginBtn->setObjectName(QStringLiteral("stashAuthNoticeLoginBtn"));
+        connect(loginBtn, &QPushButton::clicked, this, &StashPage::loginRequested);
+        box->addWidget(loginBtn, 0);
+    }
+
     auto *headerRow = new QWidget(this);
     auto *headerBox = new QHBoxLayout(headerRow);
     headerBox->setContentsMargins(Theme::spacingSm, Theme::spacingSm, Theme::spacingSm, Theme::spacingSm);
@@ -36,6 +60,7 @@ StashPage::StashPage(QWidget *parent)
     auto *vbox = new QVBoxLayout(this);
     vbox->setContentsMargins(0, 0, 0, 0);
     vbox->setSpacing(0);
+    vbox->addWidget(m_authNotice);
     vbox->addWidget(headerRow);
     vbox->addStretch(1);
 }
@@ -44,18 +69,29 @@ void StashPage::setPoeInfoClient(PoeInfoClient *client)
 {
     m_poeInfoClient = client;
     connect(client, &PoeInfoClient::connected, this, [this] {
-        if (isVisible()) rebuild();
+        if (isVisible() && m_authorized) rebuild();
         else m_dirty = true;
     });
     m_dirty = true;
+
+    if (!m_oauthStore) {
+        m_oauthStore = new PoeOAuthStore(client, this);
+        connect(m_oauthStore, &PoeOAuthStore::statusChanged, this,
+                [this](bool authorized, bool /*inProgress*/, const QString & /*username*/,
+                       const QString & /*scope*/, qint64 /*accessExpiration*/, const QString & /*error*/) {
+            setAuthorized(authorized);
+        });
+    }
+    m_oauthStore->checkStatus();
+
     triggerLoadIfNeeded();
 }
 
 void StashPage::preload()
 {
-    if (!m_dirty || !m_poeInfoClient || !m_poeInfoClient->isConnected() || m_rebuildInFlight) return;
+    if (!m_dirty || !m_poeInfoClient || !m_poeInfoClient->isConnected() || !m_authorized || m_rebuildInFlight) return;
     QTimer::singleShot(0, this, [this] {
-        if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected() && !isVisible()) rebuild();
+        if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected() && m_authorized && !isVisible()) rebuild();
     });
 }
 
@@ -66,9 +102,9 @@ QString StashPage::currentLeague() const
 
 void StashPage::triggerLoadIfNeeded()
 {
-    if (m_dirty && m_poeInfoClient && isVisible() && m_poeInfoClient->isConnected()) {
+    if (m_dirty && m_poeInfoClient && isVisible() && m_poeInfoClient->isConnected() && m_authorized) {
         QTimer::singleShot(0, this, [this] {
-            if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected()) rebuild();
+            if (m_dirty && m_poeInfoClient && m_poeInfoClient->isConnected() && m_authorized) rebuild();
         });
     }
 }
@@ -79,9 +115,26 @@ void StashPage::showEvent(QShowEvent *e)
     triggerLoadIfNeeded();
 }
 
+void StashPage::setAuthorized(bool authorized)
+{
+    const bool wasAuthorized = m_authorized;
+    m_authorized = authorized;
+    m_authNotice->setVisible(!authorized);
+
+    if (!authorized) {
+        QSignalBlocker blocker(m_leagueCombo);
+        m_leagueCombo->clear();
+        m_leagueCombo->addItem("Sign in to view leagues");
+        m_leagueCombo->setEnabled(false);
+    } else if (!wasAuthorized) {
+        m_dirty = true;
+        triggerLoadIfNeeded();
+    }
+}
+
 void StashPage::rebuild()
 {
-    if (!m_poeInfoClient || !m_poeInfoClient->isConnected()) return;
+    if (!m_poeInfoClient || !m_poeInfoClient->isConnected() || !m_authorized) return;
     if (m_rebuildInFlight) { m_dirty = true; return; }
     m_dirty           = false;
     m_rebuildInFlight = true;

@@ -332,16 +332,20 @@ type LeagueSummary struct {
 	DelveEvent  bool     `json:"delveEvent"`
 }
 
-// PoeLeaguesPayload is the "poe.leagues.list" response shape, and what's
-// published to TopicPoeLeagues. Status mirrors PoeProfileFieldPayload's
-// convention (see its doc comment for the full "fresh"/"stale"/"miss"/
-// "pending"/"ok"/"error" vocabulary and what Freshness/Fetching split out of
-// it). Leagues/FetchedAt are populated whenever Freshness isn't "miss" —
-// including on a "pending" response, where they carry whatever was cached
-// before this fetch (possibly stale, possibly empty) so a caller has
-// something to show immediately rather than nothing until the fetch
-// completes. Cost is set only when this specific call actually performed a
-// fetch and the caller requested it (see poeLeaguesRequest.IncludeCost).
+// PoeLeaguesPayload is the "poe.leagues.list" and "poe.leagues.public"
+// response shape, and what's published to TopicPoeLeagues/
+// TopicPoeLeaguesPublic respectively — both endpoints return the same
+// shape, differing only in which leagues are visible (account-scoped,
+// private leagues included, vs. the public catalogue). Status mirrors
+// PoeProfileFieldPayload's convention (see its doc comment for the full
+// "fresh"/"stale"/"miss"/"pending"/"ok"/"error" vocabulary and what
+// Freshness/Fetching split out of it). Leagues/FetchedAt are populated
+// whenever Freshness isn't "miss" — including on a "pending" response,
+// where they carry whatever was cached before this fetch (possibly stale,
+// possibly empty) so a caller has something to show immediately rather than
+// nothing until the fetch completes. Cost is set only when this specific
+// call actually performed a fetch and the caller requested it (see
+// poeLeaguesRequest.IncludeCost).
 type PoeLeaguesPayload struct {
 	Status    string          `json:"status"`
 	Freshness string          `json:"freshness"`
@@ -352,12 +356,19 @@ type PoeLeaguesPayload struct {
 	Cost      *FetchCost      `json:"cost,omitempty"`
 }
 
-// TopicPoeLeagues carries PoeLeaguesPayload whenever a GET /leagues fetch
-// completes (successfully or not), letting a non-blocking (wait:false)
+// TopicPoeLeagues carries PoeLeaguesPayload whenever a GET /account/leagues
+// fetch completes (successfully or not), letting a non-blocking (wait:false)
 // poe.leagues.list caller learn the result asynchronously instead of
 // polling. Cost is always populated when present, the same as
 // TopicPoeProfile.
 const TopicPoeLeagues = "poeLeagues"
+
+// TopicPoeLeaguesPublic is TopicPoeLeagues's counterpart for
+// poe.leagues.public's GET /leagues fetches — kept as its own topic, distinct
+// from TopicPoeLeagues, since the two endpoints serve different (if
+// overlapping) data and a subscriber to one shouldn't be handed the other's
+// results.
+const TopicPoeLeaguesPublic = "poeLeaguesPublic"
 
 // PoeLeagueDetailPayload is the "poe.leagues.detail" response shape — one
 // specific league, by name, fetched from GET /league/{name} rather than

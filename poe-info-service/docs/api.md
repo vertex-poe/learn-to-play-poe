@@ -400,19 +400,23 @@ never expects to fetch, so it never hits this case — it just reports
 #### `poe.leagues.list`
 
 ```json
-{"realm": "pc", "type": "main", "season": "", "maxAgeSeconds": 0, "priority": 0, "wait": false, "fetch": "ifStale", "includeCost": false}
+{"realm": "pc", "type": "main", "account": "", "maxAgeSeconds": 0, "priority": 0, "wait": false, "fetch": "ifStale", "includeCost": false}
 ```
 
-All fields optional. `realm` (`pc`/`xbox`/`sony`/`poe2`, default `pc`),
-`type` (`main`/`event`/`season`, default `main`), `season` (only meaningful
-for `type: "season"`, PoE1 only) mirror `GET /leagues`'s own query
-parameters. `maxAgeSeconds`/`priority`/`wait`/`fetch`/`includeCost` behave
+All fields optional. `realm` (`pc`/`xbox`/`sony`, default `pc`) is forwarded
+to `GET /account/leagues[/<realm>]` as its path segment (omitted entirely
+for `pc`); `type` (`main`/`event`, default `main`) filters the shared
+`leagues` table's cached rows locally only — the upstream endpoint accepts
+no such filter itself, it always returns everything visible to the account.
+`account` is an optional selector (a `poe_uuid` or an `accounts.name`,
+exactly like `poe.profile.*`'s field of the same name) used only to obtain
+an access token if a fetch turns out to be needed; an empty `account` with
+nobody currently signed in is not itself an error (see
+`resolvePoeAccountOptional`), since a cache-only response never needed a
+token at all. `maxAgeSeconds`/`priority`/`wait`/`fetch`/`includeCost` behave
 like `poe.profile.*`'s fields of the same name (default cache TTL 6 hours,
-clamped to a 5-minute floor; default priority Medium=2). Unlike
-`poe.profile.*`, no `account` selector exists, and there's no "not
-authenticated" error case — `GET /leagues` is public and account-independent,
-so a fetch is always schedulable regardless of PoE OAuth sign-in state.
-Returns `PoeLeaguesPayload`:
+clamped to a 5-minute floor; default priority Medium=2). Returns
+`PoeLeaguesPayload`:
 
 ```json
 {"status": "fresh", "freshness": "fresh", "fetching": false, "leagues": [LeagueSummary, ...], "fetchedAt": 1700000000, "error": "", "cost": null}
@@ -427,6 +431,35 @@ Each `LeagueSummary`:
 `endAt` is `""` for a permanent league. `rules` is the flattened list of
 rule id strings — no other per-rule metadata exists today.
 
+A response with nothing cached, a `fetch` policy that would need to fetch,
+and no resolvable account errors out with `"no cached leagues, and not
+authenticated"` — the same convention as `poe.leagues.detail`/`poe.profile.*`
+below. A `fetch: "never"` peek never hits that case, since it never expects
+to fetch in the first place; it just reports `status: "miss"`.
+
+See `poe.leagues.public` (just below) for the unauthenticated,
+account-independent sibling of this method — most callers should reach for
+`poe.leagues.list` instead, since it includes private leagues for whichever
+account is signed in.
+
+#### `poe.leagues.public`
+
+```json
+{"realm": "pc", "type": "main", "season": "", "maxAgeSeconds": 0, "priority": 0, "wait": false, "fetch": "ifStale", "includeCost": false}
+```
+
+All fields optional. `realm` (`pc`/`xbox`/`sony`/`poe2`, default `pc`),
+`type` (`main`/`event`/`season`, default `main`), `season` (only meaningful
+for `type: "season"`, PoE1 only) mirror `GET /leagues`'s own query
+parameters. `maxAgeSeconds`/`priority`/`wait`/`fetch`/`includeCost` behave
+like `poe.profile.*`'s fields of the same name (default cache TTL 6 hours,
+clamped to a 5-minute floor; default priority Medium=2). Unlike
+`poe.leagues.list`/`poe.profile.*`, no `account` selector exists, and
+there's no "not authenticated" error case — `GET /leagues` is public and
+account-independent, so a fetch is always schedulable regardless of PoE
+OAuth sign-in state. Returns `PoeLeaguesPayload` (same shape as
+`poe.leagues.list`'s, described above).
+
 #### `poe.leagues.detail`
 
 ```json
@@ -439,14 +472,15 @@ display label. `realm`/`maxAgeSeconds`/`priority`/`wait`/`fetch`/
 no `type`/`season` here — `GET /league/{name}` looks a league up directly
 by name, with no `type=main`/`event` bucket to choose between). `account`
 is an optional selector (a `poe_uuid` or an `accounts.name`, exactly like
-`poe.profile.*`'s field of the same name) — used only to obtain a Bearer
-token if a fetch turns out to be needed: unlike `poe.leagues.list`'s bulk
-`GET /leagues`, this single-league endpoint isn't public. An empty
-`account` with nobody currently signed in is *not* itself an error — it
-just means no fetch can happen, exactly like `poe.leagues.list`'s
-account-independence, except here that only matters once a fetch is
-actually needed (see below). Returns `PoeLeagueDetailPayload` — the same
-vocabulary as `poe.leagues.list`, but for one league:
+`poe.profile.*`'s/`poe.leagues.list`'s field of the same name) — used only
+to obtain a Bearer token if a fetch turns out to be needed: like
+`poe.leagues.list` (and unlike `poe.leagues.public`'s bulk `GET /leagues`),
+this single-league endpoint isn't public. An empty `account` with nobody
+currently signed in is *not* itself an error — it just means no fetch can
+happen, exactly like `poe.leagues.list`'s own account handling, except here
+that only matters once a fetch is actually needed (see below). Returns
+`PoeLeagueDetailPayload` — the same vocabulary as `poe.leagues.list`, but
+for one league:
 
 ```json
 {"status": "fresh", "freshness": "fresh", "fetching": false, "league": LeagueSummary, "fetchedAt": 1700000000, "error": "", "cost": null}

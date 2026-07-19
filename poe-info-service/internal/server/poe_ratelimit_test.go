@@ -205,11 +205,11 @@ func TestHandlePoeRateLimitStatus_ReflectsQueueState(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := newPoeLeaguesTestServer(t, srv.URL)
+	s := newPoePublicLeaguesTestServer(t, srv.URL)
 	c := hub.NewClient()
 	defer c.Close()
-	payloadBytes, _ := json.Marshal(poeLeaguesRequest{Wait: true})
-	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+	payloadBytes, _ := json.Marshal(poePublicLeaguesRequest{Wait: true})
+	s.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
 	recvResponse(t, c) // drain the list response itself
 
 	s.handlePoeRateLimitStatus(c, proto.Message{Type: proto.TypeRequest, ID: "req-2"})

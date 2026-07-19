@@ -34,12 +34,12 @@ func openLeaguesTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// newPoeLeaguesTestServer builds a *server with everything poe_leagues.go
-// touches: a real schema'd in-memory db, a real reqqueue.Queue using the
-// real OAuth header parser, and a poeClient pointed at leaguesURL (normally
-// an httptest.Server) — same shape as newPoeProfileTestServer in
-// poe_profile_test.go.
-func newPoeLeaguesTestServer(t *testing.T, leaguesURL string) *server {
+// newPoePublicLeaguesTestServer builds a *server with everything
+// poe_leagues.go's poe.leagues.public path touches: a real schema'd
+// in-memory db, a real reqqueue.Queue using the real OAuth header parser,
+// and a poeClient pointed at leaguesURL (normally an httptest.Server) — same
+// shape as newPoeProfileTestServer in poe_profile_test.go.
+func newPoePublicLeaguesTestServer(t *testing.T, leaguesURL string) *server {
 	t.Helper()
 	db := openLeaguesTestDB(t)
 
@@ -51,6 +51,26 @@ func newPoeLeaguesTestServer(t *testing.T, leaguesURL string) *server {
 		hub:       hub.New(),
 		rootCtx:   ctx,
 		poeClient: poe.NewClient(nil, poe.WithLeaguesURL(leaguesURL)),
+		poeQueue:  reqqueue.New(ctx, poeOAuthRateLimitHeaders),
+	}
+}
+
+// newPoeLeaguesTestServer is newPoePublicLeaguesTestServer's counterpart for
+// poe.leagues.list (account-scoped) tests, pointing the client at
+// accountLeaguesURL (GET /account/leagues) instead of the public bulk
+// /leagues endpoint.
+func newPoeLeaguesTestServer(t *testing.T, accountLeaguesURL string) *server {
+	t.Helper()
+	db := openLeaguesTestDB(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	return &server{
+		db:        db,
+		hub:       hub.New(),
+		rootCtx:   ctx,
+		poeClient: poe.NewClient(nil, poe.WithAccountLeaguesURL(accountLeaguesURL)),
 		poeQueue:  reqqueue.New(ctx, poeOAuthRateLimitHeaders),
 	}
 }
@@ -218,17 +238,17 @@ func TestQueryLeaguesRows_Empty_ZeroTimeOldest(t *testing.T) {
 	}
 }
 
-// --- handlePoeLeaguesList ---
+// --- handlePoeLeaguesPublic ---
 
-func TestHandlePoeLeaguesList_CacheHit_ReturnsFresh(t *testing.T) {
-	s := newPoeLeaguesTestServer(t, "")
+func TestHandlePoeLeaguesPublic_CacheHit_ReturnsFresh(t *testing.T) {
+	s := newPoePublicLeaguesTestServer(t, "")
 	if err := upsertLeagues(s.db, []poe.League{{ID: "Standard", Realm: "pc"}}, time.Now()); err != nil {
 		t.Fatalf("seed leagues: %v", err)
 	}
 
 	c := hub.NewClient()
 	defer c.Close()
-	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+	s.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
 
 	resp := recvResponse(t, c)
 	var payload proto.PoeLeaguesPayload
@@ -240,24 +260,25 @@ func TestHandlePoeLeaguesList_CacheHit_ReturnsFresh(t *testing.T) {
 	}
 }
 
-// TestHandlePoeLeaguesList_NoCache_NoWait_ReturnsPendingThenPublishes proves
-// the non-blocking path: an immediate "pending" response, followed by the
-// fetched list arriving on TopicPoeLeagues once the background fetch
-// (against a real httptest server standing in for api.pathofexile.com)
-// completes — mirroring TestHandlePoeProfileTwitch_NoCache_NoWait_....
-func TestHandlePoeLeaguesList_NoCache_NoWait_ReturnsPendingThenPublishes(t *testing.T) {
+// TestHandlePoeLeaguesPublic_NoCache_NoWait_ReturnsPendingThenPublishes
+// proves the non-blocking path: an immediate "pending" response, followed by
+// the fetched list arriving on TopicPoeLeaguesPublic once the background
+// fetch (against a real httptest server standing in for
+// api.pathofexile.com) completes — mirroring
+// TestHandlePoeProfileTwitch_NoCache_NoWait_....
+func TestHandlePoeLeaguesPublic_NoCache_NoWait_ReturnsPendingThenPublishes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Write([]byte(`[{"id":"Standard","realm":"pc","event":false}]`))
 	}))
 	defer srv.Close()
 
-	s := newPoeLeaguesTestServer(t, srv.URL)
+	s := newPoePublicLeaguesTestServer(t, srv.URL)
 
 	c := hub.NewClient()
 	defer c.Close()
-	s.hub.Subscribe(c, proto.TopicPoeLeagues)
+	s.hub.Subscribe(c, proto.TopicPoeLeaguesPublic)
 
-	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+	s.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
 
 	first := recvResponse(t, c)
 	var firstPayload proto.PoeLeaguesPayload
@@ -269,8 +290,8 @@ func TestHandlePoeLeaguesList_NoCache_NoWait_ReturnsPendingThenPublishes(t *test
 	}
 
 	pushed := recvResponse(t, c)
-	if pushed.Type != proto.TypeEvent || pushed.Topic != proto.TopicPoeLeagues {
-		t.Fatalf("expected a TopicPoeLeagues event, got %+v", pushed)
+	if pushed.Type != proto.TypeEvent || pushed.Topic != proto.TopicPoeLeaguesPublic {
+		t.Fatalf("expected a TopicPoeLeaguesPublic event, got %+v", pushed)
 	}
 	var pushedPayload proto.PoeLeaguesPayload
 	if err := json.Unmarshal(pushed.Payload, &pushedPayload); err != nil {
@@ -281,21 +302,21 @@ func TestHandlePoeLeaguesList_NoCache_NoWait_ReturnsPendingThenPublishes(t *test
 	}
 }
 
-// TestHandlePoeLeaguesList_Wait_ReturnsOkInline proves the blocking path
+// TestHandlePoeLeaguesPublic_Wait_ReturnsOkInline proves the blocking path
 // delivers the fetched list directly on the same request/response, tagged
 // "ok" rather than "pending".
-func TestHandlePoeLeaguesList_Wait_ReturnsOkInline(t *testing.T) {
+func TestHandlePoeLeaguesPublic_Wait_ReturnsOkInline(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Write([]byte(`[{"id":"SSF Standard","realm":"pc","event":false}]`))
 	}))
 	defer srv.Close()
 
-	s := newPoeLeaguesTestServer(t, srv.URL)
+	s := newPoePublicLeaguesTestServer(t, srv.URL)
 
 	c := hub.NewClient()
 	defer c.Close()
-	payloadBytes, _ := json.Marshal(poeLeaguesRequest{Wait: true})
-	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+	payloadBytes, _ := json.Marshal(poePublicLeaguesRequest{Wait: true})
+	s.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
 
 	resp := recvResponse(t, c)
 	var payload proto.PoeLeaguesPayload
@@ -307,13 +328,13 @@ func TestHandlePoeLeaguesList_Wait_ReturnsOkInline(t *testing.T) {
 	}
 }
 
-// TestHandlePoeLeaguesList_NoDB_ReturnsError proves a server with no db
+// TestHandlePoeLeaguesPublic_NoDB_ReturnsError proves a server with no db
 // configured reports an error rather than panicking.
-func TestHandlePoeLeaguesList_NoDB_ReturnsError(t *testing.T) {
+func TestHandlePoeLeaguesPublic_NoDB_ReturnsError(t *testing.T) {
 	srv := &server{hub: hub.New()}
 	c := hub.NewClient()
 	defer c.Close()
-	srv.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+	srv.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
 
 	resp := recvResponse(t, c)
 	if resp.Error == "" {
@@ -321,11 +342,11 @@ func TestHandlePoeLeaguesList_NoDB_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestHandlePoeLeaguesList_BadParams_ReturnsError(t *testing.T) {
-	s := newPoeLeaguesTestServer(t, "")
+func TestHandlePoeLeaguesPublic_BadParams_ReturnsError(t *testing.T) {
+	s := newPoePublicLeaguesTestServer(t, "")
 	c := hub.NewClient()
 	defer c.Close()
-	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: json.RawMessage(`{not valid json`)})
+	s.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: json.RawMessage(`{not valid json`)})
 
 	resp := recvResponse(t, c)
 	if resp.Error == "" {
@@ -333,18 +354,18 @@ func TestHandlePoeLeaguesList_BadParams_ReturnsError(t *testing.T) {
 	}
 }
 
-// TestHandlePoeLeaguesList_DefaultsRealmAndType proves an empty request uses
-// defaultLeaguesRealm/defaultLeaguesType (pc/main) — a cache seeded under
-// those defaults is served as a hit with no realm/type specified.
-func TestHandlePoeLeaguesList_DefaultsRealmAndType(t *testing.T) {
-	s := newPoeLeaguesTestServer(t, "")
+// TestHandlePoeLeaguesPublic_DefaultsRealmAndType proves an empty request
+// uses defaultLeaguesRealm/defaultLeaguesType (pc/main) — a cache seeded
+// under those defaults is served as a hit with no realm/type specified.
+func TestHandlePoeLeaguesPublic_DefaultsRealmAndType(t *testing.T) {
+	s := newPoePublicLeaguesTestServer(t, "")
 	if err := upsertLeagues(s.db, []poe.League{{ID: "Standard", Realm: defaultLeaguesRealm, Event: false}}, time.Now()); err != nil {
 		t.Fatalf("seed leagues: %v", err)
 	}
 
 	c := hub.NewClient()
 	defer c.Close()
-	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+	s.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
 
 	resp := recvResponse(t, c)
 	var payload proto.PoeLeaguesPayload
@@ -374,19 +395,19 @@ func decodeLeagueDetailPayload(t *testing.T, resp proto.Message) proto.PoeLeague
 	return payload
 }
 
-// --- fetchPolicy: never / always ---
+// --- fetchPolicy: never / always (poe.leagues.public) ---
 
-// TestEnsureLeagues_FetchPolicyNever_StaleCache_ReturnsStaleWithoutFetch
+// TestEnsurePublicLeagues_FetchPolicyNever_StaleCache_ReturnsStaleWithoutFetch
 // mirrors TestEnsurePoeProfile_FetchPolicyNever_StaleCache_ReturnsStaleWithoutFetch
 // for the leagues path.
-func TestEnsureLeagues_FetchPolicyNever_StaleCache_ReturnsStaleWithoutFetch(t *testing.T) {
-	s := newPoeLeaguesTestServer(t, "")
+func TestEnsurePublicLeagues_FetchPolicyNever_StaleCache_ReturnsStaleWithoutFetch(t *testing.T) {
+	s := newPoePublicLeaguesTestServer(t, "")
 	stale := time.Now().Add(-48 * time.Hour)
 	if err := upsertLeagues(s.db, []poe.League{{ID: "Standard", Realm: "pc"}}, stale); err != nil {
 		t.Fatalf("seed leagues: %v", err)
 	}
 
-	leagues, haveCache, isFresh, fetchedAt, waiter := s.ensureLeagues("pc", "main", "", time.Hour, poeLeaguesFetchPriority, fetchPolicyNever)
+	leagues, haveCache, isFresh, fetchedAt, waiter := s.ensurePublicLeagues("pc", "main", "", time.Hour, poeLeaguesFetchPriority, fetchPolicyNever)
 	if waiter != nil {
 		t.Error("fetchPolicyNever submitted a fetch, want none")
 	}
@@ -404,9 +425,9 @@ func TestEnsureLeagues_FetchPolicyNever_StaleCache_ReturnsStaleWithoutFetch(t *t
 	}
 }
 
-func TestEnsureLeagues_FetchPolicyNever_NoCache_NoFetch(t *testing.T) {
-	s := newPoeLeaguesTestServer(t, "")
-	_, haveCache, _, _, waiter := s.ensureLeagues("pc", "main", "", time.Hour, poeLeaguesFetchPriority, fetchPolicyNever)
+func TestEnsurePublicLeagues_FetchPolicyNever_NoCache_NoFetch(t *testing.T) {
+	s := newPoePublicLeaguesTestServer(t, "")
+	_, haveCache, _, _, waiter := s.ensurePublicLeagues("pc", "main", "", time.Hour, poeLeaguesFetchPriority, fetchPolicyNever)
 	if waiter != nil {
 		t.Error("fetchPolicyNever submitted a fetch, want none")
 	}
@@ -415,15 +436,15 @@ func TestEnsureLeagues_FetchPolicyNever_NoCache_NoFetch(t *testing.T) {
 	}
 }
 
-// TestEnsureLeagues_FetchPolicyAlways_FetchesEvenWhenFresh mirrors the
+// TestEnsurePublicLeagues_FetchPolicyAlways_FetchesEvenWhenFresh mirrors the
 // profile-path equivalent.
-func TestEnsureLeagues_FetchPolicyAlways_FetchesEvenWhenFresh(t *testing.T) {
-	s := newPoeLeaguesTestServer(t, "")
+func TestEnsurePublicLeagues_FetchPolicyAlways_FetchesEvenWhenFresh(t *testing.T) {
+	s := newPoePublicLeaguesTestServer(t, "")
 	if err := upsertLeagues(s.db, []poe.League{{ID: "Standard", Realm: "pc"}}, time.Now()); err != nil {
 		t.Fatalf("seed leagues: %v", err)
 	}
 
-	_, haveCache, isFresh, _, waiter := s.ensureLeagues("pc", "main", "", 24*time.Hour, poeLeaguesFetchPriority, fetchPolicyAlways)
+	_, haveCache, isFresh, _, waiter := s.ensurePublicLeagues("pc", "main", "", 24*time.Hour, poeLeaguesFetchPriority, fetchPolicyAlways)
 	if waiter == nil {
 		t.Fatal("fetchPolicyAlways did not submit a fetch over a fresh cache entry")
 	}
@@ -432,9 +453,9 @@ func TestEnsureLeagues_FetchPolicyAlways_FetchesEvenWhenFresh(t *testing.T) {
 	}
 }
 
-// TestHandlePoeLeaguesList_FetchNever_PeekNeverCallsRemote proves the
+// TestHandlePoeLeaguesPublic_FetchNever_PeekNeverCallsRemote proves the
 // "never" fetch policy skips the HTTP call end-to-end through the handler.
-func TestHandlePoeLeaguesList_FetchNever_PeekNeverCallsRemote(t *testing.T) {
+func TestHandlePoeLeaguesPublic_FetchNever_PeekNeverCallsRemote(t *testing.T) {
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		calls++
@@ -442,11 +463,11 @@ func TestHandlePoeLeaguesList_FetchNever_PeekNeverCallsRemote(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := newPoeLeaguesTestServer(t, srv.URL)
+	s := newPoePublicLeaguesTestServer(t, srv.URL)
 	c := hub.NewClient()
 	defer c.Close()
-	payloadBytes, _ := json.Marshal(poeLeaguesRequest{Fetch: "never"})
-	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+	payloadBytes, _ := json.Marshal(poePublicLeaguesRequest{Fetch: "never"})
+	s.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
 
 	payload := decodeLeaguesPayload(t, recvResponse(t, c))
 	if payload.Status != "miss" || payload.Freshness != "miss" || payload.Fetching {
@@ -457,12 +478,12 @@ func TestHandlePoeLeaguesList_FetchNever_PeekNeverCallsRemote(t *testing.T) {
 	}
 }
 
-func TestHandlePoeLeaguesList_BadFetchValue_ReturnsError(t *testing.T) {
-	s := newPoeLeaguesTestServer(t, "")
+func TestHandlePoeLeaguesPublic_BadFetchValue_ReturnsError(t *testing.T) {
+	s := newPoePublicLeaguesTestServer(t, "")
 	c := hub.NewClient()
 	defer c.Close()
-	payloadBytes, _ := json.Marshal(poeLeaguesRequest{Fetch: "whenever"})
-	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+	payloadBytes, _ := json.Marshal(poePublicLeaguesRequest{Fetch: "whenever"})
+	s.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
 
 	resp := recvResponse(t, c)
 	if resp.Error == "" {
@@ -470,9 +491,9 @@ func TestHandlePoeLeaguesList_BadFetchValue_ReturnsError(t *testing.T) {
 	}
 }
 
-// --- includeCost ---
+// --- includeCost (poe.leagues.public) ---
 
-func TestHandlePoeLeaguesList_Wait_IncludeCost_ReturnsCost(t *testing.T) {
+func TestHandlePoeLeaguesPublic_Wait_IncludeCost_ReturnsCost(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("X-Rate-Limit-Policy", "leagues-policy")
 		w.Header().Set("X-Rate-Limit-Rules", "R")
@@ -482,11 +503,11 @@ func TestHandlePoeLeaguesList_Wait_IncludeCost_ReturnsCost(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := newPoeLeaguesTestServer(t, srv.URL)
+	s := newPoePublicLeaguesTestServer(t, srv.URL)
 	c := hub.NewClient()
 	defer c.Close()
-	payloadBytes, _ := json.Marshal(poeLeaguesRequest{Wait: true, IncludeCost: true})
-	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+	payloadBytes, _ := json.Marshal(poePublicLeaguesRequest{Wait: true, IncludeCost: true})
+	s.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
 
 	payload := decodeLeaguesPayload(t, recvResponse(t, c))
 	if payload.Cost == nil {
@@ -497,21 +518,269 @@ func TestHandlePoeLeaguesList_Wait_IncludeCost_ReturnsCost(t *testing.T) {
 	}
 }
 
-func TestHandlePoeLeaguesList_Wait_NoIncludeCost_CostOmitted(t *testing.T) {
+func TestHandlePoeLeaguesPublic_Wait_NoIncludeCost_CostOmitted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Write([]byte(`[{"id":"Standard","realm":"pc"}]`))
 	}))
 	defer srv.Close()
 
+	s := newPoePublicLeaguesTestServer(t, srv.URL)
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poePublicLeaguesRequest{Wait: true})
+	s.handlePoeLeaguesPublic(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	payload := decodeLeaguesPayload(t, recvResponse(t, c))
+	if payload.Cost != nil {
+		t.Errorf("Cost = %+v, want nil without includeCost", payload.Cost)
+	}
+}
+
+// --- handlePoeLeaguesList (account-scoped) ---
+
+func TestHandlePoeLeaguesList_CacheHit_ReturnsFresh(t *testing.T) {
+	s := newPoeLeaguesTestServer(t, "")
+	if err := upsertLeagues(s.db, []poe.League{{ID: "Standard", Realm: "pc"}}, time.Now()); err != nil {
+		t.Fatalf("seed leagues: %v", err)
+	}
+
+	c := hub.NewClient()
+	defer c.Close()
+	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+
+	payload := decodeLeaguesPayload(t, recvResponse(t, c))
+	if payload.Status != "fresh" || len(payload.Leagues) != 1 || payload.Leagues[0].Name != "Standard" {
+		t.Errorf("payload = %+v, want status=fresh with the seeded Standard league", payload)
+	}
+}
+
+// TestHandlePoeLeaguesList_Wait_FetchesFromAccountLeaguesEndpoint_SendsBearer
+// proves a refresh calls GET /account/leagues (Bearer-authenticated) rather
+// than the public bulk /leagues endpoint, and that a non-default realm is
+// forwarded to the fetch.
+func TestHandlePoeLeaguesList_Wait_FetchesFromAccountLeaguesEndpoint_SendsBearer(t *testing.T) {
+	var calls int
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		calls++
+		gotAuth = req.Header.Get("Authorization")
+		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"},{"id":"My Private League","realm":"pc"}]}`))
+	}))
+	defer srv.Close()
+
 	s := newPoeLeaguesTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "the-token")
 	c := hub.NewClient()
 	defer c.Close()
 	payloadBytes, _ := json.Marshal(poeLeaguesRequest{Wait: true})
 	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
 
 	payload := decodeLeaguesPayload(t, recvResponse(t, c))
-	if payload.Cost != nil {
-		t.Errorf("Cost = %+v, want nil without includeCost", payload.Cost)
+	if payload.Status != "ok" || len(payload.Leagues) != 2 {
+		t.Errorf("payload = %+v, want status=ok with both leagues (including the private one)", payload)
+	}
+	if calls != 1 {
+		t.Errorf("remote called %d times, want 1", calls)
+	}
+	if gotAuth != "Bearer the-token" {
+		t.Errorf("Authorization = %q, want Bearer the-token", gotAuth)
+	}
+}
+
+func TestHandlePoeLeaguesList_NoCache_NoWait_ReturnsPending(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"}]}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeLeaguesTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "the-token")
+	c := hub.NewClient()
+	defer c.Close()
+	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+
+	payload := decodeLeaguesPayload(t, recvResponse(t, c))
+	if payload.Status != "pending" || !payload.Fetching {
+		t.Errorf("payload = %+v, want status=pending fetching=true", payload)
+	}
+}
+
+// TestHandlePoeLeaguesList_NoCache_NotAuthenticated_ReturnsError mirrors
+// TestHandlePoeLeaguesDetail_NoCache_NotAuthenticated_ReturnsError: GET
+// /account/leagues requires Bearer auth, so a request with nothing cached
+// and nobody signed in has no way to ever fetch — an explicit error, not a
+// silent pending/miss.
+func TestHandlePoeLeaguesList_NoCache_NotAuthenticated_ReturnsError(t *testing.T) {
+	s := newPoeLeaguesTestServer(t, "")
+	c := hub.NewClient()
+	defer c.Close()
+	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+
+	resp := recvResponse(t, c)
+	if resp.Error == "" {
+		t.Error("expected an error with no cache and no authenticated account, got none")
+	}
+}
+
+// TestHandlePoeLeaguesList_FetchNever_NotAuthenticated_ReturnsMissNotError
+// proves a peek (fetch:"never") never hits the "not authenticated" error —
+// it never expects to fetch in the first place, so a clean miss is the
+// right answer even with nobody signed in.
+func TestHandlePoeLeaguesList_FetchNever_NotAuthenticated_ReturnsMissNotError(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		calls++
+		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"}]}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeLeaguesTestServer(t, srv.URL)
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeLeaguesRequest{Fetch: "never"})
+	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	resp := recvResponse(t, c)
+	if resp.Error != "" {
+		t.Fatalf("got error %q, want a clean miss", resp.Error)
+	}
+	payload := decodeLeaguesPayload(t, resp)
+	if payload.Status != "miss" || payload.Freshness != "miss" {
+		t.Errorf("payload = %+v, want status=freshness=miss", payload)
+	}
+	if calls != 0 {
+		t.Errorf("remote called %d times, want 0 (fetch:\"never\" must never fetch)", calls)
+	}
+}
+
+// TestHandlePoeLeaguesList_StaleCache_NotAuthenticated_ServesStale mirrors
+// TestHandlePoeLeaguesDetail_StaleCache_NotAuthenticated_ServesStale: a
+// stale (not missing) cached list is still served, with status="stale",
+// even with nobody signed in to refresh it.
+func TestHandlePoeLeaguesList_StaleCache_NotAuthenticated_ServesStale(t *testing.T) {
+	s := newPoeLeaguesTestServer(t, "")
+	if err := upsertLeagues(s.db, []poe.League{{ID: "Standard", Realm: "pc"}}, time.Now().Add(-30*24*time.Hour)); err != nil {
+		t.Fatalf("seed leagues: %v", err)
+	}
+
+	c := hub.NewClient()
+	defer c.Close()
+	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1"})
+
+	resp := recvResponse(t, c)
+	if resp.Error != "" {
+		t.Fatalf("got error %q, want the stale cached value served instead", resp.Error)
+	}
+	payload := decodeLeaguesPayload(t, resp)
+	if payload.Status != "stale" || len(payload.Leagues) != 1 {
+		t.Errorf("payload = %+v, want status=stale with the stale cached Standard league", payload)
+	}
+}
+
+// TestHandlePoeLeaguesList_Account_ResolvesTokenForKnownAccount proves an
+// explicit "account" selector (not just the currently-active account) is
+// used to resolve the Bearer token for a fetch.
+func TestHandlePoeLeaguesList_Account_ResolvesTokenForKnownAccount(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		gotAuth = req.Header.Get("Authorization")
+		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"}]}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeLeaguesTestServer(t, srv.URL)
+	s.setActiveToken("uuid-active", "ActiveAccount", "active-token")
+	if _, err := s.db.Exec(`INSERT INTO accounts(name, poe_uuid) VALUES(?, ?)`, "ActiveAccount", "uuid-active"); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeLeaguesRequest{Account: "ActiveAccount", Wait: true})
+	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	payload := decodeLeaguesPayload(t, recvResponse(t, c))
+	if payload.Status != "ok" {
+		t.Fatalf("payload = %+v, want status=ok", payload)
+	}
+	if gotAuth != "Bearer active-token" {
+		t.Errorf("Authorization = %q, want Bearer active-token", gotAuth)
+	}
+}
+
+func TestHandlePoeLeaguesList_Wait_IncludeCost_ReturnsCost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("X-Rate-Limit-Policy", "account-leagues-policy")
+		w.Header().Set("X-Rate-Limit-Rules", "R")
+		w.Header().Set("X-Rate-Limit-R", "10:5:30")
+		w.Header().Set("X-Rate-Limit-R-State", "3:5:0")
+		w.Write([]byte(`{"leagues":[{"id":"Standard","realm":"pc"}]}`))
+	}))
+	defer srv.Close()
+
+	s := newPoeLeaguesTestServer(t, srv.URL)
+	s.setActiveToken("uuid-1", "SomeAccount", "the-token")
+	c := hub.NewClient()
+	defer c.Close()
+	payloadBytes, _ := json.Marshal(poeLeaguesRequest{Wait: true, IncludeCost: true})
+	s.handlePoeLeaguesList(c, proto.Message{Type: proto.TypeRequest, ID: "req-1", Payload: payloadBytes})
+
+	payload := decodeLeaguesPayload(t, recvResponse(t, c))
+	if payload.Cost == nil {
+		t.Fatal("Cost = nil, want it populated when includeCost=true")
+	}
+	if payload.Cost.API != "poe-oauth" || payload.Cost.Policy != "account-leagues-policy" || payload.Cost.Queries != 1 {
+		t.Errorf("Cost = %+v, want api=poe-oauth policy=account-leagues-policy queries=1", payload.Cost)
+	}
+}
+
+// --- fetchPolicy: never / always (poe.leagues.list, direct ensureLeagues calls) ---
+
+func TestEnsureLeagues_FetchPolicyNever_NoAccessToken_NoFetch(t *testing.T) {
+	s := newPoeLeaguesTestServer(t, "")
+	_, haveCache, _, _, waiter := s.ensureLeagues("pc", "main", time.Hour, poeLeaguesFetchPriority, fetchPolicyNever, "")
+	if waiter != nil {
+		t.Error("fetchPolicyNever submitted a fetch, want none")
+	}
+	if haveCache {
+		t.Error("haveCache = true with nothing ever cached, want false")
+	}
+}
+
+// TestEnsureLeagues_FetchPolicyAlways_WithAccessToken_FetchesEvenWhenFresh
+// mirrors TestEnsurePublicLeagues_FetchPolicyAlways_FetchesEvenWhenFresh, but
+// requires an access token to actually submit the fetch.
+func TestEnsureLeagues_FetchPolicyAlways_WithAccessToken_FetchesEvenWhenFresh(t *testing.T) {
+	s := newPoeLeaguesTestServer(t, "")
+	if err := upsertLeagues(s.db, []poe.League{{ID: "Standard", Realm: "pc"}}, time.Now()); err != nil {
+		t.Fatalf("seed leagues: %v", err)
+	}
+
+	_, haveCache, isFresh, _, waiter := s.ensureLeagues("pc", "main", 24*time.Hour, poeLeaguesFetchPriority, fetchPolicyAlways, "the-token")
+	if waiter == nil {
+		t.Fatal("fetchPolicyAlways did not submit a fetch over a fresh cache entry")
+	}
+	if !haveCache || !isFresh {
+		t.Errorf("haveCache=%v isFresh=%v, want both true (the cache genuinely was fresh)", haveCache, isFresh)
+	}
+}
+
+// TestEnsureLeagues_FetchPolicyAlways_NoAccessToken_NeverFetches proves an
+// empty access token blocks a fetch regardless of fetchPolicy, exactly like
+// ensureLeagueDetail — unlike ensurePublicLeagues, GET /account/leagues isn't
+// public.
+func TestEnsureLeagues_FetchPolicyAlways_NoAccessToken_NeverFetches(t *testing.T) {
+	s := newPoeLeaguesTestServer(t, "")
+	if err := upsertLeagues(s.db, []poe.League{{ID: "Standard", Realm: "pc"}}, time.Now()); err != nil {
+		t.Fatalf("seed leagues: %v", err)
+	}
+
+	_, haveCache, isFresh, _, waiter := s.ensureLeagues("pc", "main", 24*time.Hour, poeLeaguesFetchPriority, fetchPolicyAlways, "")
+	if waiter != nil {
+		t.Error("no access token, want no fetch submitted regardless of fetchPolicyAlways")
+	}
+	if !haveCache || !isFresh {
+		t.Errorf("haveCache=%v isFresh=%v, want both true (the cache genuinely was fresh)", haveCache, isFresh)
 	}
 }
 

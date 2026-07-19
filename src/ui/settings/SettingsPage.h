@@ -34,6 +34,10 @@ public:
     // no-install-dirs-configured notice's "Add install directory..." button.
     void showGamePage();
 
+    // Navigates directly to the Accounts category page, e.g. from the
+    // Stash screen's auth notice's "Sign in..." button.
+    void showAccountsPage();
+
     // Provide a way to build specific sub-pages when clicked
     void buildGamePage(QWidget *parent);
     void buildOverlayPage(QWidget *parent);

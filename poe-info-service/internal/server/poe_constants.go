@@ -77,12 +77,17 @@ const (
 	// profile fetch.
 	poeLeaguesFetchPriority = reqqueue.PriorityMedium
 
-	// poeOAuthLeaguesPolicyHint groups every /leagues fetch under one
-	// reqqueue policy hint before any response has revealed the OAuth API's
-	// real rate-limit policy name for this endpoint — see
-	// poeOAuthProfilePolicyHint's doc comment for why this is a stable label,
-	// not a prediction.
-	poeOAuthLeaguesPolicyHint = "poe-oauth:/leagues"
+	// poeOAuthPublicLeaguesPolicyHint groups every poe.leagues.public
+	// (public GET /leagues) fetch under one reqqueue policy hint before any
+	// response has revealed the OAuth API's real rate-limit policy name for
+	// this endpoint — see poeOAuthProfilePolicyHint's doc comment for why
+	// this is a stable label, not a prediction.
+	poeOAuthPublicLeaguesPolicyHint = "poe-oauth:/leagues"
+
+	// poeOAuthLeaguesPolicyHint is poeOAuthPublicLeaguesPolicyHint's
+	// counterpart for poe.leagues.list's GET /account/leagues fetches — a
+	// distinct upstream endpoint, so its own policy hint, same rationale.
+	poeOAuthLeaguesPolicyHint = "poe-oauth:/account/leagues"
 
 	// poeLeaguesWaitTimeout bounds how long a wait:true poe.leagues.list
 	// (or poe.leagues.detail) request blocks for before falling back to a

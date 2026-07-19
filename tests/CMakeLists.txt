@@ -117,10 +117,14 @@ add_test(NAME test_logpage_retry COMMAND test_logpage_retry)
 
 # StashPage's league dropdown: population from poe.leagues.list and
 # default-selection from poe.league, via the same FakePoeInfoServer double.
+# Also needs PoeOAuthStore — StashPage uses it to gate the leagues fetch on
+# being signed in and to show its auth banner otherwise.
 qt_add_executable(test_stashpage
     test_stashpage.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/stash/StashPage.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/stash/StashPage.h
+    ${CMAKE_SOURCE_DIR}/src/util/PoeOAuthStore.cpp
+    ${CMAKE_SOURCE_DIR}/src/util/PoeOAuthStore.h
     ${_poe_info_retry_test_support}
 )
 target_include_directories(test_stashpage PRIVATE ${CMAKE_SOURCE_DIR}/src)
